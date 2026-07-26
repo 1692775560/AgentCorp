@@ -106,7 +106,7 @@ function createDefaultSettings(): AppSettings {
     language: resolveSupportedLanguage(getSystemLocale()),
     startMinimized: false,
     launchAtStartup: false,
-    telemetryEnabled: true,
+    telemetryEnabled: false,
     machineId: '',
     hasReportedInstall: false,
 

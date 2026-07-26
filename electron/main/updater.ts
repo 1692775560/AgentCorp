@@ -11,6 +11,13 @@ import { EventEmitter } from 'events';
 import { setQuitting } from './app-state';
 import { getSetting, normalizeUpdateChannel, setSetting, type UpdateChannel } from '../utils/store';
 
+/**
+ * Auto-update is DISABLED by default (no code signature; only self-hosted +
+ * explicit opt-in per docs/architecture-pivot.md §1.4). Set env
+ * AGENTCORP_AUTO_UPDATE=1 to allow update checks / downloads / installs.
+ */
+const AUTO_UPDATE_ENABLED = process.env.AGENTCORP_AUTO_UPDATE === '1';
+
 /** Base CDN URL (without trailing channel path) */
 const OSS_BASE_URL = 'https://oss.intelli-spectrum.com';
 type FeedChannel = 'latest' | 'beta' | 'alpha';
@@ -374,6 +381,11 @@ export class AppUpdater extends EventEmitter {
    * final status so the UI never gets stuck in 'checking'.
    */
   async checkForUpdates(options: UpdateCheckOptions = {}): Promise<UpdateInfo | null> {
+    if (!AUTO_UPDATE_ENABLED) {
+      logger.info('[Updater] Auto-update is disabled; skipping update check.');
+      this.updateStatus({ status: 'idle' });
+      return null;
+    }
     await this.ensureReady();
     const reason = options.reason ?? 'manual';
     const respectPolicy = options.respectPolicy ?? reason === 'startup';
@@ -448,6 +460,10 @@ export class AppUpdater extends EventEmitter {
    * Download available update
    */
   async downloadUpdate(): Promise<void> {
+    if (!AUTO_UPDATE_ENABLED) {
+      logger.info('[Updater] Auto-update is disabled; skipping download.');
+      return;
+    }
     try {
       await autoUpdater.downloadUpdate();
     } catch (error) {
@@ -468,6 +484,10 @@ export class AppUpdater extends EventEmitter {
    * the window cleanly while ShipIt runs independently to replace the app.
    */
   quitAndInstall(): void {
+    if (!AUTO_UPDATE_ENABLED) {
+      logger.info('[Updater] Auto-update is disabled; not installing.');
+      return;
+    }
     logger.info('[Updater] quitAndInstall called');
     setQuitting();
     autoUpdater.quitAndInstall();

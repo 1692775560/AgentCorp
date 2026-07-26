@@ -784,6 +784,38 @@ export async function syncGatewayTokenToConfig(token: string): Promise<void> {
 }
 
 /**
+ * Security hardening (T08): lock down Gateway tool execution policy.
+ *
+ * Writes a conservative `toolPolicy` into the `gateway` section of
+ * ~/.openclaw/openclaw.json so the OpenClaw Gateway only runs allowed /
+ * sandboxed tools. Default is read-only + sandbox; tighten further via a
+ * whitelist ({ mode: 'whitelist', allowed: [...], sandbox: true }) if needed.
+ * See docs/architecture-pivot.md §1.4.
+ */
+export async function syncToolPolicyToConfig(): Promise<void> {
+  return withConfigLock(async () => {
+    const config = await readOpenClawJson();
+
+    const gateway = (
+      config.gateway && typeof config.gateway === 'object'
+        ? { ...(config.gateway as Record<string, unknown>) }
+        : {}
+    ) as Record<string, unknown>;
+
+    gateway.toolPolicy = {
+      mode: 'read-only',
+      sandbox: true,
+    };
+
+    if (!gateway.mode) gateway.mode = 'local';
+    config.gateway = gateway;
+
+    await writeOpenClawJson(config);
+    logger.info('Synced gateway toolPolicy (read-only + sandbox) to openclaw.json');
+  });
+}
+
+/**
  * Ensure browser automation is enabled in ~/.openclaw/openclaw.json.
  */
 export async function syncBrowserConfigToOpenClaw(): Promise<void> {

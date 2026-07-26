@@ -9,7 +9,7 @@ import { getProviderEnvVar, getKeyableProviderTypes } from '../utils/provider-re
 import { getOpenClawDir, getOpenClawEntryPath, isOpenClawPresent } from '../utils/paths';
 import { getUvMirrorEnv } from '../utils/uv-env';
 import { listConfiguredChannels } from '../utils/channel-config';
-import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, sanitizeOpenClawConfig } from '../utils/openclaw-auth';
+import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, syncToolPolicyToConfig, sanitizeOpenClawConfig } from '../utils/openclaw-auth';
 import { buildProxyEnv, resolveProxySettings } from '../utils/proxy';
 import { syncProxyConfigToOpenClaw } from '../utils/openclaw-proxy';
 import { logger } from '../utils/logger';
@@ -283,6 +283,13 @@ export async function syncGatewayConfigBeforeLaunch(
     await syncGatewayTokenToConfig(appSettings.gatewayToken);
   } catch (err) {
     logger.warn('Failed to sync gateway token to openclaw.json:', err);
+  }
+
+  // T08: lock down Gateway tool execution (read-only + sandbox) in openclaw.json.
+  try {
+    await syncToolPolicyToConfig();
+  } catch (err) {
+    logger.warn('Failed to sync gateway toolPolicy to openclaw.json:', err);
   }
 
   try {
