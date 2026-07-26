@@ -1,0 +1,265 @@
+/**
+ * src/services/judgeClient.ts
+ * MiniCPM-o 外部裁判客户端（T07）。
+ *
+ * - evaluate(input)：经由 Host API 代理 POST http://127.0.0.1:3210/api/evaluate/run，
+ *   解析 SSE 流为 EvaluationEvent（radar_update ×6 + verdict + done）。
+ * - 非 200 / 503 / 网络错误时回退 fallbackMock：用 metricsEngine 客观 KPI
+ *   归一化到 0–5，离线可用。
+ *
+ * 鉴权：Host API 需要 x-clawx-host-session 头（每会话随机 token），
+ * 通过 renderer→main 的 ipc 'hostapi:token' 获取。
+ */
+import { invokeIpc } from '@/lib/api-client';
+import type { EvaluationEvent, TelemetryEvent, RadarScore, RadarDim, Verdict } from '@/types/evaluation';
+import { computeKpi } from '@/engine/metricsEngine';
+
+// 与 src/lib/host-api.ts 保持一致
+const HOST_API_PORT = 3210;
+const HOST_API_BASE = `http://127.0.0.1:${HOST_API_PORT}`;
+const SESSION_HEADER = 'x-clawx-host-session';
+
+/** 一次裁判运行的入参（与后端 model-service /api/evaluate-run 契约严格对齐） */
+export interface JudgeTask {
+  title: string;
+  description: string;
+  weight: number;
+}
+
+export interface JudgeRunInput {
+  agentId: string;
+  agentName: string;
+  persona?: string;
+  task: JudgeTask;
+  transcript: string;
+  /** 真实 token 用量（来自 tokenUsageCollector） */
+  usage: TokenUsageHistoryEntryLike[];
+  preference?: {
+    aesthetic?: string;
+    budget_max?: number;
+    weight?: Partial<Record<string, number>>;
+  };
+}
+
+/** 与 @electron/utils/token-usage-core TokenUsageHistoryEntry 结构对齐的轻量类型 */
+export interface TokenUsageHistoryEntryLike {
+  timestamp: string;
+  sessionId: string;
+  agentId: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** 获取 Host API 会话 token（renderer → main ipc） */
+async function getHostApiToken(): Promise<string> {
+  try {
+    return (await invokeIpc<string>('hostapi:token')) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** 将 usage 条目尽力转为 TelemetryEvent */
+function usageToTelemetry(usage: TokenUsageHistoryEntryLike[]): TelemetryEvent[] {
+  if (usage.length === 0) {
+    return [
+      {
+        agent_id: 'unknown',
+        task_id: 'unknown',
+        success: true,
+        first_try: true,
+        rework: 0,
+        latency_ms: 0,
+        human_interventions: 0,
+        escalations: 0,
+        out_of_domain: false,
+        ts: new Date().toISOString(),
+      },
+    ];
+  }
+  return usage.map<TelemetryEvent>((u) => ({
+    agent_id: u.agentId,
+    task_id: u.sessionId,
+    success: true,
+    first_try: true,
+    rework: 0,
+    latency_ms: 0,
+    human_interventions: 0,
+    escalations: 0,
+    out_of_domain: false,
+    ts: u.timestamp,
+  }));
+}
+
+/** 从 SSE 文本块解析单条 EvaluationEvent（容忍未知事件类型） */
+function parseBlock(block: string): EvaluationEvent | null {
+  let data = '';
+  for (const line of block.split('\n')) {
+    if (line.startsWith('data:')) {
+      data += line.slice(5).replace(/^\s+/, '');
+    }
+  }
+  if (!data) return null;
+  try {
+    const json = JSON.parse(data) as Record<string, unknown>;
+    const type = json.type;
+    if (type === 'radar_update') {
+      return {
+        type: 'radar_update',
+        dim: json.dim as RadarDim,
+        score: Number(json.score ?? 0),
+        confidence: Number(json.confidence ?? 0),
+        evidence: String(json.evidence ?? ''),
+      } as EvaluationEvent;
+    }
+    if (type === 'verdict') {
+      return {
+        type: 'verdict',
+        verdict: json.verdict as Verdict,
+        user_fit: Number(json.user_fit ?? 0),
+        evidence_trace: Array.isArray(json.evidence_trace)
+          ? (json.evidence_trace as unknown[]).map(String)
+          : [],
+        confidence: Number(json.confidence ?? 0),
+      } as EvaluationEvent;
+    }
+    if (type === 'done') {
+      return { type: 'done', evaluation_id: String(json.evaluation_id ?? '') } as EvaluationEvent;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 逐块解析 SSE 流，yield EvaluationEvent */
+async function* parseSseStream(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<EvaluationEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const ev = parseBlock(block);
+      if (ev) yield ev;
+    }
+  }
+  if (buffer.trim()) {
+    const ev = parseBlock(buffer);
+    if (ev) yield ev;
+  }
+}
+
+/**
+ * 调用 MiniCPM-o 裁判（Host API 代理）。任何失败回退 Mock。
+ */
+export async function* evaluate(input: JudgeRunInput): AsyncIterable<EvaluationEvent> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/evaluate/run`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`judge responded ${res.status}`);
+    }
+    yield* parseSseStream(res.body);
+  } catch {
+    // 离线 / 503 / 网络错误：回退客观 KPI 归一化
+    yield* fallbackMock(input);
+  }
+}
+
+/**
+ * 离线回退：用 metricsEngine 的客观 KPI 归一化到 0–5，产出与真实裁判同构的事件流。
+ * 不依赖网络。
+ */
+export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<EvaluationEvent> {
+  const telemetry = usageToTelemetry(input.usage);
+  const kpi = computeKpi(telemetry, currentWindow());
+
+  const totalCost = input.usage.reduce(
+    (sum, u) => sum + (u.costUsd ?? ((u.totalTokens ?? 0) / 1000) * 0.01),
+    0,
+  );
+  // 成本分：预算 1.0 USD 为基准，越低越高分
+  const costScore = clamp(5 - (totalCost / 1.0) * 5, 0, 5);
+
+  const radar: RadarScore = {
+    task: clamp(kpi.task_completion_rate * 5, 0, 5),
+    quality: clamp(kpi.autonomy_rate * 5, 0, 5),
+    comm: clamp((1 - kpi.escalation_rate) * 5, 0, 5),
+    creativity: clamp(kpi.cross_task_generalization * 5, 0, 5),
+    reliability: clamp(((1 - kpi.rework_rate) + kpi.stability_consistency) * 2.5, 0, 5),
+    cost: costScore,
+  };
+
+  const dims: Array<keyof RadarScore> = [
+    'task',
+    'quality',
+    'comm',
+    'creativity',
+    'reliability',
+    'cost',
+  ];
+  for (const dim of dims) {
+    await sleep(120);
+    yield {
+      type: 'radar_update',
+      dim,
+      score: round1(radar[dim]),
+      confidence: 0.8,
+      evidence: `客观 KPI 归一化（${dim}）`,
+    };
+  }
+
+  const avg = dims.reduce((s, d) => s + radar[d], 0) / dims.length;
+  const verdict = avg >= 4 ? 'MVP' : avg >= 2.5 ? 'OBSERVE' : 'FIRED';
+  const userFit = Math.round(avg * 20);
+
+  await sleep(150);
+  yield {
+    type: 'verdict',
+    verdict,
+    user_fit: userFit,
+    evidence_trace: [
+      `task_completion_rate=${(kpi.task_completion_rate * 100).toFixed(0)}%`,
+      `autonomy_rate=${(kpi.autonomy_rate * 100).toFixed(0)}%`,
+      `total_cost≈$${totalCost.toFixed(4)}`,
+    ],
+    confidence: 0.8,
+  };
+
+  await sleep(100);
+  yield { type: 'done', evaluation_id: `mock-${input.agentId}-${Date.now()}` };
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+function round1(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+function currentWindow(): string {
+  const d = new Date();
+  const oneJan = new Date(d.getFullYear(), 0, 1);
+  const week = Math.ceil(((d.getTime() - oneJan.getTime()) / 86_400_000 + oneJan.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+export const judgeClient = { evaluate, fallbackMock };

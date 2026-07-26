@@ -84,6 +84,9 @@ export interface AppSettings {
   selectedBundles: string[];
   enabledSkills: string[];
   disabledSkills: string[];
+
+  // Evaluation (MiniCPM-o judge model service)
+  modelServiceUrl: string;
 }
 
 /**
@@ -148,6 +151,9 @@ function createDefaultSettings(): AppSettings {
     selectedBundles: ['productivity', 'developer'],
     enabledSkills: [],
     disabledSkills: [],
+
+    // Evaluation (MiniCPM-o judge model service)
+    modelServiceUrl: 'http://localhost:8000',
   };
 }
 

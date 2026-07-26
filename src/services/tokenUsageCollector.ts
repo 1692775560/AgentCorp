@@ -77,3 +77,10 @@ export function buildRoiSnapshot(
 
   return { agentId, window, ...partial };
 }
+
+/** 聚合导出（供 evaluation store 按约定名编排） */
+export const tokenUsageCollector = {
+  collectByAgent,
+  collectBySession,
+  buildRoiSnapshot,
+};

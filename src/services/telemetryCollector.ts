@@ -138,3 +138,9 @@ export async function collect(
     },
   ];
 }
+
+/** 聚合导出（供 evaluation store 按约定名编排） */
+export const telemetryCollector = {
+  collect,
+  readTranscript,
+};

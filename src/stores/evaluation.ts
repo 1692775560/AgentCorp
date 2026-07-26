@@ -30,9 +30,8 @@ import type {
   TelemetryEvent,
 } from '@/types/evaluation';
 import { verdictToLifecycleState, LIFECYCLE_TO_STATE } from '@/types/lifecycle';
-import { evaluationStore } from '@/services/evaluationStore';
+import { save as evalSave, list as evalList } from '@/services/evaluationStore';
 import { computeKpi } from '@/engine/metricsEngine';
-import { computeRoi, DEFAULT_ROI_BASELINE } from '@/engine/roiEngine';
 import { tokenUsageCollector } from '@/services/tokenUsageCollector';
 import { telemetryCollector } from '@/services/telemetryCollector';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
@@ -152,7 +151,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
 
   loadAll: async () => {
     try {
-      const profiles = await evaluationStore.list();
+      const profiles = await evalList();
       const map: Record<string, EvaluationProfile> = {};
       const lifecycle: Record<string, LifecycleState> = {};
       for (const p of profiles) {
@@ -167,7 +166,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   },
 
   upsertProfile: async (profile) => {
-    await evaluationStore.save(profile);
+    await evalSave(profile);
     set((state) => ({
       profiles: { ...state.profiles, [profile.agentId]: profile },
       lifecycle: { ...state.lifecycle, [profile.agentId]: profile.lifecycle },
@@ -179,7 +178,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
     const prev = get().profiles[agentId];
     if (!prev) return;
     const next: EvaluationProfile = { ...prev, ...patch, agentId, updatedAt: new Date().toISOString() };
-    await evaluationStore.save(next);
+    await evalSave(next);
     set((state) => ({
       profiles: { ...state.profiles, [agentId]: next },
       lifecycle: { ...state.lifecycle, [agentId]: next.lifecycle },
@@ -202,7 +201,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         runIds: [],
         updatedAt: new Date().toISOString(),
       };
-      await evaluationStore.save(minimal);
+      await evalSave(minimal);
       set((s) => ({
         profiles: { ...s.profiles, [agentId]: minimal },
         lifecycle: { ...s.lifecycle, [agentId]: state },
@@ -211,7 +210,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       return;
     }
     const next: EvaluationProfile = { ...prev, lifecycle: state, updatedAt: new Date().toISOString() };
-    await evaluationStore.save(next);
+    await evalSave(next);
     set((s) => ({
       profiles: { ...s.profiles, [agentId]: next },
       lifecycle: { ...s.lifecycle, [agentId]: state },
@@ -220,13 +219,8 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   },
 
   runLeaderboard: () => {
-    const { profiles, lifecycle } = get();
-    const names: Record<string, string> = {};
-    for (const id of Object.keys(profiles)) {
-      names[id] = profiles[id].agentId;
-    }
-    void lifecycle;
-    set({ leaderboard: computeLeaderboard(profiles, names) });
+    const { profiles } = get();
+    set({ leaderboard: computeLeaderboard(profiles, {}) });
   },
 
   runEvaluation: async (input) => {
@@ -302,7 +296,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         runIds: [...(prev?.runIds ?? []), ...(input.runId ? [input.runId] : [])],
         updatedAt: new Date().toISOString(),
       };
-      await evaluationStore.save(profile);
+      await evalSave(profile);
 
       // 7) runId ↔ task 关联落库（T06 捕获点）
       if (input.runId) {

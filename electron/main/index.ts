@@ -349,6 +349,7 @@ async function initialize(): Promise<void> {
     eventBus: hostEventBus,
     mainWindow: window,
     hostApiSessionToken,
+    modelServiceUrl: await getSetting('modelServiceUrl'),
   });
 
   loadWindowContents(window);

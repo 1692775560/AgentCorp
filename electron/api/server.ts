@@ -18,6 +18,7 @@ import { handleHealthRoutes } from './routes/health';
 import { handleMemoryRoutes } from './routes/memory';
 import { handleMcpRoutes } from './routes/mcp';
 import { handleCostsRoutes } from './routes/costs';
+import { handleEvaluateRoutes } from './routes/evaluate';
 import { handleAlertsRoutes } from './routes/alerts';
 import { handleFeishuRoutes } from './routes/feishu';
 import { handleTeamRoutes } from './routes/teams';
@@ -47,6 +48,7 @@ const routeHandlers: RouteHandler[] = [
   handleMemoryRoutes,
   handleMcpRoutes,
   handleCostsRoutes,
+  handleEvaluateRoutes,
   handleAlertsRoutes,
   handleFeishuRoutes,
   handleLogRoutes,

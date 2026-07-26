@@ -13,4 +13,6 @@ export interface HostApiContext {
   eventBus: HostEventBus;
   mainWindow: BrowserWindow | null;
   hostApiSessionToken: string;
+  /** MiniCPM-o 模型服务地址（评估裁判），默认 http://localhost:8000 */
+  modelServiceUrl: string;
 }
