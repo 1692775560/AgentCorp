@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
+  BarChart3,
   ChevronRight,
   LayoutDashboard,
   MessageSquare,
@@ -231,6 +232,11 @@ export function Sidebar() {
       label: tSidebar('taskBoard', 'Task board'),
       path: '/kanban',
       icon: LayoutDashboard,
+    },
+    {
+      label: tSidebar('evaluation', 'Evaluation'),
+      path: '/evaluation',
+      icon: BarChart3,
     },
   ];
 

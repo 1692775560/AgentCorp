@@ -21,6 +21,7 @@ const TeamMap = lazy(() => import('./pages/TeamMap').then((m) => ({ default: m.T
 const Setup = lazy(() => import('./pages/Setup').then((m) => ({ default: m.Setup })));
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })));
 const TeamBuilder = lazy(() => import('./pages/TeamBuilder').then((m) => ({ default: m.TeamBuilder })));
+const Evaluation = lazy(() => import('./pages/Evaluation').then((m) => ({ default: m.Evaluation })));
 import { useSettingsStore } from './stores/settings';
 import { useGatewayStore } from './stores/gateway';
 import { isBrowserPreviewMode } from './lib/browser-preview';
@@ -216,6 +217,7 @@ function App() {
             <Route path="team-map/:teamId" element={<TeamMap />} />
             <Route path="team-map" element={<Navigate to="/team-overview" replace />} />
             <Route path="marketplace" element={<Marketplace />} />
+            <Route path="evaluation" element={<Evaluation />} />
             {/* /memory 已迁移至 Settings > 记忆与知识 */}
             <Route path="memory" element={<Navigate to="/settings?section=memory-knowledge" replace />} />
             <Route path="costs" element={<Navigate to="/settings?section=costs-usage" replace />} />

@@ -82,6 +82,7 @@
         "node-machine-id": "^1.1.12",
         "posthog-node": "^5.28.0",
         "react-syntax-highlighter": "^16.1.1",
+        "recharts": "^2.12.0",
         "rehype-katex": "^7.0.1",
         "remark-math": "^6.0.0",
         "ws": "^8.19.0"
