@@ -46,3 +46,25 @@ export async function getByRunId(runId: string): Promise<RunTaskLink | undefined
   const store = await getRunLinkStore();
   return store.get(runId) as RunTaskLink | undefined;
 }
+
+/**
+ * 便捷写入：填充 evaluatedAt 并落库一条 runId ↔ task 关联。
+ * @param runId 执行主键（来自 gateway.rpc('chat.send') 返回值）
+ * @param link 除 runId / evaluatedAt 外的关联字段
+ * @returns 落库后的完整 RunTaskLink
+ */
+export async function saveForRun(
+  runId: string,
+  link: Omit<RunTaskLink, 'runId' | 'evaluatedAt'>,
+): Promise<RunTaskLink> {
+  const full: RunTaskLink = {
+    runId,
+    taskId: link.taskId,
+    agentId: link.agentId,
+    sessionKey: link.sessionKey,
+    sessionId: link.sessionId,
+    evaluatedAt: new Date().toISOString(),
+  };
+  await save(full);
+  return full;
+}
