@@ -6,14 +6,11 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Search, X, Radio } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { searchSessionsWithContext, type SessionSearchResult } from '@/lib/session-search';
 import { SessionItem } from './SessionItem';
 import { useChatStore } from '@/stores/chat';
 import { useAgentsStore } from '@/stores/agents';
-import { useChannelsStore } from '@/stores/channels';
 import { usePinnedSessions } from '@/lib/pinned-sessions';
-import { hostApiFetch } from '@/lib/host-api';
 import type { ChannelSyncSession } from '@/types/channel-sync';
 import { resolveSessionDisplayLabel } from '@/lib/session-label';
 
@@ -43,10 +40,8 @@ type SearchResult =
     };
 
 export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps) {
-  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [channelSessions, setChannelSessions] = useState<ChannelSyncSession[]>([]);
 
   const sessions = useChatStore((state) => state.sessions);
   const currentSessionKey = useChatStore((state) => state.currentSessionKey);
@@ -56,35 +51,7 @@ export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps)
   const deleteSession = useChatStore((state) => state.deleteSession);
 
   const agents = useAgentsStore((state) => state.agents);
-  const channels = useChannelsStore((state) => state.channels);
   const { pinnedSessionKeySet, toggleSessionPinned } = usePinnedSessions();
-
-  // Load channel sessions when modal opens
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const loadChannelSessions = async () => {
-      const allChannelSessions: ChannelSyncSession[] = [];
-
-      // Fetch sessions for each configured channel
-      for (const channel of channels) {
-        try {
-          const response = await hostApiFetch<{ sessions?: ChannelSyncSession[] }>(
-            `/api/channels/workbench/sessions?channelType=${encodeURIComponent(channel.type)}`
-          );
-          if (response.sessions) {
-            allChannelSessions.push(...response.sessions);
-          }
-        } catch (error) {
-          console.error(`Failed to load sessions for channel ${channel.type}:`, error);
-        }
-      }
-
-      setChannelSessions(allChannelSessions);
-    };
-
-    void loadChannelSessions();
-  }, [isOpen, channels]);
 
   // Debounce search input (300ms)
   useEffect(() => {
@@ -108,39 +75,6 @@ export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps)
     return searchSessionsWithContext(sessions, debouncedQuery, agents, sessionMessagesMap);
   }, [sessions, debouncedQuery, agents, sessionMessagesMap]);
 
-  // Filter channel sessions with matched text
-  const filteredChannelSessions = useMemo(() => {
-    if (!debouncedQuery.trim()) {
-      return channelSessions.map((s) => ({ session: s, matchedText: undefined }));
-    }
-    const query = debouncedQuery.toLowerCase();
-    return channelSessions
-      .map((session) => {
-        // Check title match
-        if (session.title?.toLowerCase().includes(query)) {
-          return { session, matchedText: undefined };
-        }
-        // Check preview text match
-        if (session.previewText?.toLowerCase().includes(query)) {
-          const matchIndex = session.previewText.toLowerCase().indexOf(query);
-          const contextLength = 50;
-          const start = Math.max(0, matchIndex - contextLength);
-          const end = Math.min(session.previewText.length, matchIndex + query.length + contextLength);
-          const matchedText =
-            (start > 0 ? '...' : '') +
-            session.previewText.slice(start, end) +
-            (end < session.previewText.length ? '...' : '');
-          return { session, matchedText };
-        }
-        // Check participant summary match
-        if (session.participantSummary?.toLowerCase().includes(query)) {
-          return { session, matchedText: undefined };
-        }
-        return null;
-      })
-      .filter((item): item is { session: ChannelSyncSession; matchedText?: string } => item !== null);
-  }, [channelSessions, debouncedQuery]);
-
   // Combine and sort all results
   const allResults = useMemo((): SearchResult[] => {
     const results: SearchResult[] = [];
@@ -162,38 +96,16 @@ export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps)
       });
     }
 
-    // Add channel sessions
-    for (const { session, matchedText } of filteredChannelSessions) {
-      results.push({
-        type: 'channel',
-        data: session,
-        key: session.id,
-        label: session.title || session.id,
-        preview: session.previewText || '',
-        channelType: session.channelType,
-        matchedText,
-      });
-    }
-
     // Sort: pinned first, then by activity
     return results.sort((left, right) => {
-      if (left.type === 'session' && right.type === 'session') {
-        if (left.isPinned !== right.isPinned) {
-          return left.isPinned ? -1 : 1;
-        }
-        const leftActivity = sessionLastActivity[left.key] ?? left.data.session.updatedAt ?? 0;
-        const rightActivity = sessionLastActivity[right.key] ?? right.data.session.updatedAt ?? 0;
-        return rightActivity - leftActivity;
+      if (left.isPinned !== right.isPinned) {
+        return left.isPinned ? -1 : 1;
       }
-      if (left.type === 'channel' && right.type === 'channel') {
-        const leftTime = left.data.latestActivityAt ? new Date(left.data.latestActivityAt).getTime() : 0;
-        const rightTime = right.data.latestActivityAt ? new Date(right.data.latestActivityAt).getTime() : 0;
-        return rightTime - leftTime;
-      }
-      // Regular sessions before channel sessions
-      return left.type === 'session' ? -1 : 1;
+      const leftActivity = sessionLastActivity[left.key] ?? left.data.session.updatedAt ?? 0;
+      const rightActivity = sessionLastActivity[right.key] ?? right.data.session.updatedAt ?? 0;
+      return rightActivity - leftActivity;
     });
-  }, [sessionSearchResults, filteredChannelSessions, agents, pinnedSessionKeySet, currentSessionKey, sessionLastActivity]);
+  }, [sessionSearchResults, agents, pinnedSessionKeySet, currentSessionKey, sessionLastActivity]);
 
   // Handle ESC key
   useEffect(() => {
@@ -211,15 +123,8 @@ export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps)
 
   // Handle result click
   const handleResultClick = (result: SearchResult) => {
-    if (result.type === 'session') {
-      // Regular session - switch to it
-      switchSession(result.key);
-      onClose();
-    } else {
-      // Channel session - navigate to channels page with conversation
-      navigate(`/channels?channel=${result.channelType}&conversation=${encodeURIComponent(result.key)}`);
-      onClose();
-    }
+    switchSession(result.key);
+    onClose();
   };
 
   // Highlight matched text in a string

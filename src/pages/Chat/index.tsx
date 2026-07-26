@@ -24,7 +24,6 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useStickToBottomInstant } from '@/hooks/use-stick-to-bottom-instant';
 import { useMinLoading } from '@/hooks/use-min-loading';
-import { useNotificationsStore } from '@/stores/notifications';
 import {
   buildLeaderOnlyBlockedMessage,
   isDirectMainSessionBlocked,
@@ -124,11 +123,7 @@ export function Chat() {
       if (notifiedKeysRef.current.has(key)) continue;
       notifiedKeysRef.current.add(key);
       const reminder = extractReminderContent(msg);
-      useNotificationsStore.getState().addNotification({
-        level: 'info',
-        title: reminder ? `提醒：${reminder}` : '定时提醒已触发',
-        source: 'reminder',
-      });
+      toast(reminder ? `提醒：${reminder}` : '定时提醒已触发');
     }
   }, [messages]);
 

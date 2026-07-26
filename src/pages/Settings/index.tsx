@@ -13,7 +13,6 @@ import { SettingsModelsProvidersPanel } from '@/components/settings-center/setti
 import { SettingsAppUpdatesPanel } from '@/components/settings-center/settings-app-updates-panel';
 import { SettingsAboutPanel } from '@/components/settings-center/settings-about-panel';
 import { ProvidersSettings } from '@/components/settings/ProvidersSettings';
-import { McpTab } from '@/pages/Skills/McpTab';
 import {
   parseSettingsSection,
   SETTINGS_NAV_GROUPS,
@@ -28,7 +27,6 @@ import { hostApiFetch } from '@/lib/host-api';
 import { cn } from '@/lib/utils';
 import { useGatewayStore } from '@/stores/gateway';
 import { useSettingsStore } from '@/stores/settings';
-import { useSkillsStore } from '@/stores/skills';
 import { useUpdateStore } from '@/stores/update';
 import type { ChangeEvent, ReactNode } from 'react';
 
@@ -387,9 +385,6 @@ function renderActiveSection(args: RenderSectionArgs) {
 
     case 'memory-knowledge':
       return <SettingsMemoryKnowledgePanel />;
-
-    case 'skills-mcp':
-      return <SettingsSkillsMcpPanel />;
 
     case 'tool-permissions':
       return <SettingsToolPermissionsPanel />;
@@ -1375,155 +1370,6 @@ function AutomationDefaultsSection() {
         />
       </SettingsCard>
     </>
-  );
-}
-
-/* ─── Section: Skills & MCP (09.2) ─── */
-
-export function SettingsSkillsMcpPanel() {
-  const { skills, loading: skillsLoading, fetchSkills, enableSkill, disableSkill } = useSkillsStore();
-  const { status: gatewayStatus } = useGatewayStore();
-  const isGatewayConnected = gatewayStatus.state === 'running';
-  const [activeTab, setActiveTab] = useState<'skills' | 'mcp'>('skills');
-  const { t } = useTranslation('settings');
-
-  useEffect(() => {
-    void fetchSkills();
-  }, [fetchSkills]);
-
-  const handleSkillToggle = async (skillId: string, enabled: boolean) => {
-    try {
-      if (enabled) await enableSkill(skillId);
-      else await disableSkill(skillId);
-    } catch {
-      // ignore
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-[#d1d5db] bg-[#f8fafc] p-2">
-        <div className="mb-3">
-          <p className="text-[14px] font-medium text-[#111827]">
-            {t('skillsMcp.overview.title', { defaultValue: '全局 Skills 与 MCP 中心' })}
-          </p>
-          <p className="mt-1 text-[12px] text-[#6b7280]">
-            {t('skillsMcp.overview.description', { defaultValue: '成员技能分配和编辑仍由 TeamMap 负责。' })}
-          </p>
-        </div>
-        <div
-          role="tablist"
-          aria-label={t('skillsMcp.overview.tabsAriaLabel', { defaultValue: 'Skills 与 MCP 视图切换' })}
-          className="inline-flex rounded-xl bg-[#e5e7eb] p-1"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'skills'}
-            aria-controls="settings-skills-panel"
-            id="settings-skills-tab"
-            data-state={activeTab === 'skills' ? 'active' : 'inactive'}
-            onClick={() => setActiveTab('skills')}
-            className={cn(
-              'rounded-lg px-4 py-2 text-[13px] font-medium transition-colors',
-              activeTab === 'skills' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6b7280] hover:text-[#111827]',
-            )}
-          >
-            {t('skillsMcp.tabs.skills', { defaultValue: 'Skills' })}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'mcp'}
-            aria-controls="settings-mcp-panel"
-            id="settings-mcp-tab"
-            data-state={activeTab === 'mcp' ? 'active' : 'inactive'}
-            onClick={() => setActiveTab('mcp')}
-            className={cn(
-              'rounded-lg px-4 py-2 text-[13px] font-medium transition-colors',
-              activeTab === 'mcp' ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6b7280] hover:text-[#111827]',
-            )}
-          >
-            {t('skillsMcp.tabs.mcp', { defaultValue: 'MCP' })}
-          </button>
-        </div>
-      </div>
-
-      {activeTab === 'skills' ? (
-        <SettingsCard
-          key="skills"
-          aria-labelledby="settings-skills-tab"
-          role="tabpanel"
-          id="settings-skills-panel"
-          title={t('skillsMcp.skillsCard.title', { defaultValue: '已安装内置技能 (Native Skills)' })}
-          headerRight={(
-            <button type="button" onClick={() => void fetchSkills()} className="text-[12px] text-[#8e8e93] hover:text-[#000000]">
-              {t('skillsMcp.skillsCard.refresh', { defaultValue: '↻ 刷新' })}
-            </button>
-          )}
-        >
-          {!isGatewayConnected && (
-            <div className="my-2 rounded-lg border border-[#fbbf24]/30 bg-[#fffbeb] px-3 py-2.5">
-              <span className="text-[13px] text-[#92400e]">
-                {t('skillsMcp.skillsCard.gatewayWarning', { defaultValue: '⚠ Gateway 未连接。请先连接 Gateway 再管理技能。' })}
-              </span>
-            </div>
-          )}
-
-          {skillsLoading ? (
-            <div className="py-6 text-center text-[13px] text-[#8e8e93]">
-              {t('skillsMcp.skillsCard.loading', { defaultValue: '加载中...' })}
-            </div>
-          ) : skills.length === 0 ? (
-            <div className="py-6 text-center text-[13px] text-[#8e8e93]">
-              {t('skillsMcp.skillsCard.empty', { defaultValue: '暂无已安装技能' })}
-            </div>
-          ) : (
-            skills.map((skill) => (
-              <div key={skill.id} className="flex items-center justify-between gap-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p id={`skill-overview-${skill.id}`} className="text-[13px] font-medium text-[#000000]">
-                    {skill.icon && <span className="mr-1.5">{skill.icon}</span>}
-                    {skill.name}
-                    {skill.version && <span className="ml-1.5 text-[11px] font-normal text-[#c6c6c8]">v{skill.version}</span>}
-                    {skill.isCore ? (
-                      <span className="ml-1.5 rounded-full bg-[#f2f2f7] px-1.5 py-0.5 text-[10px] text-[#8e8e93]">
-                        {t('skillsMcp.skillsCard.coreBadge', { defaultValue: '核心' })}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="mt-0.5 text-[12px] text-[#8e8e93]">{skill.description}</p>
-                </div>
-                <Switch
-                  checked={skill.enabled}
-                  disabled={skill.isCore}
-                  onCheckedChange={(value) => void handleSkillToggle(skill.id, value)}
-                  aria-label={skill.name}
-                />
-              </div>
-            ))
-          )}
-
-          <div className="py-3 text-center">
-            <button type="button" className="text-[13px] text-clawx-ac hover:underline">
-              {t('skillsMcp.skillsCard.browseMarketplace', { defaultValue: '浏览技能市场...' })}
-            </button>
-          </div>
-        </SettingsCard>
-      ) : null}
-
-      {activeTab === 'mcp' ? (
-        <SettingsCard
-          key="mcp"
-          aria-labelledby="settings-mcp-tab"
-          role="tabpanel"
-          id="settings-mcp-panel"
-          title={t('skillsMcp.mcpCard.title', { defaultValue: 'MCP 服务与 Runtime' })}
-        >
-          <McpTab />
-        </SettingsCard>
-      ) : null}
-    </div>
   );
 }
 

@@ -15,7 +15,6 @@ import {
 import { useAgentsStore } from '@/stores/agents';
 import { useChatStore, type RawMessage } from '@/stores/chat';
 import { useRightPanelStore } from '@/stores/rightPanelStore';
-import { TaskDetailPanel } from '@/pages/TaskKanban/TaskDetailPanel';
 
 type FileEntry = {
   id: string;
@@ -228,7 +227,6 @@ export function RightPanel() {
   const { t } = useTranslation();
   const open = useRightPanelStore((state) => state.open);
   const type = useRightPanelStore((state) => state.type);
-  const taskId = useRightPanelStore((state) => state.taskId);
   const closePanel = useRightPanelStore((state) => state.closePanel);
 
   if (!open || !type) return null;
@@ -257,8 +255,6 @@ export function RightPanel() {
             <FileListPanel />
           ) : type === 'agent' ? (
             <AgentInfoPanel />
-          ) : type === 'task' && taskId ? (
-            <TaskDetailPanel taskId={taskId} />
           ) : null}
         </div>
       </SheetContent>

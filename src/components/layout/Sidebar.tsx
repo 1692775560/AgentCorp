@@ -1,19 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
-  Bell,
-  Bot,
   ChevronRight,
   LayoutDashboard,
   MessageSquare,
   PanelLeft,
   PanelLeftClose,
-  Pin,
   Plus,
-  Radio,
   Search,
   Settings as SettingsIcon,
   Store,
-  Trash2,
   Users,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -27,11 +22,8 @@ import { useAgentsStore } from '@/stores/agents';
 import { useChatStore } from '@/stores/chat';
 import { useGatewayStore } from '@/stores/gateway';
 import { useSettingsStore } from '@/stores/settings';
-import { useRightPanelStore } from '@/stores/rightPanelStore';
 import { resolveSessionDisplayLabel } from '@/lib/session-label';
 
-const CHAT_REQUEST_FILE_UPLOAD_EVENT = 'chat:request-file-upload';
-const CHAT_UPLOAD_PENDING_KEY = 'clawcorp:pending-upload';
 const NICKNAME_STORAGE_KEY = 'clawcorp-user-nickname';
 const LEGACY_NICKNAME_STORAGE_KEY = 'clawx-user-nickname';
 const AVATAR_STORAGE_KEY = 'clawcorp-user-avatar';
@@ -42,45 +34,6 @@ type NavItemConfig = {
   path: string;
   icon: typeof LayoutDashboard;
 };
-
-function SectionHeader({
-  icon: Icon,
-  label,
-  open,
-  onToggle,
-  collapsed,
-}: {
-  icon: typeof Radio;
-  label: string;
-  open: boolean;
-  onToggle: () => void;
-  collapsed: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onToggle}
-      className={cn(
-        'flex h-12 w-full items-center gap-4 rounded-2xl px-4 text-sm font-bold transition-all duration-300 text-gray-400 hover:bg-white hover:text-[#1A1C1E]',
-        collapsed && 'justify-center px-2',
-      )}
-    >
-      <Icon className="h-5 w-5 shrink-0" />
-      {!collapsed ? (
-        <>
-          <span className="flex-1 truncate text-left">{label}</span>
-          <ChevronRight
-            className={cn(
-              'h-4 w-4 shrink-0 text-gray-300 transition-transform',
-              open && 'rotate-90',
-            )}
-          />
-        </>
-      ) : null}
-    </button>
-  );
-}
 
 function SessionSectionHeader({
   label,
@@ -329,16 +282,6 @@ export function Sidebar() {
     reportsTo: agent.reportsTo,
     isDefault: agent.isDefault,
   }));
-
-  const handleUploadClick = () => {
-    try {
-      sessionStorage.setItem(CHAT_UPLOAD_PENDING_KEY, '1');
-    } catch {
-      // ignore storage write issues
-    }
-    navigate('/');
-    window.dispatchEvent(new CustomEvent(CHAT_REQUEST_FILE_UPLOAD_EVENT));
-  };
 
   const handleNewSession = () => {
     setSessionsOpen(true);

@@ -12,12 +12,11 @@ import { AgentDetailHero } from '@/components/agents/detail/AgentDetailHero';
 import { AgentDetailTabs, type AgentDetailTabId } from '@/components/agents/detail/AgentDetailTabs';
 import { AgentMemoryTab } from '@/components/agents/detail/AgentMemoryTab';
 import { AgentActivityTab } from '@/components/agents/detail/AgentActivityTab';
-import { AgentSkillsTab } from '@/components/agents/detail/AgentSkillsTab';
 import { buildAgentTaskSummaryMap } from '@/lib/task-summary-read-model';
 import { toast } from 'sonner';
 
 const RECENT_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
-const AGENT_DETAIL_TABS: AgentDetailTabId[] = ['overview', 'memory', 'skills', 'activity'];
+const AGENT_DETAIL_TABS: AgentDetailTabId[] = ['overview', 'memory', 'activity'];
 
 function parseAgentDetailTab(tab: string | null): AgentDetailTabId {
   return AGENT_DETAIL_TABS.includes(tab as AgentDetailTabId)
@@ -669,7 +668,6 @@ export function AgentDetail() {
       ) : null}
 
       {activeTab === 'memory' ? <AgentMemoryTab agent={agent as AgentSummary} /> : null}
-      {activeTab === 'skills' ? <AgentSkillsTab agentId={agent.id} /> : null}
       {activeTab === 'activity' ? (
         <AgentActivityTab
           statusLabel={statusLabel}
