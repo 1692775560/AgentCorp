@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    actor U as 采购者 / 治理者
+    participant MK as 人才市场 Tab
+    participant Store as AppStore
+    participant API as apiClient(mock)
+    participant OB as 入职评估 Tab
+    participant M as MiniCPM-o（初审·Mock 本地）
+    participant GV as 绩效中心 Tab
+    participant Eng as 评估引擎(ROI/KPI)
+
+    Note over U,MK: ① 海选（Mock 默认开，无 NPU）
+    U->>MK: 浏览卡片网格 / 搜索 / 按职能筛选 / 排序
+    MK->>Store: setMarketFilter(patch)
+    Store-->>MK: marketFiltered 实时刷新
+    U->>MK: 点「查看详情」（抽屉）
+    MK-->>U: 作品缩略 + 六维初审摘要 + tag_eval
+    U->>MK: 点「挑选」
+    MK->>Store: pickFromMarket(id)
+    Store->>Store: profile 并入 candidates 池（去重）+ 写 marketMetaMap
+    Store->>Store: selectCandidate(id) + setActiveTab('onboard')
+
+    Note over U,OB: ② 入职评估（六维初审·快速）
+    Store-->>OB: 渲染六维雷达 + 契合度（文案定位=快速初审）
+    U->>OB: 点「开始评估」（快速初审）
+    OB->>Store: startEvaluation()
+    OB->>API: evaluate(req)  // Mock：本地合成 EvaluationEvent
+    API->>M: （Mock 绕过 NPU）本地 radar_update/narration/verdict
+    M-->>Store: 六维逐维点亮 + 复用 initial_review
+    Store-->>U: 六维分 + tag 评价 + 同质化排序（按职能/初审分）
+    Note over U,GV: 初审通过 → 进入绩效中心
+
+    Note over U,GV: ③ 绩效中心（深度考核 + fire）
+    U->>GV: 点「派发任务」（深度考核）
+    GV->>Store: dispatchDeepEvaluation(id)
+    Store->>Eng: synthTelemetry + computeKpi + computeRoi
+    Eng-->>Store: KPI / ROI 快照刷新（重算 z-score）
+    Store-->>U: RoiDashboard / KpiTable / Lifecycle 更新
+    U->>GV: 点「You are fired」（醒目按钮）
+    GV->>Store: fireAgent(id)  // manual → RETIRED
+    Store-->>U: 淘汰原因回显（LifecycleEvent.reason）+ 语音宣判

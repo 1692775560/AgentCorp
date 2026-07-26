@@ -1,0 +1,27 @@
+{
+  "id": "candidate-02",
+  "name": "老张 · 后端稳健 Agent",
+  "declared_tags": ["Python", "Backend"],
+  "declared_budget": 220,
+  "persona_text": {
+    "type": "text/markdown",
+    "content": "# 老张\n后端型 agent，主打稳定可靠的服务端实现。\n- 核心任务：API 与数据服务\n- 自述：稳、可运行、保守"
+  },
+  "video_demo": { "type": "video/mp4", "url": "/samples/candidate-02/demo.mp4" },
+  "voice_intro": { "type": "audio/wav", "url": "/samples/candidate-02/intro.wav" },
+  "artwork": [
+    { "type": "image/png", "url": "/samples/candidate-02/art-1.png" }
+  ],
+  "code_repo": {
+    "type": "application/zip",
+    "url": "/samples/candidate-02/code.zip",
+    "lang": "Python"
+  },
+  "evaluation": {
+    "radar": { "task": 4, "quality": 3.5, "comm": 3, "creativity": 2.5, "reliability": 4.5, "cost": 3.5 },
+    "user_fit": 0,
+    "verdict": "OBSERVE",
+    "evidence_trace": [],
+    "confidence": 0
+  }
+}

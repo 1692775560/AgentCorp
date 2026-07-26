@@ -1,0 +1,56 @@
+sequenceDiagram
+  autonumber
+  actor User
+  participant UI as EvaluationPage
+  participant TaskStore as approvals.ts(tasks)
+  participant GW as GatewayManager
+  participant Link as RunLinkStore
+  participant TR as TranscriptReader
+  participant TUC as TokenUsageCollector
+  participant TC as TelemetryCollector
+  participant ME as MetricsEngine
+  participant RE as RoiEngine
+  participant JC as JudgeClient
+  participant MS as ModelService(MiniCPM-o)
+  participant AD as EvaluationAdapter
+  participant ES as EvaluationStore
+  participant EvalUI as Evaluation UI (雷达/ROI/生命周期/擂台)
+
+  User->>UI: 派任务给某 agent（选 task + agent）
+  UI->>TaskStore: createTask + startTaskExecution(agentId, sessionKey)
+  TaskStore-->>UI: taskId 已建
+
+  UI->>GW: gateway.rpc('chat.send', {sessionKey, message})
+  GW-->>UI: runId  (一次执行主键)
+  UI->>Link: save(RunTaskLink{runId, taskId, agentId, sessionKey})
+
+  Note over GW: OpenClaw 跑 agent，落库 sessions/*.jsonl + token-usage
+  UI->>GW: 轮询 run 状态直至 done（session-runtime-manager.refresh）
+  GW-->>UI: transcript ready
+
+  UI->>TR: read(sessionKey)
+  TR-->>TC: transcript 文本
+  UI->>TUC: collect(sessionId, agentId)
+  TUC-->>TC: TokenUsageHistoryEntry[]
+  TC->>TC: 构造 TelemetryEvent[]
+  TC-->>ME: TelemetryEvent[]
+  ME-->>ME: computeKpi → KpiRecord
+  TUC-->>RE: 成本五要素（token/npu/call/hum/ret）
+  RE-->>RE: computeRoi → RoiSnapshot
+
+  UI->>JC: evaluate(JudgeRunInput{transcript, usage, task})
+  JC->>MS: POST /api/evaluate-run (经 Host API 代理 → localhost:8000, SSE)
+  alt 有 NPU / 云端可用
+    MS-->>JC: radar_update×6 + verdict + done (SSE)
+  else 无 NPU → 503 / MOCK
+    JC-->>JC: fallbackMock(客观 KPI 归一化)
+  end
+  JC->>AD: consume(event) 逐事件
+  AD-->>AD: 点亮 radar / 记录 verdict / 状态机迁移
+
+  UI->>ES: save(EvaluationProfile{radar, kpi, roi, lifecycle, runIds})
+  ES-->>UI: ok
+  UI->>EvalUI: 重渲染 雷达 + ROI 面板 + 生命周期 + 擂台排名
+  EvalUI-->>User: 展示六维雷达 / ROI / verdict / 末位淘汰标记
+
+  Note over User,EvalUI: 治理动作（软退休/晋升）经 approvals.ts 触发 lifecycle 迁移

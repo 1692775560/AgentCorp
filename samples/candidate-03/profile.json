@@ -1,0 +1,27 @@
+{
+  "id": "candidate-03",
+  "name": "阿强 · 全栈自夸 Agent",
+  "declared_tags": ["Go", "Fullstack"],
+  "declared_budget": 300,
+  "persona_text": {
+    "type": "text/markdown",
+    "content": "# 阿强\n自诩全栈高性能 agent。\n- 核心任务：高并发系统\n- 自述：快、强、贵"
+  },
+  "video_demo": { "type": "video/mp4", "url": "/samples/candidate-03/demo.mp4" },
+  "voice_intro": { "type": "audio/wav", "url": "/samples/candidate-03/intro.wav" },
+  "artwork": [
+    { "type": "image/png", "url": "/samples/candidate-03/art-1.png" }
+  ],
+  "code_repo": {
+    "type": "application/zip",
+    "url": "/samples/candidate-03/code.zip",
+    "lang": "Go"
+  },
+  "evaluation": {
+    "radar": { "task": 3, "quality": 2.5, "comm": 2.5, "creativity": 3.5, "reliability": 1.5, "cost": 1 },
+    "user_fit": 0,
+    "verdict": "OBSERVE",
+    "evidence_trace": [],
+    "confidence": 0
+  }
+}

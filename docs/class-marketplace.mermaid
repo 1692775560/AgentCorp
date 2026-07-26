@@ -1,0 +1,105 @@
+classDiagram
+    %% ===== 既有契约（Phase 1，复用）=====
+    class CandidateProfile {
+        +string id
+        +string name
+        +string[] declared_tags
+        +number declared_budget
+        +PersonaText persona_text
+        +MediaRef video_demo
+        +MediaRef voice_intro
+        +MediaRef[] artwork
+        +CodeRef code_repo
+        +Evaluation evaluation
+    }
+    class Evaluation {
+        +RadarScore radar
+        +number user_fit
+        +Verdict verdict
+        +string[] evidence_trace
+        +number confidence
+    }
+    class RadarScore {
+        +number task
+        +number quality
+        +number comm
+        +number creativity
+        +number reliability
+        +number cost
+    }
+    class MediaRef {
+        +string type
+        +string url
+    }
+
+    %% ===== 本次新增市场契约 =====
+    class AgentFunction {
+        <<enumeration>>
+        制图
+        短视频
+        文案
+        前端
+        后端
+        全栈
+        数据分析
+    }
+    class AgentSource {
+        <<enumeration>>
+        market_mock
+        user_upload
+    }
+    class QuickVerdict {
+        <<enumeration>>
+        PASS
+        OBSERVE
+        REJECT
+    }
+    class InitialReview {
+        +RadarScore radar
+        +string[] tag_eval
+        +QuickVerdict quick_verdict
+        +number confidence
+    }
+    class MarketplaceAgent {
+        +CandidateProfile profile
+        +AgentFunction agent_function
+        +string[] style_tags
+        +AgentSource source
+        +string avatar_url
+        +MediaRef[] work_thumbnails
+        +InitialReview initial_review
+    }
+    class MarketFilters {
+        +string search
+        +AgentFunction function
+        +string style
+        +number maxBudget
+        +string sort
+    }
+
+    %% ===== 状态仓（增量切片）=====
+    class AppStore {
+        +CandidateProfile[] candidates
+        +MarketplaceAgent[] marketAgents
+        +Record~string,MarketplaceAgent~ marketMetaMap
+        +MarketFilters filters
+        +activeTab market/onboard/govern
+        +setMarketAgents(a)
+        +setMarketFilter(patch)
+        +pickFromMarket(id)
+        +dispatchDeepEvaluation(id)
+    }
+
+    %% ===== 关系 =====
+    CandidateProfile "1" *-- "1" Evaluation
+    Evaluation "1" *-- "1" RadarScore
+    MarketplaceAgent "1" *-- "1" CandidateProfile : profile
+    MarketplaceAgent "1" *-- "1" InitialReview : initial_review
+    InitialReview "1" *-- "1" RadarScore : radar（复用六维）
+    MarketplaceAgent "1" *-- "*" MediaRef : work_thumbnails
+    MarketplaceAgent ..> AgentFunction : agent_function
+    MarketplaceAgent ..> AgentSource : source
+    AppStore "1" o-- "*" MarketplaceAgent : marketAgents
+    AppStore "1" o-- "*" CandidateProfile : candidates（评估池·复用）
+    AppStore ..> MarketFilters : filters
+    note for MarketplaceAgent "profile 直接复用 CandidateProfile；\ninitial_review.radar 与 evaluation.radar 同源；\n挑选后 profile 进入 candidates 池，\nmarketMetaMap 供 onboard/govern 反查职能"

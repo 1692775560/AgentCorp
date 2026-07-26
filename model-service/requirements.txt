@@ -1,0 +1,28 @@
+# ===== AgentCorp 模型服务依赖 =====
+# Web 服务与流式
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+sse-starlette>=2.0
+
+# 契约校验
+pydantic>=2.6
+pydantic-settings>=2.2
+
+# 数值 / 图像
+numpy>=1.26
+pillow>=10.2
+
+# 测试
+pytest>=8.0
+
+# ===== 昇腾推理依赖（部署时按需安装，缺省不阻塞骨架运行）=====
+# 以下包体积大且需匹配 CANN / torch_npu 版本，默认注释，按官方 starter kit 解锁：
+# torch
+# torch_npu
+# transformers
+# opencv-python
+# decord
+# librosa
+# soundfile
+# （可选 TTS 旁路）cosyvoice 或对应 Ascend 适配 TTS

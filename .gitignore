@@ -1,0 +1,98 @@
+# ============================================================
+# AgentCorp .gitignore (merged)
+# Base: ClawCorp Electron base + AgentCorp eval/Python additions.
+# Kept AgentCorp's QA/marketplace/Python entries; added ClawCorp's
+# Electron build/secrets entries. No credentials or build output
+# are ever committed.
+# ============================================================
+
+# ===== 依赖 / 包管理器 =====
+node_modules/
+.pnp
+.pnp.js
+.pnpm-store/
+.npm-cache/
+
+# ===== 构建产物 =====
+dist/
+dist-electron/
+release/
+.vite/
+build/
+artifacts/
+*.tsbuildinfo
+*.local
+coverage/
+.cache/
+.turbo/
+
+# ===== 环境变量（含敏感配置，禁止上传；保留模板）=====
+.env
+.env.local
+.env.*.local
+# 注：.env.example 是有意保留的模板，可上传
+
+# ===== Electron 打包产物 =====
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.rpm
+resources/bin
+
+# ===== 密钥 / 证书（禁止上传）=====
+*.p12
+*.pem
+*.key
+
+# ===== 测试 / QA 构建产物（自动生成，无需入库）=====
+scripts/qa/.engine.qa.bundle.mjs
+scripts/qa/.github-import.qa.bundle.mjs
+scripts/qa/.marketplace.qa.bundle.mjs
+scripts/qa/_fesrc/
+test-results/
+
+# ===== 后端 Python 缓存 =====
+model-service/.pytest_cache/
+model-service/**/__pycache__/
+model-service/pytest-cache-files-/
+
+# ===== 临时目录 =====
+tmp/
+tmp-*.png
+tmp-*.py
+tmp_*.py
+tmp_test.py
+old.html
+
+# ===== 日志 =====
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===== 系统 / 编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+
+# ===== 文档 / 工具缓存 =====
+docs/pr-session-notes-*.md
+.cursor/
+.superpowers/
+.specstory/
+.gstack/
+.worktrees/
+.golutra/
+.claude/
+/anthropic-ai-claude-code-*.tgz

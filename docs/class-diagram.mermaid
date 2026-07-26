@@ -1,0 +1,202 @@
+classDiagram
+  %% ===== 领域模型（扩展 ClawCorp） =====
+  class Agent {
+    +id: string
+    +name: string
+    +persona: string
+    +capabilities: string[]
+    +rating: number
+    +lifecycleStatus: AgentLifecycleStatus
+  }
+  class Team {
+    +id: string
+    +leaderId: string
+    +memberIds: string[]
+    +status: TeamStatus
+  }
+  class KanbanTask {
+    +id: string
+    +title: string
+    +description: string
+    +assigneeId: string
+    +canonicalExecution: TaskExecution
+  }
+  class TaskExecution {
+    +sessionId: string
+    +sessionKey: string
+    +agentId: string
+    +status: TaskExecutionStatus
+  }
+
+  %% ===== 生命周期（形式化，替代 ClawCorp 缺失类型） =====
+  class AgentLifecycleStatus {
+    <<enum>>
+    onboarding
+    active
+    training
+    maintenance
+    retired
+  }
+
+  %% ===== 评估档案核心 =====
+  class EvaluationProfile {
+    +agentId: string
+    +radarLatest: RadarScore
+    +radarHistory: RadarScore[]
+    +kpiLatest: KpiRecord
+    +kpiHistory: KpiRecord[]
+    +roiLatest: RoiSnapshot
+    +lifecycle: LifecycleState
+    +runIds: string[]
+    +updatedAt: string
+    +evaluate() RadarScore
+    +applyVerdict(v: Verdict) void
+  }
+  class RunTaskLink {
+    +runId: string
+    +taskId: string
+    +agentId: string
+    +sessionKey: string
+    +sessionId: string
+    +evaluatedAt: string
+  }
+  class RadarScore {
+    +task: number
+    +quality: number
+    +comm: number
+    +creativity: number
+    +reliability: number
+    +cost: number
+  }
+  class KpiRecord {
+    +agentId: string
+    +task_completion_rate: number
+    +first_success_rate: number
+    +rework_rate: number
+    +avg_delivery_latency_ms: number
+    +autonomy_rate: number
+    +escalation_rate: number
+    +cross_task_generalization: number
+    +stability_consistency: number
+    +sample_n: number
+    +window: string
+    +computedAt: string
+  }
+  class RoiSnapshot {
+    +agentId: string
+    +cost_total: number
+    +value_total: number
+    +roi: number
+    +ipr: number
+    +srpc: number
+    +cost_perf_score: number
+    +roi_index: number
+    +roi_norm: number
+    +window: string
+  }
+  class Verdict {
+    <<enum>>
+    MVP
+    OBSERVE
+    FIRED
+  }
+  class LifecycleState {
+    <<enum>>
+    ONBOARDING
+    ACTIVE
+    TRAINING
+    MAINTENANCE
+    RETIRED
+  }
+
+  %% ===== 评估输入原料 =====
+  class TelemetryEvent {
+    +agent_id: string
+    +task_id: string
+    +success: boolean
+    +first_try: boolean
+    +rework: number
+    +latency_ms: number
+    +human_interventions: number
+    +escalations: number
+    +out_of_domain: boolean
+    +ts: string
+  }
+  class TokenUsageHistoryEntry {
+    +sessionId: string
+    +agentId: string
+    +inputTokens: number
+    +outputTokens: number
+    +totalTokens: number
+    +costUsd: number
+  }
+
+  %% ===== 服务/引擎 =====
+  class EvaluationService {
+    +runEvaluation(link: RunTaskLink) Promise~EvaluationProfile~
+  }
+  class MetricsEngine {
+    +computeKpi(e: TelemetryEvent[], window, radars) KpiRecord
+    +stability(radars) number
+  }
+  class RoiEngine {
+    +computeRoi(cost, value, baseline, opts) RoiSnapshot
+  }
+  class EvaluationAdapter {
+    +consume(ev: EvaluationEvent) AdapterDelta
+    +ingestKpi(k: KpiRecord) void
+    +ingestRoi(r: RoiSnapshot) void
+    +snapshot() AdapterSnapshot
+  }
+  class JudgeClient {
+    +evaluate(input: JudgeInput) AsyncIterable~EvaluationEvent~
+    +fallbackMock(input) EvaluationEvent[]
+  }
+  class ModelServiceJudge {
+    <<external>>
+    +POST /api/evaluate (SSE)
+  }
+  class TelemetryCollector {
+    +collect(transcript, usage) TelemetryEvent[]
+  }
+  class TranscriptReader {
+    +read(sessionKey) string
+  }
+  class TokenUsageCollector {
+    +collect(sessionId, agentId) TokenUsageHistoryEntry[]
+  }
+  class EvaluationStore {
+    +save(profile: EvaluationProfile) void
+    +load(agentId) EvaluationProfile
+    +list() EvaluationProfile[]
+  }
+  class RunLinkStore {
+    +save(link: RunTaskLink) void
+    +getByRunId(runId) RunTaskLink
+  }
+
+  %% ===== 关系 =====
+  Agent "1" --> "0..*" EvaluationProfile : has
+  Agent --> AgentLifecycleStatus : status
+  EvaluationProfile "1" *-- "1" RadarScore : radarLatest
+  EvaluationProfile "1" *-- "1" KpiRecord : kpiLatest
+  EvaluationProfile "1" *-- "1" RoiSnapshot : roiLatest
+  EvaluationProfile "1" *-- "0..*" RunTaskLink : links
+  RunTaskLink "1" --> "1" TaskExecution : references
+  KanbanTask "1" *-- "0..1" TaskExecution : canonical
+  EvaluationProfile ..> Verdict : applyVerdict maps to LifecycleState
+  LifecycleState .. AgentLifecycleStatus : aligned
+
+  EvaluationService ..> MetricsEngine : uses
+  EvaluationService ..> RoiEngine : uses
+  EvaluationService ..> JudgeClient : calls
+  EvaluationService ..> TelemetryCollector : uses
+  EvaluationService ..> EvaluationStore : persists
+  EvaluationService ..> RunLinkStore : persists
+  TelemetryCollector ..> TranscriptReader : reads
+  TelemetryCollector ..> TokenUsageCollector : reads
+  TelemetryCollector ..> TelemetryEvent : produces
+  MetricsEngine ..> TelemetryEvent : consumes
+  RoiEngine ..> TokenUsageHistoryEntry : consumes
+  JudgeClient ..> ModelServiceJudge : SSE over Host API proxy
+  JudgeClient ..> EvaluationAdapter : feeds events

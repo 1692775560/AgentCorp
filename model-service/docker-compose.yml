@@ -1,0 +1,31 @@
+# AgentCorp 模型服务编排（一键起）
+# 用法：
+#   cd model-service
+#   docker compose up --build
+# 无 NPU 演示：MOCK=true（默认）
+# 昇腾真实部署：MOCK=false，并透传 NPU 设备（/dev/davinci*）
+services:
+  agentcorp-model:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentcorp-minicpmo:ascend
+    container_name: agentcorp-model
+    ports:
+      - "8000:8000"
+    environment:
+      - MOCK=${MOCK:-true}
+      - MODEL_PATH=/models/MiniCPM-o-4.5
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - SAMPLES_DIR=/app/samples
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      # 固定候选样本集（含真实媒体，部署时置入）
+      - ../samples:/app/samples
+      - ./uploads:/app/uploads
+    # 昇腾 NPU 设备透传（真实部署取消注释）
+    # devices:
+    #   - /dev/davinci0:/dev/davinci0
+    #   - /dev/davinci_manager:/dev/davinci_manager
+    restart: unless-stopped

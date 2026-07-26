@@ -1,0 +1,143 @@
+classDiagram
+    %% ===== GitHub 抓取原始数据（api.github.com 返回形状，精简）=====
+    class GithubRepoRaw {
+        +string full_name
+        +string name
+        +string description
+        +string language
+        +number stargazers_count
+        +number forks_count
+        +string pushed_at        %% ISO
+        +string[] topics
+        +boolean archived
+        +string default_branch
+        +GithubLicense license   %% {spdx_id, name}
+        +GithubOwner owner        %% {login, avatar_url, html_url}
+        +string html_url
+    }
+    class GithubLicense {
+        +string spdx_id
+        +string name
+    }
+    class GithubOwner {
+        +string login
+        +string avatar_url
+        +string html_url
+    }
+    class ReadmeResult {
+        +string text
+        +number len
+        +boolean hasBadges
+        +boolean hasHeadings
+    }
+    class ContentsResult {
+        +boolean hasExamples    %% examples/showcase/docs 下找到图片或视频
+        +boolean hasVideo
+        +MediaRef[] thumbnails  %% raw.githubusercontent 直链
+    }
+
+    %% ===== 本次新增导入元信息 =====
+    class GithubImportMeta {
+        +string owner
+        +string repo
+        +number stars
+        +number forks
+        +string license
+        +string html_url
+        +string branch
+        +string pushed_at
+        +string language
+        +number notional_budget   %% clamp(round(stars/2000)+100,80,320)
+        +boolean commercial_review %% 协议非宽松→true 标红
+    }
+
+    %% ===== 既有市场契约（复用 / 扩展）=====
+    class AgentSource {
+        <<enumeration>>
+        market_mock
+        user_upload
+        github_import
+    }
+    class QuickVerdict {
+        <<enumeration>>
+        PASS
+        OBSERVE
+        REJECT
+    }
+    class RadarScore {
+        +number task
+        +number quality
+        +number comm
+        +number creativity
+        +number reliability
+        +number cost
+    }
+    class InitialReview {
+        +RadarScore radar
+        +string[] tag_eval
+        +QuickVerdict quick_verdict
+        +number confidence
+    }
+    class MarketplaceAgent {
+        +CandidateProfile profile
+        +AgentFunction agent_function
+        +string[] style_tags
+        +AgentSource source
+        +string avatar_url
+        +MediaRef[] work_thumbnails
+        +InitialReview initial_review
+        +GithubImportMeta github_meta
+    }
+    class CandidateProfile {
+        +string id
+        +string name
+        +number declared_budget
+        +Evaluation evaluation
+        +MediaRef[] artwork
+    }
+    class Evaluation {
+        +RadarScore radar
+        +Verdict verdict
+        +number user_fit
+    }
+
+    %% ===== 状态仓切片（增量）=====
+    class AppStore {
+        +MarketplaceAgent[] marketAgents
+        +Record~string,MarketplaceAgent~ marketMetaMap
+        +addImportedAgent(ma)
+        +pickFromMarket(id)
+    }
+
+    %% ===== 服务层（纯函数）=====
+    class GithubImportService {
+        +parseRepoUrl(input): {owner,repo}|null
+        +fetchRepo(owner,repo,token?): GithubRepoRaw
+        +fetchReadme(owner,repo,token?): ReadmeResult
+        +fetchReleases(owner,repo,token?): boolean
+        +fetchContents(owner,repo,branch,token?): ContentsResult
+        +inferFunction(raw, preset?): AgentFunction
+        +heuristicReview(raw, readme, contents): InitialReview
+        +mapRepoToAgent(raw, token?): MarketplaceAgent
+    }
+
+    %% ===== 关系 =====
+    GithubRepoRaw "1" *-- "1" GithubLicense
+    GithubRepoRaw "1" *-- "1" GithubOwner
+    GithubImportService ..> GithubRepoRaw : fetch*
+    GithubImportService ..> ReadmeResult : 解析 README
+    GithubImportService ..> ContentsResult : 扫描目录
+    GithubImportService ..> InitialReview : heuristicReview
+    GithubImportService ..> MarketplaceAgent : mapRepoToAgent
+    GithubRepoRaw ..> GithubImportMeta : 抽取展示字段
+    MarketplaceAgent "1" *-- "1" GithubImportMeta : github_meta（仅 github_import）
+    MarketplaceAgent "1" *-- "1" CandidateProfile : profile
+    MarketplaceAgent "1" *-- "1" InitialReview : initial_review
+    MarketplaceAgent "1" *-- "1" RadarScore : evaluation.radar（同引用）
+    InitialReview "1" *-- "1" RadarScore : radar（同引用）
+    MarketplaceAgent ..> AgentSource : source='github_import'
+    CandidateProfile "1" *-- "1" Evaluation
+    Evaluation "1" *-- "1" RadarScore
+    AppStore "1" o-- "*" MarketplaceAgent : marketAgents
+    note for MarketplaceAgent "github_import 卡：profile.evaluation.radar\n与 initial_review.radar 同一对象引用；\nevaluation.verdict 镜像 quick_verdict；\nuser_fit=0；github_meta 承载 ⭐/协议/链接/派生价"
+    note for GithubImportService "全部纯函数（除 fetch*）；\nheuristicReview 末步调 deriveQuickVerdict(mean)"

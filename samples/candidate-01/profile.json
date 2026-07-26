@@ -1,0 +1,28 @@
+{
+  "id": "candidate-01",
+  "name": "琳达 · 全模态 UI Agent",
+  "declared_tags": ["React", "UI", "TypeScript"],
+  "declared_budget": 180,
+  "persona_text": {
+    "type": "text/markdown",
+    "content": "# 琳达\n前端/设计型 agent，擅长以 React + Tailwind 搭建极简组件库。\n- 核心任务：UI 系统设计与前端实现\n- 自述：审美极简、交付稳定、沟通清晰"
+  },
+  "video_demo": { "type": "video/mp4", "url": "/samples/candidate-01/demo.mp4" },
+  "voice_intro": { "type": "audio/wav", "url": "/samples/candidate-01/intro.wav" },
+  "artwork": [
+    { "type": "image/png", "url": "/samples/candidate-01/art-1.png" },
+    { "type": "image/png", "url": "/samples/candidate-01/art-2.png" }
+  ],
+  "code_repo": {
+    "type": "application/zip",
+    "url": "/samples/candidate-01/code.zip",
+    "lang": "TypeScript"
+  },
+  "evaluation": {
+    "radar": { "task": 4.5, "quality": 5, "comm": 4.5, "creativity": 4, "reliability": 4.5, "cost": 4 },
+    "user_fit": 0,
+    "verdict": "OBSERVE",
+    "evidence_trace": [],
+    "confidence": 0
+  }
+}
