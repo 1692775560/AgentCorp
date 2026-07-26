@@ -1,42 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { StatusBadge } from '@/components/common/StatusBadge';
-import { ChannelConfigModal } from '@/components/channels/ChannelConfigModal';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAgentsStore } from '@/stores/agents';
-import { useChannelsStore } from '@/stores/channels';
 import { useProviderStore } from '@/stores/providers';
-import { CHANNEL_ICONS, CHANNEL_NAMES, type ChannelType } from '@/types/channel';
 import type { AgentSummary } from '@/types/agent';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import telegramIcon from '@/assets/channels/telegram.svg';
-import discordIcon from '@/assets/channels/discord.svg';
-import whatsappIcon from '@/assets/channels/whatsapp.svg';
-import dingtalkIcon from '@/assets/channels/dingtalk.svg';
-import feishuIcon from '@/assets/channels/feishu.svg';
-import wecomIcon from '@/assets/channels/wecom.svg';
-import qqIcon from '@/assets/channels/qq.svg';
 
 const inputClasses = 'h-[44px] rounded-xl font-mono text-[13px] bg-[#eeece3] dark:bg-muted border-black/10 dark:border-white/10 focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40';
 const labelClasses = 'text-[14px] text-foreground/80 font-bold';
-
-function ChannelLogo({ type }: { type: ChannelType }) {
-  switch (type) {
-    case 'telegram': return <img src={telegramIcon} alt="Telegram" className="w-[20px] h-[20px] dark:invert" />;
-    case 'discord': return <img src={discordIcon} alt="Discord" className="w-[20px] h-[20px] dark:invert" />;
-    case 'whatsapp': return <img src={whatsappIcon} alt="WhatsApp" className="w-[20px] h-[20px] dark:invert" />;
-    case 'dingtalk': return <img src={dingtalkIcon} alt="DingTalk" className="w-[20px] h-[20px] dark:invert" />;
-    case 'feishu': return <img src={feishuIcon} alt="Feishu" className="w-[20px] h-[20px] dark:invert" />;
-    case 'wecom': return <img src={wecomIcon} alt="WeCom" className="w-[20px] h-[20px] dark:invert" />;
-    case 'qqbot': return <img src={qqIcon} alt="QQ" className="w-[20px] h-[20px] dark:invert" />;
-    default: return <span className="text-[20px] leading-none">{CHANNEL_ICONS[type] || '💬'}</span>;
-  }
-}
 
 /* PLACEHOLDER_MODAL */
 
@@ -59,23 +34,18 @@ function buildModelOptions(accounts: Array<{ id: string; vendorId: string; label
 
 export function AgentSettingsModal({
   agent,
-  channels,
   onClose,
 }: {
   agent: AgentSummary;
-  channels: Array<{ type: string; name: string; status: 'connected' | 'connecting' | 'disconnected' | 'error'; error?: string }>;
   onClose: () => void;
 }) {
   const { t } = useTranslation('agents');
-  const { updateAgent, assignChannel, removeChannel } = useAgentsStore();
-  const { fetchChannels } = useChannelsStore();
+  const { updateAgent } = useAgentsStore();
   const { accounts, vendors, refreshProviderSnapshot } = useProviderStore();
   const [name, setName] = useState(agent.name);
   const [persona, setPersona] = useState(agent.persona);
   const [model, setModel] = useState(agent.model || '');
   const [savingProfile, setSavingProfile] = useState(false);
-  const [showChannelModal, setShowChannelModal] = useState(false);
-  const [channelToRemove, setChannelToRemove] = useState<ChannelType | null>(null);
 
   useEffect(() => {
     setName(agent.name);
@@ -88,11 +58,6 @@ export function AgentSettingsModal({
   }, [refreshProviderSnapshot]);
 
   const modelOptions = useMemo(() => buildModelOptions(accounts, vendors), [accounts, vendors]);
-
-  const runtimeChannelsByType = useMemo(
-    () => Object.fromEntries(channels.map((ch) => [ch.type, ch])),
-    [channels],
-  );
 
   const hasProfileChanges = name.trim() !== agent.name
     || persona.trim() !== agent.persona
@@ -115,27 +80,6 @@ export function AgentSettingsModal({
       setSavingProfile(false);
     }
   };
-
-  const handleChannelSaved = async (channelType: ChannelType) => {
-    try {
-      await assignChannel(agent.id, channelType);
-      await fetchChannels();
-      toast.success(t('toast.channelAssigned', { channel: CHANNEL_NAMES[channelType] || channelType }));
-    } catch (error) {
-      toast.error(t('toast.channelAssignFailed', { error: String(error) }));
-      throw error;
-    }
-  };
-
-  const assignedChannels = agent.channelTypes.map((channelType) => {
-    const runtimeChannel = runtimeChannelsByType[channelType];
-    return {
-      channelType: channelType as ChannelType,
-      name: runtimeChannel?.name || CHANNEL_NAMES[channelType as ChannelType] || channelType,
-      status: runtimeChannel?.status || 'disconnected',
-      error: runtimeChannel?.error,
-    };
-  });
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -222,88 +166,8 @@ export function AgentSettingsModal({
               <p className="font-mono text-[13px] text-foreground">{agent.id}</p>
             </div>
           </div>
-
-          <div className="space-y-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-serif text-foreground font-normal tracking-tight">
-                  {t('settingsDialog.channelsTitle')}
-                </h3>
-                <p className="text-[14px] text-foreground/70 mt-1">{t('settingsDialog.channelsDescription')}</p>
-              </div>
-              <Button onClick={() => setShowChannelModal(true)} className="h-9 text-[13px] font-medium rounded-full px-4 shadow-none">
-                <Plus className="h-3.5 w-3.5 mr-2" />
-                {t('settingsDialog.addChannel')}
-              </Button>
-            </div>
-
-            {assignedChannels.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 p-4 text-[13.5px] text-muted-foreground">
-                {t('settingsDialog.noChannels')}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {assignedChannels.map((channel) => (
-                  <div key={channel.channelType} className="flex items-center justify-between rounded-2xl bg-black/5 dark:bg-white/5 border border-transparent p-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-[40px] w-[40px] shrink-0 flex items-center justify-center text-foreground bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 rounded-full shadow-sm">
-                        <ChannelLogo type={channel.channelType} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[15px] font-semibold text-foreground">{channel.name}</p>
-                        <p className="text-[13.5px] text-muted-foreground">{CHANNEL_NAMES[channel.channelType]}</p>
-                        {channel.error && <p className="text-xs text-destructive mt-1">{channel.error}</p>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <StatusBadge status={channel.status} />
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={() => setChannelToRemove(channel.channelType)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </CardContent>
       </Card>
-
-      {showChannelModal && (
-        <ChannelConfigModal
-          configuredTypes={agent.channelTypes}
-          showChannelName={false}
-          allowExistingConfig
-          agentId={agent.id}
-          onClose={() => setShowChannelModal(false)}
-          onChannelSaved={async (channelType) => {
-            await handleChannelSaved(channelType);
-            setShowChannelModal(false);
-          }}
-        />
-      )}
-
-      <ConfirmDialog
-        open={!!channelToRemove}
-        title={t('removeChannelDialog.title')}
-        message={channelToRemove ? t('removeChannelDialog.message', { name: CHANNEL_NAMES[channelToRemove] || channelToRemove }) : ''}
-        confirmLabel={t('common:actions.delete')}
-        cancelLabel={t('common:actions.cancel')}
-        variant="destructive"
-        onConfirm={async () => {
-          if (!channelToRemove) return;
-          try {
-            await removeChannel(agent.id, channelToRemove);
-            await fetchChannels();
-            toast.success(t('toast.channelRemoved', { channel: CHANNEL_NAMES[channelToRemove] || channelToRemove }));
-          } catch (error) {
-            toast.error(t('toast.channelRemoveFailed', { error: String(error) }));
-          } finally {
-            setChannelToRemove(null);
-          }
-        }}
-        onCancel={() => setChannelToRemove(null)}
-      />
     </div>
   );
 }
