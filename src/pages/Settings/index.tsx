@@ -449,7 +449,7 @@ function renderActiveSection(args: RenderSectionArgs) {
           >
             <div className="mb-3 flex items-center gap-3 rounded-xl bg-[#f2f2f7] px-4 py-3">
               <div className="flex-1">
-                <p className="text-[13px] font-semibold text-[#2563eb]">ClawCorp Doctor</p>
+                <p className="text-[13px] font-semibold text-[#2563eb]">AgentCorp Doctor</p>
                 <p className="mt-0.5 text-[12px] text-[#8e8e93]">完整分析你的环境变量、Nodejs 版本与目录权限有无隐患。</p>
               </div>
               <Button
@@ -876,7 +876,7 @@ function GeneralSection() {
 
         <ToggleRow
           label="开机自启"
-          desc="登录时自动启动 ClawCorp。"
+          desc="登录时自动启动 AgentCorp。"
           checked={launchAtStartup}
           onCheckedChange={setLaunchAtStartup}
         />
@@ -1500,7 +1500,7 @@ export function SettingsToolPermissionsPanel() {
         {whitelistEditorOpen ? (
           <InlineListComposer
             label="新增允许访问路径"
-            placeholder="例如：C:\\Projects\\ClawCorp"
+            placeholder="例如：C:\\Projects\\AgentCorp"
             value={whitelistDraft}
             onChange={setWhitelistDraft}
             onSubmit={() =>
@@ -1928,7 +1928,7 @@ function AutoUpdateSection({
       <SettingsSectionCard title="当前版本" description="">
         <div className="flex items-center justify-between rounded-xl bg-[#f2f2f7] px-4 py-3">
           <div>
-            <p className="text-[13px] font-semibold text-[#000000]">ClawCorp v{currentVersion}</p>
+            <p className="text-[13px] font-semibold text-[#000000]">AgentCorp v{currentVersion}</p>
             <p className="mt-0.5 text-[12px] text-[#8e8e93]">
               状态：{statusLabel[updateStatus]}
               {updateInfo ? ` — 新版本 v${updateInfo.version}` : ''}

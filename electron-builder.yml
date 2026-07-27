@@ -1,4 +1,4 @@
-﻿appId: app.clawcorp.desktop
+﻿appId: app.agentcorp.desktop
 productName: AgentCorp
 copyright: Copyright 漏 2026 AgentCorp
 compression: maximum
@@ -168,7 +168,7 @@ linux:
       Comment: AI Assistant powered by OpenClaw
       Categories: Utility;Network;
       Keywords: ai;assistant;automation;chat;
-      StartupWMClass: clawcorp
+      StartupWMClass: agentcorp
       # Note: --no-sandbox for Kylin V11 / UOS compatibility is injected at
       # runtime via app.commandLine.appendSwitch() in electron/main/index.ts.
       # electron-builder forbids setting Exec here (it auto-generates it).

@@ -1,6 +1,6 @@
 ﻿#!/bin/bash
 
-# Post-installation script for ClawCorp on Linux
+# Post-installation script for AgentCorp on Linux
 
 set -e
 
@@ -14,13 +14,13 @@ if command -v gtk-update-icon-cache &> /dev/null; then
     gtk-update-icon-cache -q /usr/share/icons/hicolor || true
 fi
 
-# Create symbolic link for ClawCorp app binary
-if [ -x /opt/ClawCorp/clawcorp ]; then
-    ln -sf /opt/ClawCorp/clawcorp /usr/local/bin/clawcorp 2>/dev/null || true
+# Create symbolic link for AgentCorp app binary
+if [ -x /opt/AgentCorp/agentcorp ]; then
+    ln -sf /opt/AgentCorp/agentcorp /usr/local/bin/agentcorp 2>/dev/null || true
 fi
 
 # Create symbolic link for openclaw CLI
-OPENCLAW_WRAPPER="/opt/ClawCorp/resources/cli/openclaw"
+OPENCLAW_WRAPPER="/opt/AgentCorp/resources/cli/openclaw"
 if [ -f "$OPENCLAW_WRAPPER" ]; then
     chmod +x "$OPENCLAW_WRAPPER" 2>/dev/null || true
     ln -sf "$OPENCLAW_WRAPPER" /usr/local/bin/openclaw 2>/dev/null || true
@@ -32,9 +32,9 @@ fi
 # we rely on the AppArmor profile below instead, so 0755 is correct there.
 if ! { [[ -L /proc/self/ns/user ]] && unshare --user true; }; then
     # No user namespace support 鈥?fall back to SUID sandbox
-    chmod 4755 '/opt/ClawCorp/chrome-sandbox' || true
+    chmod 4755 '/opt/AgentCorp/chrome-sandbox' || true
 else
-    chmod 0755 '/opt/ClawCorp/chrome-sandbox' || true
+    chmod 0755 '/opt/AgentCorp/chrome-sandbox' || true
 fi
 
 # Install AppArmor profile (Ubuntu 24.04+).
@@ -45,8 +45,8 @@ fi
 # We first check if AppArmor is enabled and if the running version supports abi/4.0
 # (Ubuntu 22.04 does not; it runs fine without the profile, so we skip it there).
 if apparmor_status --enabled > /dev/null 2>&1; then
-    APPARMOR_PROFILE_SOURCE='/opt/ClawCorp/resources/apparmor-profile'
-    APPARMOR_PROFILE_TARGET='/etc/apparmor.d/clawcorp'
+    APPARMOR_PROFILE_SOURCE='/opt/AgentCorp/resources/apparmor-profile'
+    APPARMOR_PROFILE_TARGET='/etc/apparmor.d/agentcorp'
     if [ -f "$APPARMOR_PROFILE_SOURCE" ] && \
        apparmor_parser --skip-kernel-load --debug "$APPARMOR_PROFILE_SOURCE" > /dev/null 2>&1; then
         cp -f "$APPARMOR_PROFILE_SOURCE" "$APPARMOR_PROFILE_TARGET"
@@ -60,4 +60,4 @@ if apparmor_status --enabled > /dev/null 2>&1; then
     fi
 fi
 
-echo "ClawCorp has been installed successfully."
+echo "AgentCorp has been installed successfully."

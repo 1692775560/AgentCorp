@@ -36,7 +36,7 @@ import { FolderSelectorPopover } from './FolderSelectorPopover';
 import { getChatInputSlashMatches, isSlashCommandPrefixInput, parseChatInputSlashCommand } from './slash-commands';
 
 const CHAT_REQUEST_FILE_UPLOAD_EVENT = 'chat:request-file-upload';
-const CHAT_UPLOAD_PENDING_KEY = 'clawcorp:pending-upload';
+const CHAT_UPLOAD_PENDING_KEY = 'agentcorp:pending-upload';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -137,7 +137,7 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false, i
     [agents, currentAgentId],
   );
   const defaultModel = useSettingsStore((s) => s.defaultModel);
-  const currentAgentName = currentAgent?.name ?? 'ClawCorp';
+  const currentAgentName = currentAgent?.name ?? 'AgentCorp';
   const currentModelDisplay = currentAgent?.modelDisplay ?? defaultModel ?? 'Not configured';
 
   // Model selector
@@ -802,8 +802,8 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false, i
                   isComposingRef.current = false;
                 }}
                 onPaste={handlePaste}
-                placeholder={`给 ${currentAgentName ?? 'ClawCorp'} 发消息...`}
-                aria-label={`给 ${currentAgentName ?? 'ClawCorp'} 发消息`}
+                placeholder={`给 ${currentAgentName ?? 'AgentCorp'} 发消息...`}
+                aria-label={`给 ${currentAgentName ?? 'AgentCorp'} 发消息`}
                 disabled={disabled}
                 className="min-h-[22px] max-h-[200px] resize-none border-0 bg-transparent px-0 py-0 text-[14px] leading-[22px] text-black placeholder:text-[#8e8e93] shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 dark:text-white"
                 rows={1}
@@ -1006,12 +1006,12 @@ function ModelPickerDropdown({
               type="button"
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors hover:bg-[#f2f2f7]',
-                (currentAgent?.inheritedModel || !currentAgent?.model) && 'text-clawcorp-ac font-medium',
+                (currentAgent?.inheritedModel || !currentAgent?.model) && 'text-agentcorp-ac font-medium',
               )}
               onClick={() => void onSelect('')}
             >
               <span className="truncate">继承默认模型</span>
-              {(currentAgent?.inheritedModel || !currentAgent?.model) && <span className="ml-auto text-clawcorp-ac">✓</span>}
+              {(currentAgent?.inheritedModel || !currentAgent?.model) && <span className="ml-auto text-agentcorp-ac">✓</span>}
             </button>
             <div className="mx-3 border-t border-black/[0.06]" />
             {modelOptions.map((opt) => {
@@ -1022,12 +1022,12 @@ function ModelPickerDropdown({
                   type="button"
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors hover:bg-[#f2f2f7]',
-                    isActive && 'text-clawcorp-ac font-medium',
+                    isActive && 'text-agentcorp-ac font-medium',
                   )}
                   onClick={() => void onSelect(opt.value)}
                 >
                   <span className="min-w-0 flex-1 truncate">{opt.label}</span>
-                  {isActive && <span className="shrink-0 text-clawcorp-ac">✓</span>}
+                  {isActive && <span className="shrink-0 text-agentcorp-ac">✓</span>}
                 </button>
               );
             })}

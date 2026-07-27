@@ -14,7 +14,7 @@
 | Project Name | `agentcorp` |
 | 运行环境 | 昇腾（Ascend NPU）统一环境，运行 MiniCPM-o 4.5 |
 | 提交物 | 可运行 Web Demo + PPT + 项目说明 + 演示视频（统一昇腾环境复现） |
-| 复用来源 | 朋友项目 **ClawCorp**（Electron+React 桌面应用：Marketplace / 人力资产 / healthScore / ROI 看板 / 一键 fire / 多模态附件）。**仅复用 UX 与数据模型概念**，不改其 Electron 本体（无法作为统一环境提交物） |
+| 复用来源 | 朋友项目 **AgentCorp**（Electron+React 桌面应用：Marketplace / 人力资产 / healthScore / ROI 看板 / 一键 fire / 多模态附件）。**仅复用 UX 与数据模型概念**，不改其 Electron 本体（无法作为统一环境提交物） |
 
 ### 原始需求复述
 
@@ -241,7 +241,7 @@ timeline
 └─────────────────────────────────────────────────────────────┘
 ```
 
-> 复用 ClawCorp 的「员工档案 / 生命周期 / 雷达 / fire」UX 骨架；Web Demo 独立实现于 Vite+React+Tailwind，不改动 ClawCorp Electron 本体。
+> 复用 AgentCorp 的「员工档案 / 生命周期 / 雷达 / fire」UX 骨架；Web Demo 独立实现于 Vite+React+Tailwind，不改动 AgentCorp Electron 本体。
 
 ---
 

@@ -2,7 +2,7 @@
  * src/services/tokenUsageCollector.ts
  * 真实 token 用量采集（T05）。
  *
- * 复用 ClawCorp 既有能力 getRecentTokenUsageHistory（@electron/utils/token-usage），
+ * 复用 AgentCorp 既有能力 getRecentTokenUsageHistory（@electron/utils/token-usage），
  * 按 agentId / sessionId 过滤得到 TokenUsageHistoryEntry[]，供真实 ROI 计算使用。
  *
  * 注意：该采集依赖主进程文件系统能力（getRecentTokenUsageHistory 读取

@@ -3,7 +3,7 @@
  * Code highlighting (react-syntax-highlighter + Prism),
  * math formulas (remark-math + rehype-katex),
  * local file link click-to-open, copy button, language tag.
- * Adapted from LobsterAI MarkdownContent for ClawCorp color system.
+ * Adapted from LobsterAI MarkdownContent for AgentCorp color system.
  */
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { JSX } from 'react';
@@ -286,7 +286,7 @@ const createComponents = (resolveLocalFilePath?: (href: string, text: string) =>
     blockquote: ({ children, node, ...props }: MarkdownComponentProps<'blockquote'>) => {
       void node;
       return (
-        <blockquote className="border-l-4 border-clawcorp-ac pl-4 py-1 my-2 bg-clawcorp-ac/5 rounded-r-lg" {...props}>
+        <blockquote className="border-l-4 border-agentcorp-ac pl-4 py-1 my-2 bg-agentcorp-ac/5 rounded-r-lg" {...props}>
           {children}
         </blockquote>
       );
@@ -373,7 +373,7 @@ const createComponents = (resolveLocalFilePath?: (href: string, text: string) =>
           <a
             href={toFileHref(filePath)}
             onClick={handleClick}
-            className="text-clawcorp-ac hover:text-clawcorp-ac/80 underline decoration-clawcorp-ac/40 hover:decoration-clawcorp-ac transition-colors cursor-pointer inline-flex items-center gap-1"
+            className="text-agentcorp-ac hover:text-agentcorp-ac/80 underline decoration-agentcorp-ac/40 hover:decoration-agentcorp-ac transition-colors cursor-pointer inline-flex items-center gap-1"
             title={filePath}
             {...props}
           >
@@ -398,7 +398,7 @@ const createComponents = (resolveLocalFilePath?: (href: string, text: string) =>
             target="_blank"
             rel="noopener noreferrer"
             onClick={handleExternal}
-            className="text-clawcorp-ac hover:text-clawcorp-ac/80 underline decoration-clawcorp-ac/40 hover:decoration-clawcorp-ac transition-colors"
+            className="text-agentcorp-ac hover:text-agentcorp-ac/80 underline decoration-agentcorp-ac/40 hover:decoration-agentcorp-ac transition-colors"
             {...props}
           >
             {children}
@@ -411,7 +411,7 @@ const createComponents = (resolveLocalFilePath?: (href: string, text: string) =>
           href={hrefValue}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-clawcorp-ac hover:text-[#0056cc] underline decoration-clawcorp-ac/40 hover:decoration-clawcorp-ac transition-colors"
+          className="text-agentcorp-ac hover:text-[#0056cc] underline decoration-agentcorp-ac/40 hover:decoration-agentcorp-ac transition-colors"
           {...props}
         >
           {children}

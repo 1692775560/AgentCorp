@@ -3,7 +3,7 @@
  * Manages unread message counts with localStorage persistence and cross-tab sync.
  */
 
-const STORAGE_KEY = 'clawcorp-session-unread-counts';
+const STORAGE_KEY = 'agentcorp-session-unread-counts';
 
 /**
  * Get unread counts from localStorage

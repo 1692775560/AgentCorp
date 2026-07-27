@@ -110,11 +110,11 @@
     },
     "mcp": {
         "title": "MCP services",
-        "description": "Manage MCP services ClawCorp can call; enable a service to expose its tools while keeping runtime controls and logs available.",
+        "description": "Manage MCP services AgentCorp can call; enable a service to expose its tools while keeping runtime controls and logs available.",
         "dialog": {
             "addTitle": "Add MCP service",
             "editTitle": "Edit MCP service",
-            "subtitle": "Configure connection settings for local or remote MCP services that ClawCorp can call.",
+            "subtitle": "Configure connection settings for local or remote MCP services that AgentCorp can call.",
             "close": "Close",
             "cancel": "Cancel",
             "save": "Save",

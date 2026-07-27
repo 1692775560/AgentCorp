@@ -398,7 +398,7 @@ stateDiagram-v2
 
 - `strategyEngine` 持有每个 agent 的 `LifecycleState` 与触发规则（阈值来自 PRD 的 MVP/OBSERVE/FIRED + 本设计的 ROI/KPI 阈值）。
 - 状态迁移事件驱动前端（`LifecyclePanel` / `Leaderboard` / 语音宣判）。
-- 与 ClawCorp 概念对齐：`active/training/onboarding/maintenance/retired` 五态直接复用其健康分（healthScore）思路——本项目中 `healthScore ≈ f(ROI_norm, SCR, reliability)`。
+- 与 AgentCorp 概念对齐：`active/training/onboarding/maintenance/retired` 五态直接复用其健康分（healthScore）思路——本项目中 `healthScore ≈ f(ROI_norm, SCR, reliability)`。
 
 ---
 

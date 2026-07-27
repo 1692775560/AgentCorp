@@ -78,7 +78,7 @@ export interface AgentCronRelation {
 
 /**
  * Input for creating a cron job from the UI.
- * No target/delivery — UI-created tasks push results to the ClawCorp chat page.
+ * No target/delivery — UI-created tasks push results to the AgentCorp chat page.
  * Tasks created via external channels are handled directly by the Gateway.
  */
 export interface CronJobCreateInput {

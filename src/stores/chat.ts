@@ -272,7 +272,7 @@ const DEFAULT_SESSION_KEY = `${DEFAULT_CANONICAL_PREFIX}:main`;
 // [media attached: <path> ...] reference in the Gateway's user message text).
 // Keying by path avoids the race condition of keying by runId (which is only
 // available after the RPC returns, but history may load before that).
-const IMAGE_CACHE_KEY = 'clawcorp:image-cache';
+const IMAGE_CACHE_KEY = 'agentcorp:image-cache';
 const LEGACY_IMAGE_CACHE_KEY = 'clawx:image-cache';
 const IMAGE_CACHE_MAX = 100; // max entries to prevent unbounded growth
 
@@ -1575,7 +1575,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // Extract first user message text as a session label for display in the toolbar.
       // Skip main sessions (key ends with ":main") — they rely on the Gateway-provided
-      // displayName (e.g. the configured agent name "ClawCorp") instead.
+      // displayName (e.g. the configured agent name "AgentCorp") instead.
       const isMainSession = currentSessionKey.endsWith(':main');
       if (!isMainSession) {
         const firstUserMsg = finalMessages.find((m) => m.role === 'user');
@@ -2283,7 +2283,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 // Cross-tab sync: listen to localStorage changes
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
-    if (event.key === 'clawcorp-session-unread-counts' && event.newValue) {
+    if (event.key === 'agentcorp-session-unread-counts' && event.newValue) {
       try {
         const newCounts = JSON.parse(event.newValue);
         const agentStatuses = useAgentsStore.getState().agentStatuses ?? {};

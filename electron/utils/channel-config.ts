@@ -13,7 +13,7 @@ import { proxyAwareFetch } from './proxy-fetch';
 import { withConfigLock } from './config-mutex';
 import { runOpenClawDoctor } from './openclaw-doctor';
 import { OPENCLAW_WECHAT_CHANNEL_TYPE, toOpenClawChannelType, toUiChannelType } from './channel-alias';
-import { migrateClawCorpExtensionsOutOfOpenClawConfig } from './openclaw-runtime-metadata';
+import { migrateAgentCorpExtensionsOutOfOpenClawConfig } from './openclaw-runtime-metadata';
 
 const OPENCLAW_DIR = join(homedir(), '.openclaw');
 const CONFIG_FILE = join(OPENCLAW_DIR, 'openclaw.json');
@@ -178,7 +178,7 @@ export async function writeOpenClawConfig(config: OpenClawConfig): Promise<void>
             await rotateConfigBackups();
         } catch { /* no existing file to back up — skip */ }
 
-        await migrateClawCorpExtensionsOutOfOpenClawConfig(config as Record<string, unknown>);
+        await migrateAgentCorpExtensionsOutOfOpenClawConfig(config as Record<string, unknown>);
 
         // Enable graceful in-process reload authorization for SIGUSR1 flows.
         const commands =

@@ -1,11 +1,11 @@
 ﻿#!/bin/bash
 
-# Post-removal script for ClawCorp on Linux
+# Post-removal script for AgentCorp on Linux
 
 set -e
 
 # Remove symbolic links
-rm -f /usr/local/bin/clawcorp 2>/dev/null || true
+rm -f /usr/local/bin/agentcorp 2>/dev/null || true
 rm -f /usr/local/bin/openclaw 2>/dev/null || true
 
 # Update desktop database
@@ -19,9 +19,9 @@ if command -v gtk-update-icon-cache &> /dev/null; then
 fi
 
 # Remove AppArmor profile
-APPARMOR_PROFILE_TARGET='/etc/apparmor.d/clawcorp'
+APPARMOR_PROFILE_TARGET='/etc/apparmor.d/agentcorp'
 if [ -f "$APPARMOR_PROFILE_TARGET" ]; then
     rm -f "$APPARMOR_PROFILE_TARGET"
 fi
 
-echo "ClawCorp has been removed."
+echo "AgentCorp has been removed."

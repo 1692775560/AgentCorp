@@ -4,7 +4,7 @@ import { normalizeAppError } from './error-model';
 
 const HOST_API_PORT = 3210;
 const HOST_API_BASE = `http://127.0.0.1:${HOST_API_PORT}`;
-const LOCALHOST_FALLBACK_FLAG = 'clawcorp:allow-localhost-fallback';
+const LOCALHOST_FALLBACK_FLAG = 'agentcorp:allow-localhost-fallback';
 const LEGACY_LOCALHOST_FALLBACK_FLAG = 'clawx:allow-localhost-fallback';
 
 /** Cached Host API auth token, fetched once from the main process via IPC. */
@@ -147,8 +147,8 @@ function allowLocalhostFallback(): boolean {
 function isBrowserPreviewShimEnabled(): boolean {
   try {
     return Boolean(
-      (window.electron as { __clawcorpBrowserPreviewShim?: boolean } | undefined)
-        ?.__clawcorpBrowserPreviewShim,
+      (window.electron as { __agentcorpBrowserPreviewShim?: boolean } | undefined)
+        ?.__agentcorpBrowserPreviewShim,
     );
   } catch {
     return false;

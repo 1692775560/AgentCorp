@@ -1,6 +1,6 @@
 /**
  * src/types/lifecycle.ts
- * Agent 生命周期状态机（形式化，替代 ClawCorp 缺失的 AgentLifecycleStatus 类型）。
+ * Agent 生命周期状态机（形式化，替代 AgentCorp 缺失的 AgentLifecycleStatus 类型）。
  *
  * 唯一真相 = 小写 AgentLifecycleStatus（onboarding/active/training/maintenance/retired）。
  * 评估层的大写 LifecycleState 仅作内部别名（定义见 src/types/evaluation.ts），
@@ -11,7 +11,7 @@
 
 import type { LifecycleState, Verdict } from './evaluation';
 
-/** 运行时真相：小写生命周期状态（ClawCorp 命名约定） */
+/** 运行时真相：小写生命周期状态（AgentCorp 命名约定） */
 export type AgentLifecycleStatus =
   | 'onboarding'
   | 'active'

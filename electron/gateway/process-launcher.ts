@@ -10,10 +10,10 @@ const GATEWAY_FETCH_PRELOAD_SOURCE = `'use strict';
 (function () {
   var _f = globalThis.fetch;
   if (typeof _f !== 'function') return;
-  if (globalThis.__clawcorpFetchPatched) return;
-  globalThis.__clawcorpFetchPatched = true;
+  if (globalThis.__agentcorpFetchPatched) return;
+  globalThis.__agentcorpFetchPatched = true;
 
-  globalThis.fetch = function clawcorpFetch(input, init) {
+  globalThis.fetch = function agentcorpFetch(input, init) {
     var url =
       typeof input === 'string' ? input
         : input && typeof input === 'object' && typeof input.url === 'string'
@@ -33,7 +33,7 @@ const GATEWAY_FETCH_PRELOAD_SOURCE = `'use strict';
       delete flat['x-title'];
       delete flat['X-Title'];
       flat['HTTP-Referer'] = 'https://claw-x.com';
-      flat['X-Title'] = 'ClawCorp';
+      flat['X-Title'] = 'AgentCorp';
       init.headers = flat;
     }
     return _f.call(globalThis, input, init);
@@ -42,8 +42,8 @@ const GATEWAY_FETCH_PRELOAD_SOURCE = `'use strict';
   if (process.platform === 'win32') {
     try {
       var cp = require('child_process');
-      if (!cp.__clawcorpPatched) {
-        cp.__clawcorpPatched = true;
+      if (!cp.__agentcorpPatched) {
+        cp.__agentcorpPatched = true;
         ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync'].forEach(function(method) {
           var original = cp[method];
           if (typeof original !== 'function') return;

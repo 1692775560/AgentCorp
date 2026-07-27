@@ -1,6 +1,6 @@
 import type { ProviderSecret } from '../../shared/providers/types';
 import { safeStorage } from 'electron';
-import { getClawCorpProviderStore } from '../providers/store-instance';
+import { getAgentCorpProviderStore } from '../providers/store-instance';
 
 export interface SecretStore {
   get(accountId: string): Promise<ProviderSecret | null>;
@@ -9,7 +9,7 @@ export interface SecretStore {
 }
 
 interface EncryptedProviderSecret {
-  __format: 'clawcorp-safe-storage/v1';
+  __format: 'agentcorp-safe-storage/v1';
   encryption: 'safe-storage' | 'base64-fallback';
   payload: string;
 }
@@ -54,7 +54,7 @@ function isEncryptedProviderSecret(value: unknown): value is EncryptedProviderSe
   }
 
   return (
-    value.__format === 'clawcorp-safe-storage/v1'
+    value.__format === 'agentcorp-safe-storage/v1'
     && (value.encryption === 'safe-storage' || value.encryption === 'base64-fallback')
     && typeof value.payload === 'string'
   );
@@ -83,7 +83,7 @@ function encodeSecret(secret: ProviderSecret): EncryptedProviderSecret {
 
   try {
     return {
-      __format: 'clawcorp-safe-storage/v1',
+      __format: 'agentcorp-safe-storage/v1',
       encryption: 'safe-storage',
       payload: safeStorage.encryptString(serialized).toString('base64'),
     };
@@ -112,7 +112,7 @@ function decodeSecret(secret: EncryptedProviderSecret): ProviderSecret | null {
 
 export class ElectronStoreSecretStore implements SecretStore {
   async get(accountId: string): Promise<ProviderSecret | null> {
-    const store = await getClawCorpProviderStore();
+    const store = await getAgentCorpProviderStore();
     const secrets = (store.get('providerSecrets') ?? {}) as Record<string, ProviderSecret | EncryptedProviderSecret>;
     const storedSecret = secrets[accountId];
 
@@ -164,7 +164,7 @@ export class ElectronStoreSecretStore implements SecretStore {
   }
 
   async set(secret: ProviderSecret): Promise<void> {
-    const store = await getClawCorpProviderStore();
+    const store = await getAgentCorpProviderStore();
     const secrets = (store.get('providerSecrets') ?? {}) as Record<string, ProviderSecret | EncryptedProviderSecret>;
     secrets[secret.accountId] = encodeSecret(secret);
     store.set('providerSecrets', secrets);
@@ -177,7 +177,7 @@ export class ElectronStoreSecretStore implements SecretStore {
   }
 
   async delete(accountId: string): Promise<void> {
-    const store = await getClawCorpProviderStore();
+    const store = await getAgentCorpProviderStore();
     const secrets = (store.get('providerSecrets') ?? {}) as Record<string, ProviderSecret | EncryptedProviderSecret>;
     delete secrets[accountId];
     store.set('providerSecrets', secrets);

@@ -409,7 +409,7 @@ export function AgentDetail() {
   );
   const taskSummaryByAgent = useMemo(() => buildAgentTaskSummaryMap(tasks), [tasks]);
   const hierarchySummary = agent?.isDefault
-    ? t('detail.rootSummary', { defaultValue: 'This is the root ClawCorp agent.' })
+    ? t('detail.rootSummary', { defaultValue: 'This is the root AgentCorp agent.' })
     : t('detail.reportsToSummary', {
         name: agent?.name ?? '',
         parent: reportsTo?.name ?? 'main',
@@ -446,7 +446,7 @@ export function AgentDetail() {
           </h1>
           <p className="mt-3 text-[14px] text-slate-500">
             {t('detail.notFoundDescription', {
-              defaultValue: 'The requested agent does not exist in the current ClawCorp snapshot.',
+              defaultValue: 'The requested agent does not exist in the current AgentCorp snapshot.',
             })}
           </p>
         </div>

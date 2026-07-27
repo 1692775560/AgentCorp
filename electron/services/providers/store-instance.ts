@@ -1,7 +1,7 @@
 // Lazy-load electron-store (ESM module) from the main process only.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let providerStore: any = null;
-const PROVIDER_STORE_NAME = 'clawcorp-providers';
+const PROVIDER_STORE_NAME = 'agentcorp-providers';
 const LEGACY_PROVIDER_STORE_NAME = 'clawx-providers';
 
 function hasProviderStoreData(store: Record<string, unknown>): boolean {
@@ -22,7 +22,7 @@ function hasProviderStoreData(store: Record<string, unknown>): boolean {
     || defaultProviderAccountId.length > 0;
 }
 
-export async function getClawCorpProviderStore() {
+export async function getAgentCorpProviderStore() {
   if (!providerStore) {
     const Store = (await import('electron-store')).default;
     providerStore = new Store({

@@ -2,7 +2,7 @@
  * src/services/telemetryCollector.ts
  * 运行期遥测采集（T05）。
  *
- * 读取 ClawCorp 转录文件（~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl），
+ * 读取 AgentCorp 转录文件（~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl），
  * 复用 token-usage-core 的 parseUsageEntriesFromJsonl / extractSessionIdFromTranscriptFileName
  * 解析用量行，派生符合 src/types/evaluation.ts 的 TelemetryEvent[]。
  *

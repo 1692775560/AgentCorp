@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { SessionItem } from './SessionItem';
 import type { ChatSession } from '@/stores/chat';
 
-const SESSION_GROUPS_STATE_KEY = 'clawcorp-session-groups-state';
+const SESSION_GROUPS_STATE_KEY = 'agentcorp-session-groups-state';
 
 interface SessionGroupState {
   teamSessions: boolean;

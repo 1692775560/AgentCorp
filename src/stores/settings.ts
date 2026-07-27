@@ -156,7 +156,7 @@ interface SettingsState {
   resetSettings: () => void;
 }
 
-const SETTINGS_STORAGE_KEY = 'clawcorp-settings';
+const SETTINGS_STORAGE_KEY = 'agentcorp-settings';
 const LEGACY_SETTINGS_STORAGE_KEY = 'clawx-settings';
 
 function createSettingsStateStorage(): StateStorage {
@@ -248,7 +248,7 @@ const defaultSettings = {
   remoteRpcEnabled: false,
   p2pSyncEnabled: false,
   setupComplete: false,
-  brandName: 'ClawCorp Control',
+  brandName: 'AgentCorp Control',
   brandSubtitle: '智能编排中枢',
   myName: 'Commander',
   brandLogoDataUrl: null as string | null,

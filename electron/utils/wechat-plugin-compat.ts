@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const NORMALIZE_IMPORT = 'import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";';
-const SHIM_MARKER = '// ClawCorp compatibility shim for OpenClaw 2026.3.22';
+const SHIM_MARKER = '// AgentCorp compatibility shim for OpenClaw 2026.3.22';
 const LEGACY_TYPED_NORMALIZE_SIGNATURE_RE = /function normalizeAccountId\(raw:\s*string\):\s*string\s*\{/g;
 const NORMALIZE_SHIM = `${SHIM_MARKER}
 function normalizeAccountId(raw) {

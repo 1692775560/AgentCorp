@@ -1,4 +1,4 @@
-# ClawCorp Application Icons
+# AgentCorp Application Icons
 
 This directory contains the application icons for all supported platforms.
 
@@ -47,7 +47,7 @@ If you prefer to generate icons manually:
 
 1. **macOS (.icns)**
    - Create a `.iconset` folder with properly named PNGs
-   - Run: `iconutil -c icns -o icon.icns ClawCorp.iconset`
+   - Run: `iconutil -c icns -o icon.icns AgentCorp.iconset`
 
 2. **Windows (.ico)**
    - Use ImageMagick: `convert icon_16.png icon_32.png icon_64.png icon_128.png icon_256.png icon.ico`
@@ -66,7 +66,7 @@ If you prefer to generate icons manually:
 - **Format**: Single-color (black) on transparent background
 - **Size**: 22x22 pixels (system automatically handles @2x retina)
 - **Naming**: Must end with "Template.png" for automatic template mode
-- **Design**: Simplified monochrome version of main icon (ClawCorp logo)
+- **Design**: Simplified monochrome version of main icon (AgentCorp logo)
 - **Source**: Use `tray-icon-template.svg` as the source
 - **Important**: Must be pure black (#000000) on transparent background - no gradients or colors
 

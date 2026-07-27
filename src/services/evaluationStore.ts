@@ -3,7 +3,7 @@
  * 评估档案本地落库（electron-store）。
  *
  * 命名空间：`agentcorp.evaluation`（默认落盘 <userData>/agentcorp.evaluation.json）。
- * 键 = agentId，值 = EvaluationProfile。与 ClawCorp 既有 `settings` store 隔离
+ * 键 = agentId，值 = EvaluationProfile。与 AgentCorp 既有 `settings` store 隔离
  * （见 docs/architecture-pivot.md §2.D / §3 / §8）。
  *
  * 沿用 electron/utils/store.ts 的 lazy-load 模式（动态 import electron-store），

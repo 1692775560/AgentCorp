@@ -62,7 +62,7 @@ class BrowserOAuthManager extends EventEmitter {
             logger.info(`[BrowserOAuth] ${title || 'OAuth note'}: ${message}`);
           },
           prompt: async () => {
-            throw new Error('Manual browser OAuth fallback is not implemented in ClawCorp yet.');
+            throw new Error('Manual browser OAuth fallback is not implemented in AgentCorp yet.');
           },
           progress: {
             update: (message) => logger.info(`[BrowserOAuth] ${message}`),

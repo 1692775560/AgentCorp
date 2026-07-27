@@ -81,7 +81,7 @@ export function Chat() {
   }, [agentPickerOpen]);
 
   const switchSession = useChatStore((s) => s.switchSession);
-  const currentAgentName = agents.find((agent) => agent.id === currentAgentId)?.name ?? 'ClawCorp';
+  const currentAgentName = agents.find((agent) => agent.id === currentAgentId)?.name ?? 'AgentCorp';
   const currentAgent = agents.find((agent) => agent.id === currentAgentId) ?? null;
   const teamBrief = useMemo(
     () => buildLeaderProgressBrief({
@@ -231,10 +231,10 @@ export function Chat() {
                     {agent.avatar ? (
                       <img src={agent.avatar} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
                     ) : (
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-clawcorp-ac text-[11px] text-white">✦</span>
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-agentcorp-ac text-[11px] text-white">✦</span>
                     )}
                     <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-                    {agent.id === currentAgentId && <span className="shrink-0 text-[10px] text-clawcorp-ac">✓</span>}
+                    {agent.id === currentAgentId && <span className="shrink-0 text-[10px] text-agentcorp-ac">✓</span>}
                   </button>
                 ))}
               </div>

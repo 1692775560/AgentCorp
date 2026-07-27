@@ -1,6 +1,6 @@
 {
     "title": "Agents",
-    "subtitle": "添加新的 Agent 时，ClawCorp 会复制主 Agent 的工作区引导文件和运行时认证配置， 配置可以通过以对话的形式进行修改",
+    "subtitle": "添加新的 Agent 时，AgentCorp 会复制主 Agent 的工作区引导文件和运行时认证配置， 配置可以通过以对话的形式进行修改",
     "refresh": "刷新",
     "addAgent": "添加 Agent",
     "gatewayWarning": "Gateway 服务未运行。Agent 或频道变更可能需要一点时间生效。",
@@ -14,13 +14,13 @@
     "creating": "创建中...",
     "createDialog": {
         "title": "添加 Agent",
-        "description": "只需输入名称即可创建新 Agent。ClawCorp 会复制主 Agent 的工作区引导文件和运行时认证配置。",
+        "description": "只需输入名称即可创建新 Agent。AgentCorp 会复制主 Agent 的工作区引导文件和运行时认证配置。",
         "nameLabel": "Agent 名称",
         "namePlaceholder": "Coding Helper"
     },
     "deleteDialog": {
         "title": "删除 Agent",
-        "message": "确认从 ClawCorp 删除 “{{name}}”？这会永久删除该 Agent 及其由 ClawCorp 管理的工作区、运行时和会话文件。"
+        "message": "确认从 AgentCorp 删除 “{{name}}”？这会永久删除该 Agent 及其由 AgentCorp 管理的工作区、运行时和会话文件。"
     },
     "settingsDialog": {
         "title": "{{name}} 设置",
@@ -29,7 +29,7 @@
         "agentIdLabel": "Agent ID",
         "modelLabel": "Model",
         "channelsTitle": "频道",
-        "channelsDescription": "每种频道类型在 ClawCorp 中只保留一份配置。在这里保存已配置的频道会将归属切换到当前 Agent。",
+        "channelsDescription": "每种频道类型在 AgentCorp 中只保留一份配置。在这里保存已配置的频道会将归属切换到当前 Agent。",
         "addChannel": "添加频道",
         "noChannels": "这个 Agent 还没有分配任何频道。"
     },
@@ -64,7 +64,7 @@
         "linkLabel": "详情",
         "backToAgents": "返回 Agent 列表",
         "notFoundTitle": "Agent 未找到",
-        "notFoundDescription": "当前 ClawCorp 快照中不存在该 Agent。",
+        "notFoundDescription": "当前 AgentCorp 快照中不存在该 Agent。",
         "loading": "正在加载 Agent 详情...",
         "kicker": "Agent 详情",
         "noPersona": "未配置 Persona。",
@@ -75,7 +75,7 @@
         "agentDir": "Agent 目录",
         "mainSessionKey": "主会话 Key",
         "hierarchy": "层级关系",
-        "rootSummary": "这是根 ClawCorp Agent。",
+        "rootSummary": "这是根 AgentCorp Agent。",
         "reportsToSummary": "{{name}} 汇报给 {{parent}}",
         "reportsTo": "汇报给",
         "directReports": "直接下属",

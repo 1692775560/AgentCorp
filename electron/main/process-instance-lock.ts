@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-const LOCK_SCHEMA = 'clawcorp-instance-lock';
+const LOCK_SCHEMA = 'agentcorp-instance-lock';
 const LOCK_VERSION = 1;
 
 export interface ProcessInstanceFileLock {
@@ -124,7 +124,7 @@ export function acquireProcessInstanceFileLock(
     if (staleOwner.kind !== 'unknown') {
       try {
         console.info(
-          `[ClawCorp] Force-cleaned stale instance lock (pid=${staleOwner.pid}, format=${staleOwner.kind})`,
+          `[AgentCorp] Force-cleaned stale instance lock (pid=${staleOwner.pid}, format=${staleOwner.kind})`,
         );
       } catch {
         // Dev stdout may already be closed; lock cleanup should still proceed.

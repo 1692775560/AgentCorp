@@ -1,6 +1,6 @@
-# AgentCorp 架构设计（Pivot）：以 ClawCorp 为基底 Fork 构建「Agent 绩效/评估」桌面应用
+# AgentCorp 架构设计（Pivot）：以 AgentCorp 为基底 Fork 构建「Agent 绩效/评估」桌面应用
 
-> 本文档回答的命题：把现有独立 Web Demo 版 AgentCorp 废弃，改为 **Fork 开源的 ClawCorp（基于 OpenClaw 的 Electron 桌面 AI 助手，MIT）** 作为代码基底，在其三层 Electron + React + OpenClaw 栈上叠加「让 agent 真干活 + 用 MiniCPM-o 当 HR 总监评估/筛选最能干 agent」的评估层。数据全部本地、评委本机桌面跑，适应昇腾环境。
+> 本文档回答的命题：把现有独立 Web Demo 版 AgentCorp 废弃，改为 **Fork 开源的 AgentCorp（基于 OpenClaw 的 Electron 桌面 AI 助手，MIT）** 作为代码基底，在其三层 Electron + React + OpenClaw 栈上叠加「让 agent 真干活 + 用 MiniCPM-o 当 HR 总监评估/筛选最能干 agent」的评估层。数据全部本地、评委本机桌面跑，适应昇腾环境。
 >
 > 本文只做**架构设计 + 任务分解**，不含实现代码。完成 T01（fork 建仓）后，本文应被提交到新仓库根目录 `docs/architecture-pivot.md`。
 
@@ -14,30 +14,30 @@
 
 | 难点 | 说明 |
 |------|------|
-| 评估原料分散 | ClawCorp 本身无任何绩效/ROI/评估逻辑，但天然拥有原料：`transcript`（agent 产出）按 `sessionKey`/`agentId` 落库于 OpenClaw `sessions/*.jsonl`，`token-usage`（含 `costUsd`/`totalTokens`，按 `agentId` 归因）在 `electron/utils/token-usage-core.ts`。 |
-| 执行主键 `runId` | `chat.send` 返回 `runId`（`electron/services/session-runtime-manager.ts:179`）是「一次执行」主键，但 ClawCorp 的领域模型（`CanonicalTaskExecution`）并未携带 `runId`，需建立 `runId ↔ taskId ↔ agentId` 关联。 |
+| 评估原料分散 | AgentCorp 本身无任何绩效/ROI/评估逻辑，但天然拥有原料：`transcript`（agent 产出）按 `sessionKey`/`agentId` 落库于 OpenClaw `sessions/*.jsonl`，`token-usage`（含 `costUsd`/`totalTokens`，按 `agentId` 归因）在 `electron/utils/token-usage-core.ts`。 |
+| 执行主键 `runId` | `chat.send` 返回 `runId`（`electron/services/session-runtime-manager.ts:179`）是「一次执行」主键，但 AgentCorp 的领域模型（`CanonicalTaskExecution`）并未携带 `runId`，需建立 `runId ↔ taskId ↔ agentId` 关联。 |
 | 评估层与 OpenClaw 解耦 | 评估是叠加层，**不能侵入** OpenClaw Gateway 进程；MiniCPM-o 作为外部 judge，必须可降级（无 NPU → Mock 启发式）。 |
-| 生命周期状态机缺失 | ClawCorp 有 `active/training/maintenance/onboarding/retired` 概念但 `AgentLifecycleStatus` 无正式类型（类型检查不过），`onboarding/retired` 永不赋值。需形式化并扩展为「入职评估 / 软退休」。 |
+| 生命周期状态机缺失 | AgentCorp 有 `active/training/maintenance/onboarding/retired` 概念但 `AgentLifecycleStatus` 无正式类型（类型检查不过），`onboarding/retired` 永不赋值。需形式化并扩展为「入职评估 / 软退休」。 |
 | 废品收敛 + 安全 | 需删除 IM 渠道全家桶、Cron、BroadcastChat 等；Telemetry（PostHog 硬编码 key）必须默认关闭；Gateway 工具执行需收敛为只读/白名单/沙箱；自动更新无签名需禁用。 |
 
 #### 1.2 框架与库选型
 
-- **基底栈（复用 ClawCorp，不替换）**：Electron（主进程 + Preload + OpenClaw Gateway 子进程，WS JSON-RPC 端口 18789）+ React + Vite（`base:'./'`、HashRouter）+ Zustand（stores）+ Tailwind CSS + `electron-store`（本地 JSON 持久化）。
+- **基底栈（复用 AgentCorp，不替换）**：Electron（主进程 + Preload + OpenClaw Gateway 子进程，WS JSON-RPC 端口 18789）+ React + Vite（`base:'./'`、HashRouter）+ Zustand（stores）+ Tailwind CSS + `electron-store`（本地 JSON 持久化）。
 - **渲染层通信抽象（复用）**：`src/lib/api-client.ts` 的 `invokeApi(channel, ...args)`，统一 IPC/WS/HTTP 三通道；评估层一律走 `gateway:rpc` 与新增 Host API 代理，不新增传输层。
 - **评估引擎（移植 AgentCorp，纯函数）**：`metricsEngine.ts`（六维 KPI 聚合）、`roiEngine.ts`（ROI/IPR/SRPC/CPS）、`evaluationAdapter.ts`（事件 → 快照），已验证可单测、无副作用，直接复用，仅把「合成遥测」替换为真实 `transcript` + `token-usage`。
-- **雷达可视化（新增）**：`recharts`（ClawCorp 已用 Tailwind，不引 MUI；recharts 与 React 集成成本低，提供 `RadarChart`）。
+- **雷达可视化（新增）**：`recharts`（AgentCorp 已用 Tailwind，不引 MUI；recharts 与 React 集成成本低，提供 `RadarChart`）。
 - **MiniCPM-o judge（外部服务）**：沿用 AgentCorp 的 `model-service`（Python FastAPI，`/api/evaluate` SSE）。**默认假设本地 NPU、同机 `localhost:8000`**；云端 API 为备选（仅改 `host`/`port` 配置）。前端经 **Electron Host API 代理**（`127.0.0.1:3210` 新增 `/api/evaluate` → 转发 `localhost:8000`）调用，保证模型服务只经 App 暴露、可一键禁用，且复用 `CORS=*` 已放开的事实。
-- **落库（新增）**：`electron-store` 新增两个命名空间：`agentcorp.evaluation`（评估档案）+ `agentcorp.runlinks`（`runId ↔ task` 映射）；与 ClawCorp 既有 `settings` store 隔离。
+- **落库（新增）**：`electron-store` 新增两个命名空间：`agentcorp.evaluation`（评估档案）+ `agentcorp.runlinks`（`runId ↔ task` 映射）；与 AgentCorp 既有 `settings` store 隔离。
 
 #### 1.3 架构模式
 
-- **分层叠加（Add-on Layer）**：ClawCorp 三层不变；新增「评估层」位于渲染层（stores + pages）与 Electron 主进程（Host API 代理 + 落库）两侧，通过既有 IPC/Host-API 边界通信，**不改动 OpenClaw Gateway 内部**。
+- **分层叠加（Add-on Layer）**：AgentCorp 三层不变；新增「评估层」位于渲染层（stores + pages）与 Electron 主进程（Host API 代理 + 落库）两侧，通过既有 IPC/Host-API 边界通信，**不改动 OpenClaw Gateway 内部**。
 - **评估引擎 = 纯函数 + 仓储（Repository）**：指标/ROI 计算无状态；`EvaluationStore` 负责读写本地 JSON。
 - **Strategy/Adapter**：`evaluationAdapter` 统一消费 Mock 与真实 SSE 事件流，零改动切换 judge 实现。
 
 #### 1.4 删除/禁用的废品模块（具体做法）
 
-| 模块 | 位置（ClawCorp 内） | 做法 |
+| 模块 | 位置（AgentCorp 内） | 做法 |
 |------|------|------|
 | IM 渠道全家桶 | `Channels` 页面 + OpenClaw 插件 `dingtalk`/`wecom`/`qqbot`/`feishu`/`weixin` | 删除页面与导航；从 Gateway 插件清单移除 5 个插件配置 |
 | Cron | `src/pages/Cron/*`、`cron:*` 通道 | 删除页面与 `cron` IPC/Host 通道 |
@@ -54,7 +54,7 @@
 
 ### 2. 文件列表（相对路径）
 
-#### 2.A 从 ClawCorp 删除 / 禁用的清单
+#### 2.A 从 AgentCorp 删除 / 禁用的清单
 ```
 src/pages/Channels/                      # 删除（IM 渠道 UI）
 src/pages/Cron/                          # 删除
@@ -111,7 +111,7 @@ model-service/                            # 复用：Python FastAPI，MiniCPM-o 
 - **位置**：`electron-store` 用户数据目录，默认 `<userData>/agentcorp/evaluation.json` 与 `<userData>/agentcorp/runlinks.json`（明文 JSON；加密为待明确项，见 §5/待明确）。
 - **`agentcorp.evaluation`**：以 `agentId` 为键，值 = `EvaluationProfile`（含 `radarHistory[]`、`latestRoi`、`kpiHistory[]`、`lifecycle`、`runIds[]`、`updatedAt`）。
 - **`agentcorp.runlinks`**：以 `runId` 为键，值 = `RunTaskLink { runId, taskId, agentId, sessionKey, sessionId, evaluatedAt }`。
-- **与 ClawCorp 隔离**：不碰 OpenClaw 的 `sessions/*.jsonl`（只读读取），不碰既有 `settings` store。
+- **与 AgentCorp 隔离**：不碰 OpenClaw 的 `sessions/*.jsonl`（只读读取），不碰既有 `settings` store。
 
 ---
 
@@ -119,7 +119,7 @@ model-service/                            # 复用：Python FastAPI，MiniCPM-o 
 
 ```mermaid
 classDiagram
-  %% ===== 领域模型（扩展 ClawCorp） =====
+  %% ===== 领域模型（扩展 AgentCorp） =====
   class Agent {
     +id: string
     +name: string
@@ -148,7 +148,7 @@ classDiagram
     +status: TaskExecutionStatus
   }
 
-  %% ===== 生命周期（形式化，替代 ClawCorp 缺失类型） =====
+  %% ===== 生命周期（形式化，替代 AgentCorp 缺失类型） =====
   class AgentLifecycleStatus {
     <<enum>>
     onboarding
@@ -424,8 +424,8 @@ sequenceDiagram
 - **数据落库加密**：`electron-store` 默认明文；「数据安全」是否要求加密（如 `electron-store` + `crypto`/系统钥匙串）待定。
 - **评估触发时机**：每次任务自动评估 vs 手动/周期性擂台（影响 NPU 负载与性能），默认「手动触发 + 周期擂台」。
 - **`cost` 维融合 λ**：客观 CPS 与主观雷达 `cost` 维融合权重 λ 默认 0.5（治理可调高至 0.8 重客观）。
-- **ClawCorp `rating` 字段**：Marketplace 现有单一 `rating` 小数，六维雷达上线后是否保留 `rating` 作汇总分待定（建议由 `radar` 加权得出）。
-- **`AgentLifecycleStatus` 与 `LifecycleState` 对齐**：采用 ClawCorp 小写命名（`onboarding/active/training/maintenance/retired`）作为唯一真相，评估层 `LifecycleState`（大写）仅作内部别名，避免双源。
+- **AgentCorp `rating` 字段**：Marketplace 现有单一 `rating` 小数，六维雷达上线后是否保留 `rating` 作汇总分待定（建议由 `radar` 加权得出）。
+- **`AgentLifecycleStatus` 与 `LifecycleState` 对齐**：采用 AgentCorp 小写命名（`onboarding/active/training/maintenance/retired`）作为唯一真相，评估层 `LifecycleState`（大写）仅作内部别名，避免双源。
 
 ---
 
@@ -433,7 +433,7 @@ sequenceDiagram
 
 ### 6. 依赖包列表
 
-**ClawCorp 已有（继续复用）**
+**AgentCorp 已有（继续复用）**
 ```
 electron                 # 桌面壳（主进程/Preload/Gateway 子进程）
 react / react-dom        # 渲染层
@@ -484,7 +484,7 @@ modelscope              # 权重拉取（备选）
 ### 8. 共享知识（跨文件约定）
 
 - **评估档案存储位置**：`electron-store` 命名空间 `agentcorp.evaluation`（键=agentId）与 `agentcorp.runlinks`（键=runId）；位于用户数据目录，明文 JSON（加密见待明确）。OpenClaw `sessions/*.jsonl` 仅**只读**读取。
-- **生命周期状态机约定**：唯一真相 = ClawCorp 小写 `AgentLifecycleStatus`（`onboarding|active|training|maintenance|retired`）。`deleteAgent`（Marketplace 辞退）改为**软退休**（`lifecycle=retired`），不物理删除。`verdict→lifecycle`：`FIRED→retired`，`MVP/OBSERVE→active`，由 `evaluationAdapter.applyVerdict` 统一映射。
+- **生命周期状态机约定**：唯一真相 = AgentCorp 小写 `AgentLifecycleStatus`（`onboarding|active|training|maintenance|retired`）。`deleteAgent`（Marketplace 辞退）改为**软退休**（`lifecycle=retired`），不物理删除。`verdict→lifecycle`：`FIRED→retired`，`MVP/OBSERVE→active`，由 `evaluationAdapter.applyVerdict` 统一映射。
 - **MiniCPM-o 调用失败降级**：无 NPU / 云端不可达时，model-service `MOCK=true` 返回启发式；若 Host API 代理返回 503，`JudgeClient.fallbackMock` 用 `metricsEngine` 客观 KPI 归一化到 0–5 本地兜底，**保证离线可用**。
 - **事件契约恒定**：`EvaluationEvent`（radar_update/narration/audio/verdict/done）前后端严格镜像（`src/types/index.ts` ↔ `model-service/app/schemas.py`），任一端改动须同步另一端。
 - **执行主键**：`runId` 来自 `gateway.rpc('chat.send')` 返回值，是评估关联的锚点；`runId` 必须经 `RunTaskLink` 与 `taskId/agentId/sessionKey` 绑定后才触发评估。
@@ -514,9 +514,9 @@ graph TD
 
 ## 关键架构决策（摘要，详见正文）
 
-1. **评估层叠加而非侵入**：在 ClawCorp 三层 Electron 之上叠加评估层，MiniCPM-o 作为外部 `localhost:8000` SSE judge，经 Host API 代理暴露、默认可降级 Mock；OpenClaw Gateway 内部零改动。
+1. **评估层叠加而非侵入**：在 AgentCorp 三层 Electron 之上叠加评估层，MiniCPM-o 作为外部 `localhost:8000` SSE judge，经 Host API 代理暴露、默认可降级 Mock；OpenClaw Gateway 内部零改动。
 2. **数据全本地、Telemetry 默认关**：评估档案与 `runId↔task` 映射用 `electron-store`（本地 JSON），不引入中心化后端；遥测默认关闭，满足「数据本地、安全」。
-3. **生命周期状态机形式化 + 软退休**：补齐 ClawCorp 缺失的 `AgentLifecycleStatus` 类型，`deleteAgent` 改软退休，`verdict→lifecycle` 复用现有 `approvals.ts` 治理内核。
+3. **生命周期状态机形式化 + 软退休**：补齐 AgentCorp 缺失的 `AgentLifecycleStatus` 类型，`deleteAgent` 改软退休，`verdict→lifecycle` 复用现有 `approvals.ts` 治理内核。
 4. **复用而非重写评估引擎**：直接移植 AgentCorp 已验证的 `metricsEngine`/`roiEngine`/`evaluationAdapter` 纯函数，仅把合成遥测替换为真实 `transcript`+`token-usage`。
 5. **废品收敛 + 安全收紧**：删除 IM 渠道全家桶/Cron/Broadcast/Activity/Skills UI/TaskKanban；Gateway 工具执行收敛为只读/白名单/沙箱；自动更新禁用（无签名）。
 
@@ -526,8 +526,8 @@ graph TD
 
 1. **MiniCPM-o 最终部署**：本地 Ascend NPU（同机 `localhost:8000`，默认）还是云端 API？影响 `model-service` 部署位置与 Electron 打包是否含模型权重。
 2. **是否保留 Skills 运行时**：本设计「仅禁用 Skills/MCP 浏览器 UI、运行时保留」；若彻底移除运行时可进一步缩小攻击面与体积，需确认。
-3. **Web 端是否同期做**：ClawCorp 的 Host API（`127.0.0.1:3210`）可支撑 Web 对接，但本设计聚焦桌面；是否同期维护 Web 端待定。
+3. **Web 端是否同期做**：AgentCorp 的 Host API（`127.0.0.1:3210`）可支撑 Web 对接，但本设计聚焦桌面；是否同期维护 Web 端待定。
 4. **模型权重来源与许可**：MiniCPM-o 4.5 权重下载渠道、商业使用许可（与 MIT 基底的兼容）。
 5. **评估触发时机与频率**：每次任务自动评估 vs 手动/周期擂台（默认手动+周期，影响 NPU 负载）。
 6. **落库加密要求**：`electron-store` 是否需加密以满足「数据安全」（建议系统钥匙串/字段级加密）。
-7. **许可声明**：Fork ClawCorp（MIT）后 AgentCorp 的许可与对朋友的致谢声明方式（用户已明确无需 README cite，但 LICENSE/NOTICE 处理待确认）。
+7. **许可声明**：Fork AgentCorp（MIT）后 AgentCorp 的许可与对朋友的致谢声明方式（用户已明确无需 README cite，但 LICENSE/NOTICE 处理待确认）。

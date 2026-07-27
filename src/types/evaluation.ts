@@ -2,7 +2,7 @@
  * src/types/evaluation.ts
  * ★ AgentCorp 评估层单一类型真相源（Single Source of Truth）。
  *
- * 移植自原 Web Demo 的 src/types/index.ts，作为 AgentCorp（基于 ClawCorp 基底）
+ * 移植自原 Web Demo 的 src/types/index.ts，作为 AgentCorp（基于 AgentCorp 基底）
  * 评估层的契约根。前端 TS 与后端 `model-service/app/schemas.py`（待扩展）严格镜像。
  *
  * 关键契约：
@@ -10,7 +10,7 @@
  * - EvaluationEvent：SSE 事件流联合类型，五种事件
  *   radar_update / narration / audio / verdict / done。
  *
- * 注：ClawCorp 基底的 src/types 下无 index.ts，评估类型统一收敛到此文件，
+ * 注：AgentCorp 基底的 src/types 下无 index.ts，评估类型统一收敛到此文件，
  * 其余领域类型见 src/types/agent.ts 等。
  */
 

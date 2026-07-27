@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-export const PINNED_SESSIONS_STORAGE_KEY = 'clawcorp-sidebar-pinned-sessions';
+export const PINNED_SESSIONS_STORAGE_KEY = 'agentcorp-sidebar-pinned-sessions';
 const LEGACY_PINNED_SESSIONS_STORAGE_KEY = 'clawx-sidebar-pinned-sessions';
-const PINNED_SESSIONS_EVENT = 'clawcorp:pinned-sessions-updated';
+const PINNED_SESSIONS_EVENT = 'agentcorp:pinned-sessions-updated';
 
 function parsePinnedSessionKeys(raw: string | null): string[] {
   if (!raw) return [];

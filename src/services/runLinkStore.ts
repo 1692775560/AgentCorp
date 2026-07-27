@@ -4,7 +4,7 @@
  *
  * 命名空间：`agentcorp.runlinks`（默认落盘 <userData>/agentcorp.runlinks.json）。
  * 键 = runId，值 = RunTaskLink（runId ↔ taskId ↔ agentId ↔ session）。
- * 与评估档案 store、ClawCorp 既有 `settings` store 三向隔离
+ * 与评估档案 store、AgentCorp 既有 `settings` store 三向隔离
  * （见 docs/architecture-pivot.md §2.D / §3 / §8）。
  *
  * 沿用 electron/utils/store.ts 的 lazy-load 模式（动态 import electron-store）。

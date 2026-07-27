@@ -25,9 +25,9 @@ import { useGatewayStore } from '@/stores/gateway';
 import { useSettingsStore } from '@/stores/settings';
 import { resolveSessionDisplayLabel } from '@/lib/session-label';
 
-const NICKNAME_STORAGE_KEY = 'clawcorp-user-nickname';
+const NICKNAME_STORAGE_KEY = 'agentcorp-user-nickname';
 const LEGACY_NICKNAME_STORAGE_KEY = 'clawx-user-nickname';
-const AVATAR_STORAGE_KEY = 'clawcorp-user-avatar';
+const AVATAR_STORAGE_KEY = 'agentcorp-user-avatar';
 const LEGACY_AVATAR_STORAGE_KEY = 'clawx-user-avatar';
 
 type NavItemConfig = {
