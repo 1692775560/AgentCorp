@@ -1,5 +1,5 @@
 classDiagram
-  %% ===== 领域模型（扩展 ClawCorp） =====
+  %% ===== 领域模型（扩展 AgentCorp） =====
   class Agent {
     +id: string
     +name: string
@@ -28,7 +28,7 @@ classDiagram
     +status: TaskExecutionStatus
   }
 
-  %% ===== 生命周期（形式化，替代 ClawCorp 缺失类型） =====
+  %% ===== 生命周期（形式化，替代 AgentCorp 缺失类型） =====
   class AgentLifecycleStatus {
     <<enum>>
     onboarding

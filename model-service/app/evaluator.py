@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -25,6 +26,7 @@ from .schemas import (
     Aesthetic,
     CandidateProfile,
     EvaluationRequest,
+    JudgeRunRequest,
     RadarScore,
     RadarDim,
     UserPreference,
@@ -452,4 +454,171 @@ async def evaluate(
             yield ev
         return
     async for ev in _stream_real(req):
+        yield ev
+
+
+# ======================================================================
+# 6) 运行期裁判（/api/evaluate-run）：transcript + usage → 同构 SSE 流
+# ======================================================================
+def _clamp(value: float, lo: float = 0.0, hi: float = 5.0) -> float:
+    return max(lo, min(hi, value))
+
+
+def _derive_run_radar(req: JudgeRunRequest) -> RadarScore:
+    """
+    Mock 回退：基于真实 usage（成本）+ agent_id 确定性哈希派生六维雷达。
+    成本维直接由真实总花费折算（预算 1.0 USD 为基准，越低越高分）；
+    其余维由 agent_id 哈希确定，保证可复现演示。
+    """
+    usage = req.usage or []
+    total_cost = sum(float(u.get("costUsd", 0) or 0) for u in usage)
+    h = int(hashlib.md5(req.agent_id.encode("utf-8")).hexdigest(), 16)
+
+    def jitter(shift: int, base: float) -> float:
+        return base + ((h >> shift) % 1000) / 1000.0 * 2.0
+
+    task = jitter(0, 3.0)
+    quality = jitter(3, 3.0)
+    comm = jitter(6, 2.5)
+    creativity = jitter(9, 2.5)
+    reliability = jitter(12, 3.0)
+    cost_score = 5.0 - (total_cost / 1.0) * 5.0
+    cost = cost_score if total_cost > 0 else 3.0
+
+    return RadarScore(
+        task=_clamp(task),
+        quality=_clamp(quality),
+        comm=_clamp(comm),
+        creativity=_clamp(creativity),
+        reliability=_clamp(reliability),
+        cost=_clamp(cost),
+    )
+
+
+def _verdict_from_radar(radar: RadarScore) -> Verdict:
+    avg = sum(getattr(radar, d) for d in RADAR_DIMS) / len(RADAR_DIMS)
+    if avg >= 4.0:
+        return Verdict.MVP
+    if avg >= 2.5:
+        return Verdict.OBSERVE
+    return Verdict.FIRED
+
+
+def _default_pref() -> UserPreference:
+    return UserPreference()
+
+
+def _build_run_prompt(req: JudgeRunRequest) -> str:
+    """将 transcript + usage + task 拼为模型推理提示词。"""
+    usage = req.usage or []
+    total_tokens = sum(int(u.get("totalTokens", 0) or 0) for u in usage)
+    total_cost = sum(float(u.get("costUsd", 0) or 0) for u in usage)
+    transcript = (req.transcript or "").strip()
+    snippet = transcript[:4000] if transcript else "(无转录)"
+    return (
+        f"评估 agent：{req.agent_name or req.agent_id}\n"
+        f"任务：{req.task.title}（{req.task.description}）\n"
+        f"真实用量：tokens={total_tokens}，cost=${total_cost:.4f}，样本数={len(usage)}\n"
+        f"转录片段：\n{snippet}\n\n"
+        "请基于上述真实运行数据，输出 JSON："
+        "{\"radar\":{task,quality,comm,creativity,reliability,cost},"
+        "\"verdict\":\"MVP|OBSERVE|FIRED\",\"confidence\":0-1,"
+        "\"evidence_trace\":[...],\"narration\":\"...\"}"
+    )
+
+
+async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
+    """Mock 运行期裁判流：雷达逐维点亮 → 判定 → done。"""
+    radar = _derive_run_radar(req)
+    for dim in RADAR_DIMS:
+        await asyncio.sleep(0.3)
+        yield {
+            "type": "radar_update",
+            "dim": dim,
+            "score": float(getattr(radar, dim)),
+            "confidence": 0.85,
+            "evidence": f"{dim} 由真实用量/画像派生（mock 回退）",
+        }
+
+    verdict = _verdict_from_radar(radar)
+    avg = sum(getattr(radar, d) for d in RADAR_DIMS) / len(RADAR_DIMS)
+    user_fit = round(avg * 20, 1)
+    total_cost = sum(float(u.get("costUsd", 0) or 0) for u in (req.usage or []))
+    await asyncio.sleep(0.3)
+    yield {
+        "type": "verdict",
+        "verdict": verdict.value,
+        "user_fit": user_fit,
+        "evidence_trace": [
+            f"total_cost≈${total_cost:.4f}",
+            f"avg_radar={avg:.2f}",
+            f"source=mock-run（MOCK=true 或模型不可用）",
+        ],
+        "confidence": 0.85,
+    }
+
+    await asyncio.sleep(0.2)
+    yield {"type": "done", "evaluation_id": f"mock-run-{req.agent_id}-{id(req)}"}
+
+
+async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
+    """真实运行期裁判流（需模型可用）。"""
+    model = get_model()
+    if not model.available:
+        raise RuntimeError("真实推理不可用：模型未加载（无 NPU / 未配置权重）。请设置 MOCK=true。")
+    messages = [{"role": "user", "content": _build_run_prompt(req)}]
+    media = {"transcript": req.transcript, "usage": req.usage}
+    raw = infer(media, messages)
+    parsed = parse_output(raw)
+
+    for dim in RADAR_DIMS:
+        yield {
+            "type": "radar_update",
+            "dim": dim,
+            "score": float(getattr(parsed["radar"], dim)),
+            "confidence": parsed["confidence"],
+            "evidence": (
+                parsed["evidence_trace"][0]
+                if parsed["evidence_trace"]
+                else f"{dim} 由模型推断"
+            ),
+        }
+
+    fit, evidence = compute_user_fit(parsed["radar"], _default_pref(), 200.0, [], None)
+    yield {
+        "type": "verdict",
+        "verdict": parsed["verdict"].value,
+        "user_fit": fit,
+        "evidence_trace": parsed["evidence_trace"] + evidence,
+        "confidence": parsed["confidence"],
+    }
+    yield {"type": "done", "evaluation_id": f"real-run-{req.agent_id}-{id(req)}"}
+
+
+async def evaluate_run(
+    req: JudgeRunRequest, mode: str = "auto"
+) -> AsyncGenerator[Dict, None]:
+    """
+    运行期裁判入口，产出与 /api/evaluate 同构的 EvaluationEvent dict 流
+    （radar_update ×6 + verdict + done）。
+
+    mode：
+      - "mock"：强制 Mock 派生（无 NPU 演示/测试）。
+      - "real"：强制真实推理（模型不可用会抛错）。
+      - "auto"（默认）：settings.mock 或模型不可用时走 Mock，否则走真实。
+    """
+    if mode == "mock":
+        async for ev in _stream_mock_run(req):
+            yield ev
+        return
+    if mode == "real":
+        async for ev in _stream_real_run(req):
+            yield ev
+        return
+    model = get_model()
+    if settings.mock or not model.available:
+        async for ev in _stream_mock_run(req):
+            yield ev
+        return
+    async for ev in _stream_real_run(req):
         yield ev

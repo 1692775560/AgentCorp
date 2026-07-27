@@ -179,7 +179,7 @@ export function buildGatewayConnectFrame(options: {
         maxProtocol: 3,
         client: {
           id: clientId,
-          displayName: 'ClawCorp',
+          displayName: 'AgentCorp',
           version: '0.1.0',
           platform: options.platform,
           mode: clientMode,

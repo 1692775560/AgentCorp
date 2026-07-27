@@ -110,11 +110,11 @@
     },
     "mcp": {
         "title": "MCP 服务",
-        "description": "管理 ClawCorp 可调用的 MCP 服务；启用后即可暴露工具，同时保留 runtime 控制与日志。",
+        "description": "管理 AgentCorp 可调用的 MCP 服务；启用后即可暴露工具，同时保留 runtime 控制与日志。",
         "dialog": {
             "addTitle": "添加 MCP 服务",
             "editTitle": "编辑 MCP 服务",
-            "subtitle": "配置 ClawCorp 可调用的本地或远程 MCP 服务连接参数。",
+            "subtitle": "配置 AgentCorp 可调用的本地或远程 MCP 服务连接参数。",
             "close": "关闭",
             "cancel": "取消",
             "save": "保存",

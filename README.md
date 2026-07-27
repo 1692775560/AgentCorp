@@ -12,10 +12,10 @@
 
 ```bash
 # 1) 安装依赖
-npm install
+pnpm install
 
 # 2) 启动前端（默认 Mock 模式）
-npm run dev
+pnpm dev
 ```
 
 打开浏览器访问 `http://localhost:5173`：
@@ -92,7 +92,7 @@ docker compose up --build        # 默认 MOCK=true
 
 # 4) 前端切真实模式
 #    .env => VITE_MOCK=false   VITE_API_BASE=http://<npu-host>:8000
-npm run dev
+pnpm dev
 ```
 
 无 NPU 时若 `MOCK=false` 且模型不可用，`/api/evaluate` 返回 `503` 并给出明确错误，不会静默崩溃。

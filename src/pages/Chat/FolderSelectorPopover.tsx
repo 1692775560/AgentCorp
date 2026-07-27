@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { FolderPlus, Clock, Folder, ChevronRight } from 'lucide-react';
 import { invokeIpc } from '@/lib/api-client';
 
-const RECENT_KEY = 'clawcorp-recent-cwds';
+const RECENT_KEY = 'agentcorp-recent-cwds';
 const LEGACY_RECENT_KEY = 'clawx-recent-cwds';
 const MAX_RECENT = 10;
 

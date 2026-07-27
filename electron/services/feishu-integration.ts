@@ -240,8 +240,8 @@ async function fetchAuthorizedUserOpenId(brand: string, accessToken: string): Pr
 
 function buildFeishuAppPermissionUrl(appId: string, scopes: string[], tokenType: 'tenant' | 'user'): string {
   const suffix = scopes.length > 0
-    ? `?q=${encodeURIComponent(scopes.join(','))}&op_from=clawcorp&token_type=${tokenType}`
-    : `?op_from=clawcorp&token_type=${tokenType}`;
+    ? `?q=${encodeURIComponent(scopes.join(','))}&op_from=agentcorp&token_type=${tokenType}`
+    : `?op_from=agentcorp&token_type=${tokenType}`;
   return `https://open.feishu.cn/app/${appId}/auth${suffix}`;
 }
 

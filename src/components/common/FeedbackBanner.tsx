@@ -14,7 +14,7 @@ interface FeedbackBannerProps {
   dismissLabel?: string;
 }
 
-const STORAGE_PREFIX = 'clawcorp:feedback-banner:';
+const STORAGE_PREFIX = 'agentcorp:feedback-banner:';
 const LEGACY_STORAGE_PREFIX = 'clawx:feedback-banner:';
 
 const TONE_STYLES: Record<FeedbackBannerTone, string> = {

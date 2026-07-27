@@ -1,7 +1,7 @@
 # ============================================================
 # AgentCorp .gitignore (merged)
-# Base: ClawCorp Electron base + AgentCorp eval/Python additions.
-# Kept AgentCorp's QA/marketplace/Python entries; added ClawCorp's
+# Base: AgentCorp Electron base + AgentCorp eval/Python additions.
+# Kept AgentCorp's QA/marketplace/Python entries; added AgentCorp's
 # Electron build/secrets entries. No credentials or build output
 # are ever committed.
 # ============================================================

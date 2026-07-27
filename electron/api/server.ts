@@ -8,18 +8,17 @@ import { handleGatewayRoutes } from './routes/gateway';
 import { handleSettingsRoutes } from './routes/settings';
 import { handleProviderRoutes } from './routes/providers';
 import { handleAgentRoutes } from './routes/agents';
-import { handleChannelRoutes } from './routes/channels';
 import { handleLogRoutes } from './routes/logs';
 import { handleUsageRoutes } from './routes/usage';
 import { handleSkillRoutes } from './routes/skills';
 import { handleFileRoutes } from './routes/files';
 import { handleSessionRoutes } from './routes/sessions';
-import { handleCronRoutes } from './routes/cron';
 import { handleApprovalRoutes } from './routes/approvals';
 import { handleHealthRoutes } from './routes/health';
 import { handleMemoryRoutes } from './routes/memory';
 import { handleMcpRoutes } from './routes/mcp';
 import { handleCostsRoutes } from './routes/costs';
+import { handleEvaluateRoutes } from './routes/evaluate';
 import { handleAlertsRoutes } from './routes/alerts';
 import { handleFeishuRoutes } from './routes/feishu';
 import { handleTeamRoutes } from './routes/teams';
@@ -41,16 +40,15 @@ const routeHandlers: RouteHandler[] = [
   handleAgentRoutes,
   handleTeamRoutes,
   handleTaskRoutes,
-  handleChannelRoutes,
   handleSkillRoutes,
   handleFileRoutes,
   handleSessionRoutes,
-  handleCronRoutes,
   handleApprovalRoutes,
   handleHealthRoutes,
   handleMemoryRoutes,
   handleMcpRoutes,
   handleCostsRoutes,
+  handleEvaluateRoutes,
   handleAlertsRoutes,
   handleFeishuRoutes,
   handleLogRoutes,

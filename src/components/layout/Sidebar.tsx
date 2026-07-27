@@ -1,19 +1,15 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
-  Bell,
-  Bot,
+  BarChart3,
   ChevronRight,
   LayoutDashboard,
   MessageSquare,
   PanelLeft,
   PanelLeftClose,
-  Pin,
   Plus,
-  Radio,
   Search,
   Settings as SettingsIcon,
   Store,
-  Trash2,
   Users,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -24,19 +20,14 @@ import { SessionSearchModal } from '@/components/sessions/SessionSearchModal';
 import { cn } from '@/lib/utils';
 import { usePinnedSessions } from '@/lib/pinned-sessions';
 import { useAgentsStore } from '@/stores/agents';
-import { useChannelsStore } from '@/stores/channels';
 import { useChatStore } from '@/stores/chat';
 import { useGatewayStore } from '@/stores/gateway';
 import { useSettingsStore } from '@/stores/settings';
-import { useRightPanelStore } from '@/stores/rightPanelStore';
-import { CHANNEL_ICONS, type Channel } from '@/types/channel';
 import { resolveSessionDisplayLabel } from '@/lib/session-label';
 
-const CHAT_REQUEST_FILE_UPLOAD_EVENT = 'chat:request-file-upload';
-const CHAT_UPLOAD_PENDING_KEY = 'clawcorp:pending-upload';
-const NICKNAME_STORAGE_KEY = 'clawcorp-user-nickname';
+const NICKNAME_STORAGE_KEY = 'agentcorp-user-nickname';
 const LEGACY_NICKNAME_STORAGE_KEY = 'clawx-user-nickname';
-const AVATAR_STORAGE_KEY = 'clawcorp-user-avatar';
+const AVATAR_STORAGE_KEY = 'agentcorp-user-avatar';
 const LEGACY_AVATAR_STORAGE_KEY = 'clawx-user-avatar';
 
 type NavItemConfig = {
@@ -44,45 +35,6 @@ type NavItemConfig = {
   path: string;
   icon: typeof LayoutDashboard;
 };
-
-function SectionHeader({
-  icon: Icon,
-  label,
-  open,
-  onToggle,
-  collapsed,
-}: {
-  icon: typeof Radio;
-  label: string;
-  open: boolean;
-  onToggle: () => void;
-  collapsed: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onToggle}
-      className={cn(
-        'flex h-12 w-full items-center gap-4 rounded-2xl px-4 text-sm font-bold transition-all duration-300 text-gray-400 hover:bg-white hover:text-[#1A1C1E]',
-        collapsed && 'justify-center px-2',
-      )}
-    >
-      <Icon className="h-5 w-5 shrink-0" />
-      {!collapsed ? (
-        <>
-          <span className="flex-1 truncate text-left">{label}</span>
-          <ChevronRight
-            className={cn(
-              'h-4 w-4 shrink-0 text-gray-300 transition-transform',
-              open && 'rotate-90',
-            )}
-          />
-        </>
-      ) : null}
-    </button>
-  );
-}
 
 function SessionSectionHeader({
   label,
@@ -198,14 +150,8 @@ export function Sidebar() {
 
   const agents = useAgentsStore((state) => state.agents);
   const fetchAgents = useAgentsStore((state) => state.fetchAgents);
-  const { channels, fetchChannels } = useChannelsStore();
   const { pinnedSessionKeySet, toggleSessionPinned } = usePinnedSessions();
-  const activeChannelId = useRightPanelStore((state) => state.activeChannelId);
-  const setActiveChannelId = useRightPanelStore((state) => state.setActiveChannelId);
-  const setPendingBotSettings = useRightPanelStore((state) => state.setPendingBotSettings);
-  const setPendingAddChannel = useRightPanelStore((state) => state.setPendingAddChannel);
 
-  const [channelsOpen, setChannelsOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(true);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -249,10 +195,6 @@ export function Sidebar() {
   }, [fetchAgents]);
 
   useEffect(() => {
-    void fetchChannels();
-  }, [fetchChannels]);
-
-  useEffect(() => {
     if (gatewayStatus.state !== 'running') return;
     void loadSessions();
     void loadHistory(true);
@@ -290,6 +232,11 @@ export function Sidebar() {
       label: tSidebar('taskBoard', 'Task board'),
       path: '/kanban',
       icon: LayoutDashboard,
+    },
+    {
+      label: tSidebar('evaluation', 'Evaluation'),
+      path: '/evaluation',
+      icon: BarChart3,
     },
   ];
 
@@ -341,16 +288,6 @@ export function Sidebar() {
     reportsTo: agent.reportsTo,
     isDefault: agent.isDefault,
   }));
-
-  const handleUploadClick = () => {
-    try {
-      sessionStorage.setItem(CHAT_UPLOAD_PENDING_KEY, '1');
-    } catch {
-      // ignore storage write issues
-    }
-    navigate('/');
-    window.dispatchEvent(new CustomEvent(CHAT_REQUEST_FILE_UPLOAD_EVENT));
-  };
 
   const handleNewSession = () => {
     setSessionsOpen(true);
@@ -406,112 +343,6 @@ export function Sidebar() {
       </div>
 
       <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar">
-        <div className="space-y-1">
-          <SectionHeader
-            icon={Radio}
-            label={tSidebar('channels', 'Channels')}
-            open={channelsOpen}
-            onToggle={() => setChannelsOpen((current) => !current)}
-            collapsed={sidebarCollapsed}
-          />
-          {!sidebarCollapsed && channelsOpen ? (
-            <div className="space-y-1 pl-4 pr-2 py-1">
-              {(() => {
-                const sortedBots = [...channels].sort((a, b) => {
-                  if (a.status === 'connected' && b.status !== 'connected') return -1;
-                  if (a.status !== 'connected' && b.status === 'connected') return 1;
-                  return a.name.localeCompare(b.name);
-                });
-
-                if (sortedBots.length === 0) {
-                  return (
-                    <>
-                      <p className="px-4 py-2 text-[13px] text-gray-400">
-                        {tSidebar('noChannels', 'No channels configured')}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPendingAddChannel(true);
-                          navigate('/channels');
-                        }}
-                        className="flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] font-bold text-gray-400 transition-all hover:bg-white hover:text-[#1A1C1E]"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>添加渠道</span>
-                      </button>
-                    </>
-                  );
-                }
-
-                return (
-                  <>
-                    {sortedBots.map((bot) => {
-                      const isActive = bot.id === activeChannelId;
-                      const icon = CHANNEL_ICONS[bot.type] ?? '🔌';
-                      const statusDotColor =
-                        bot.status === 'connected'
-                          ? 'bg-[#10b981]'
-                          : bot.status === 'connecting'
-                            ? 'bg-[#f59e0b]'
-                            : bot.status === 'error'
-                              ? 'bg-[#ef4444]'
-                              : 'bg-[#94a3b8]';
-
-                      return (
-                        <div
-                          key={bot.id}
-                          className={cn(
-                            'flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[14px] transition-all duration-300',
-                            isActive
-                              ? 'bg-[#FFD233]/20 text-[#1A1C1E] font-bold'
-                              : 'text-gray-400 hover:bg-white hover:text-[#1A1C1E]',
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveChannelId(bot.id);
-                              navigate('/channels');
-                            }}
-                            className="flex min-w-0 flex-1 items-center gap-2"
-                          >
-                            <span className="shrink-0 text-[14px]">{icon}</span>
-                            <span className="truncate text-[13px]">{bot.name}</span>
-                            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', statusDotColor)} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveChannelId(bot.id);
-                              setPendingBotSettings(bot.id);
-                              navigate('/channels');
-                            }}
-                            className="shrink-0 text-[12px] text-gray-300 hover:text-[#1A1C1E]"
-                            aria-label="设置"
-                          >
-                            ⚙
-                          </button>
-                        </div>
-                      );
-                    })}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPendingAddChannel(true);
-                        navigate('/channels');
-                      }}
-                      className="flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-[13px] font-bold text-gray-400 transition-all hover:bg-white hover:text-[#1A1C1E]"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      <span>添加渠道</span>
-                    </button>
-                  </>
-                );
-              })()}
-            </div>
-          ) : null}
-        </div>
 
         <div className="mt-4 space-y-1">
           <SessionSectionHeader

@@ -41,29 +41,29 @@ export function getOpenClawSkillsDir(): string {
 }
 
 /**
- * Get ClawCorp config directory
+ * Get AgentCorp config directory
  */
-export function getClawCorpConfigDir(): string {
-  const clawcorpDir = join(homedir(), '.clawcorp');
+export function getAgentCorpConfigDir(): string {
+  const agentcorpDir = join(homedir(), '.agentcorp');
   const legacyClawxDir = join(homedir(), '.clawx');
-  if (existsSync(clawcorpDir)) {
-    return clawcorpDir;
+  if (existsSync(agentcorpDir)) {
+    return agentcorpDir;
   }
   if (existsSync(legacyClawxDir)) {
     return legacyClawxDir;
   }
-  return clawcorpDir;
+  return agentcorpDir;
 }
 
 /**
- * Get ClawCorp logs directory
+ * Get AgentCorp logs directory
  */
 export function getLogsDir(): string {
   return join(app.getPath('userData'), 'logs');
 }
 
 /**
- * Get ClawCorp data directory
+ * Get AgentCorp data directory
  */
 export function getDataDir(): string {
   return app.getPath('userData');

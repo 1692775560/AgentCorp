@@ -1,6 +1,6 @@
 {
     "title": "Agents",
-    "subtitle": "When adding a new Agent, ClawCorp will copy the main Agent's workspace files and runtime auth setup. The configuration can be modified through a dialog.",
+    "subtitle": "When adding a new Agent, AgentCorp will copy the main Agent's workspace files and runtime auth setup. The configuration can be modified through a dialog.",
     "refresh": "Refresh",
     "addAgent": "Add Agent",
     "gatewayWarning": "Gateway service is not running. Agent/channel changes may take a moment to apply.",
@@ -14,13 +14,13 @@
     "creating": "Creating...",
     "createDialog": {
         "title": "Add Agent",
-        "description": "Create a new agent by name. ClawCorp will copy the main agent's workspace bootstrap files and runtime auth setup.",
+        "description": "Create a new agent by name. AgentCorp will copy the main agent's workspace bootstrap files and runtime auth setup.",
         "nameLabel": "Agent Name",
         "namePlaceholder": "Coding Helper"
     },
     "deleteDialog": {
         "title": "Delete Agent",
-        "message": "Delete \"{{name}}\" from ClawCorp? This permanently deletes the agent and its ClawCorp-managed workspace, runtime, and session files from disk."
+        "message": "Delete \"{{name}}\" from AgentCorp? This permanently deletes the agent and its AgentCorp-managed workspace, runtime, and session files from disk."
     },
     "settingsDialog": {
         "title": "{{name}} Settings",
@@ -29,7 +29,7 @@
         "agentIdLabel": "Agent ID",
         "modelLabel": "Model",
         "channelsTitle": "Channels",
-        "channelsDescription": "Each channel type has a single ClawCorp configuration. Saving a configured channel here moves ownership to this agent.",
+        "channelsDescription": "Each channel type has a single AgentCorp configuration. Saving a configured channel here moves ownership to this agent.",
         "addChannel": "Add Channel",
         "noChannels": "No channels are assigned to this agent yet."
     },
@@ -64,7 +64,7 @@
         "linkLabel": "Details",
         "backToAgents": "Back to agents",
         "notFoundTitle": "Agent not found",
-        "notFoundDescription": "The requested agent does not exist in the current ClawCorp snapshot.",
+        "notFoundDescription": "The requested agent does not exist in the current AgentCorp snapshot.",
         "loading": "Loading agent details...",
         "kicker": "Agent detail",
         "noPersona": "No persona configured.",
@@ -75,7 +75,7 @@
         "agentDir": "Agent directory",
         "mainSessionKey": "Main session key",
         "hierarchy": "Hierarchy",
-        "rootSummary": "This is the root ClawCorp agent.",
+        "rootSummary": "This is the root AgentCorp agent.",
         "reportsToSummary": "{{name}} reports to {{parent}}",
         "reportsTo": "Reports to",
         "directReports": "Direct reports",
@@ -114,7 +114,7 @@
     },
     "removeChannelDialog": {
         "title": "Remove Channel",
-        "message": "Remove {{name}} from ClawCorp? This deletes the current channel configuration."
+        "message": "Remove {{name}} from AgentCorp? This deletes the current channel configuration."
     },
     "toast": {
         "agentCreated": "Agent created",

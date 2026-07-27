@@ -26,7 +26,7 @@ import {
 import { OPENCLAW_WECHAT_CHANNEL_TYPE } from './channel-alias';
 import { withConfigLock } from './config-mutex';
 import { logger } from './logger';
-import { migrateClawCorpExtensionsOutOfOpenClawConfig } from './openclaw-runtime-metadata';
+import { migrateAgentCorpExtensionsOutOfOpenClawConfig } from './openclaw-runtime-metadata';
 
 const AUTH_STORE_VERSION = 1;
 const AUTH_PROFILE_FILENAME = 'auth-profiles.json';
@@ -738,7 +738,7 @@ export async function getActiveOpenClawProviders(): Promise<Set<string>> {
 }
 
 /**
- * Write the ClawCorp gateway token into ~/.openclaw/openclaw.json.
+ * Write the AgentCorp gateway token into ~/.openclaw/openclaw.json.
  */
 export async function syncGatewayTokenToConfig(token: string): Promise<void> {
   return withConfigLock(async () => {
@@ -760,7 +760,7 @@ export async function syncGatewayTokenToConfig(token: string): Promise<void> {
     auth.token = token;
     gateway.auth = auth;
 
-    // Packaged ClawCorp loads the renderer from file://, so the gateway must allow
+    // Packaged AgentCorp loads the renderer from file://, so the gateway must allow
     // that origin for the chat WebSocket handshake.
     const controlUi = (
       gateway.controlUi && typeof gateway.controlUi === 'object'
@@ -780,6 +780,38 @@ export async function syncGatewayTokenToConfig(token: string): Promise<void> {
 
     await writeOpenClawJson(config);
     logger.info('Synced gateway token to openclaw.json');
+  });
+}
+
+/**
+ * Security hardening (T08): lock down Gateway tool execution policy.
+ *
+ * Writes a conservative `toolPolicy` into the `gateway` section of
+ * ~/.openclaw/openclaw.json so the OpenClaw Gateway only runs allowed /
+ * sandboxed tools. Default is read-only + sandbox; tighten further via a
+ * whitelist ({ mode: 'whitelist', allowed: [...], sandbox: true }) if needed.
+ * See docs/architecture-pivot.md §1.4.
+ */
+export async function syncToolPolicyToConfig(): Promise<void> {
+  return withConfigLock(async () => {
+    const config = await readOpenClawJson();
+
+    const gateway = (
+      config.gateway && typeof config.gateway === 'object'
+        ? { ...(config.gateway as Record<string, unknown>) }
+        : {}
+    ) as Record<string, unknown>;
+
+    gateway.toolPolicy = {
+      mode: 'read-only',
+      sandbox: true,
+    };
+
+    if (!gateway.mode) gateway.mode = 'local';
+    config.gateway = gateway;
+
+    await writeOpenClawJson(config);
+    logger.info('Synced gateway toolPolicy (read-only + sandbox) to openclaw.json');
   });
 }
 
@@ -882,7 +914,7 @@ export async function updateAgentModelProvider(
  * Removes known-invalid keys that cause OpenClaw's strict Zod validation
  * to reject the entire config on startup.  Uses a conservative **blocklist**
  * approach: only strips keys that are KNOWN to be misplaced by older
- * OpenClaw/ClawCorp versions or external tools.
+ * OpenClaw/AgentCorp versions or external tools.
  *
  * Why blocklist instead of allowlist?
  *   • Allowlist (e.g. `VALID_SKILLS_KEYS`) would strip any NEW valid keys
@@ -899,9 +931,9 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
     const config = await readOpenClawJson();
     let modified = false;
 
-    if (await migrateClawCorpExtensionsOutOfOpenClawConfig(config)) {
+    if (await migrateAgentCorpExtensionsOutOfOpenClawConfig(config)) {
       modified = true;
-      logger.info('[sanitize] Migrated ClawCorp-only metadata out of openclaw.json');
+      logger.info('[sanitize] Migrated AgentCorp-only metadata out of openclaw.json');
     }
 
     // ── skills section ──────────────────────────────────────────────
@@ -980,7 +1012,7 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
     // ── tools.web.search.kimi ─────────────────────────────────────
     // OpenClaw web_search(kimi) prioritizes tools.web.search.kimi.apiKey over
     // environment/auth-profiles. A stale inline key can cause persistent 401s.
-    // When ClawCorp-managed moonshot provider exists, prefer centralized key
+    // When AgentCorp-managed moonshot provider exists, prefer centralized key
     // resolution and strip the inline key.
     const providers = ((config.models as Record<string, unknown> | undefined)?.providers as Record<string, unknown> | undefined) || {};
     if (providers[OPENCLAW_PROVIDER_KEY_MOONSHOT]) {
@@ -1001,7 +1033,7 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
 
     // ── tools.profile & sessions.visibility ───────────────────────
     // OpenClaw 3.8+ requires tools.profile = 'full' and tools.sessions.visibility = 'all'
-    // for ClawCorp to properly integrate with its updated tool system.
+    // for AgentCorp to properly integrate with its updated tool system.
     const toolsConfig = (config.tools as Record<string, unknown> | undefined) || {};
     let toolsModified = false;
 
@@ -1036,7 +1068,7 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
     // ── plugins.entries.feishu cleanup ──────────────────────────────
     // The official feishu plugin registers its channel AS 'feishu' via
     // openclaw.plugin.json.  An explicit entries.feishu.enabled=false
-    // (set by older ClawCorp to disable the legacy built-in) blocks the
+    // (set by older AgentCorp to disable the legacy built-in) blocks the
     // official plugin's channel from starting.  Only clean up when the
     // new openclaw-lark plugin is already configured (to avoid removing
     // a legitimate old-style feishu plugin from users who haven't upgraded).
@@ -1126,7 +1158,7 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
     // ── channels default-account migration ─────────────────────────
     // Most OpenClaw channel plugins read the default account's credentials
     // from the top level of `channels.<type>` (e.g. channels.feishu.appId),
-    // but ClawCorp historically stored them only under `channels.<type>.accounts.default`.
+    // but AgentCorp historically stored them only under `channels.<type>.accounts.default`.
     // Mirror the default account credentials at the top level so plugins can
     // discover them.
     if (channelsObj && typeof channelsObj === 'object') {

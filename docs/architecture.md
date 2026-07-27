@@ -34,7 +34,7 @@
 | 层 | 选型 | 理由 |
 |---|---|---|
 | 前端框架 | **Vite + React 18 + TypeScript** | PRD 默认栈；快速冷启动、易解耦、易独立开发 |
-| 样式 | **Tailwind CSS** | PRD 默认；原子化快速搭 UI（复用 ClawCorp 雷达/档案/fire 骨架） |
+| 样式 | **Tailwind CSS** | PRD 默认；原子化快速搭 UI（复用 AgentCorp 雷达/档案/fire 骨架） |
 | 状态管理 | **Zustand** | 轻量单一状态仓，适合评估会话的状态机管理 |
 | 雷达图 | **recharts**（RadarChart） | 声明式、易做逐维动画；若需更强动画可换自绘 SVG |
 | 语音播放（前端） | **Web Audio API**（音频流）/ **Web Speech API**（Mock 模式 TTS） | 真实模式播模型音频流；无 NPU 用浏览器 TTS 补「说」 |

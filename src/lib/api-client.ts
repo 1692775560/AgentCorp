@@ -84,9 +84,9 @@ const UNIFIED_CHANNELS = new Set<string>([
 ]);
 
 const customInvokers = new Map<Exclude<TransportKind, 'ipc'>, TransportInvoker>();
-const GATEWAY_WS_DIAG_FLAG = 'clawcorp:gateway-ws-diagnostic';
+const GATEWAY_WS_DIAG_FLAG = 'agentcorp:gateway-ws-diagnostic';
 const LEGACY_GATEWAY_WS_DIAG_FLAG = 'clawx:gateway-ws-diagnostic';
-const API_LOG_FLAG = 'clawcorp:api-log';
+const API_LOG_FLAG = 'agentcorp:api-log';
 const LEGACY_API_LOG_FLAG = 'clawx:api-log';
 
 let transportConfig: ApiClientTransportConfig = {
@@ -715,7 +715,7 @@ export function createGatewayWsTransportInvoker(options: GatewayWsTransportOptio
         maxProtocol: 3,
         client: {
           id: 'openclaw-control-ui',
-          displayName: 'ClawCorp UI',
+          displayName: 'AgentCorp UI',
           version: '1.0.0',
           platform: window.electron?.platform ?? 'unknown',
           mode: 'webchat',

@@ -8,7 +8,7 @@ type ElectronShim = {
   openExternal: (url: string) => Promise<void>;
   platform: string;
   isDev: boolean;
-  __clawcorpBrowserPreviewShim?: boolean;
+  __agentcorpBrowserPreviewShim?: boolean;
 };
 
 function createElectronShim(): ElectronShim {
@@ -26,7 +26,7 @@ function createElectronShim(): ElectronShim {
     },
     platform: 'web',
     isDev: true,
-    __clawcorpBrowserPreviewShim: true,
+    __agentcorpBrowserPreviewShim: true,
   };
 }
 
@@ -41,7 +41,7 @@ export function isBrowserPreviewMode(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const electron = window.electron as ElectronShim | undefined;
-    return electron?.__clawcorpBrowserPreviewShim === true;
+    return electron?.__agentcorpBrowserPreviewShim === true;
   } catch (error) {
     console.warn('Error checking browser preview mode:', error);
     return false;

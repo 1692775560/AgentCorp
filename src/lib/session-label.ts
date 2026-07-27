@@ -16,7 +16,7 @@ function getAgentIdFromSessionKey(sessionKey: string): string {
 export function resolveSessionDisplayLabel(
   session: SessionLabelSession | null | undefined,
   agents: SessionLabelAgent[],
-  fallback = 'ClawCorp',
+  fallback = 'AgentCorp',
 ): string {
   if (!session) return fallback;
   const candidateId = (

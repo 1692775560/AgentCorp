@@ -133,7 +133,7 @@ export function SettingsGeneralPanel() {
 
         <ToggleRow
           label="开机自启"
-          description="登录系统后自动启动 ClawCorp。"
+          description="登录系统后自动启动 AgentCorp。"
           checked={launchAtStartup}
           onCheckedChange={setLaunchAtStartup}
         />

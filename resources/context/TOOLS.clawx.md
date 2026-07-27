@@ -1,8 +1,8 @@
-## ClawCorp Tool Notes
+## AgentCorp Tool Notes
 
 ### uv (Python)
 
-- `uv` is bundled with ClawCorp and on PATH. Do NOT use bare `python` or `pip`.
+- `uv` is bundled with AgentCorp and on PATH. Do NOT use bare `python` or `pip`.
 - Run scripts: `uv run python <script>` | Install packages: `uv pip install <package>`
 
 ### Browser

@@ -7,10 +7,10 @@
  * Port configuration
  */
 export const PORTS = {
-  /** ClawCorp GUI development server port */
+  /** AgentCorp GUI development server port */
   CLAWX_DEV: 5173,
   
-  /** ClawCorp GUI production port (for reference) */
+  /** AgentCorp GUI production port (for reference) */
   CLAWX_GUI: 23333,
 
   /** Local host API server port */
@@ -36,7 +36,7 @@ export const APP_PATHS = {
   /** OpenClaw configuration directory */
   OPENCLAW_CONFIG: '~/.openclaw',
   
-  /** ClawCorp configuration directory */
+  /** AgentCorp configuration directory */
   CLAWX_CONFIG: '~/.clawx',
   
   /** Log files directory */

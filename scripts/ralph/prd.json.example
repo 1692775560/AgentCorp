@@ -1,5 +1,5 @@
 {
-  "project": "ClawCorp",
+  "project": "AgentCorp",
   "branchName": "ralph/example-feature",
   "description": "Example Ralph workload for Codex",
   "userStories": [

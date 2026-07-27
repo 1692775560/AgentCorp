@@ -10,7 +10,6 @@ import {
 } from '@/components/agents/EmployeeSquareHero';
 import { EmployeeSquareCard } from '@/components/agents/EmployeeSquareCard';
 import { useAgentsStore } from '@/stores/agents';
-import { useChannelsStore } from '@/stores/channels';
 import { useTeamsStore } from '@/stores/teams';
 import { useGatewayStore } from '@/stores/gateway';
 import { useChatStore } from '@/stores/chat';
@@ -32,7 +31,6 @@ export function Agents() {
     fetchAgents,
     deleteAgent,
   } = useAgentsStore();
-  const { channels, fetchChannels } = useChannelsStore();
   const {
     teams,
     loading: teamsLoading,
@@ -53,8 +51,8 @@ export function Agents() {
   const error = agentsError ?? teamsError;
 
   useEffect(() => {
-    void Promise.all([fetchAgents(), fetchChannels(), fetchTeams(), fetchTasks()]);
-  }, [fetchAgents, fetchChannels, fetchTeams, fetchTasks]);
+    void Promise.all([fetchAgents(), fetchTeams(), fetchTasks()]);
+  }, [fetchAgents, fetchTeams, fetchTasks]);
 
   const activeAgent = useMemo(
     () => agents.find((agent) => agent.id === activeAgentId) ?? null,
@@ -116,7 +114,7 @@ export function Agents() {
   }), [t]);
 
   const handleRefresh = () => {
-    void Promise.all([fetchAgents(), fetchChannels(), fetchTeams()]);
+    void Promise.all([fetchAgents(), fetchTeams()]);
   };
 
   if (loading) {
@@ -217,7 +215,6 @@ export function Agents() {
       {activeAgent && (
         <AgentSettingsModal
           agent={activeAgent}
-          channels={channels}
           onClose={() => setActiveAgentId(null)}
         />
       )}

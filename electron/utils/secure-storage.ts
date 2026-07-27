@@ -17,7 +17,7 @@ import {
   setDefaultProviderAccount,
 } from '../services/providers/provider-store';
 import { ensureProviderStoreMigrated } from '../services/providers/provider-migration';
-import { getClawCorpProviderStore } from '../services/providers/store-instance';
+import { getAgentCorpProviderStore } from '../services/providers/store-instance';
 import {
   deleteProviderSecret,
   getProviderSecret,
@@ -72,7 +72,7 @@ function secretContainsApiKey(secret: StoredProviderSecret): boolean {
 }
 
 async function clearLegacyApiKey(providerId: string): Promise<void> {
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   const keys = (s.get('apiKeys') || {}) as Record<string, string>;
   if (!(providerId in keys)) {
     return;
@@ -115,7 +115,7 @@ export async function getApiKey(providerId: string): Promise<string | null> {
       return apiKey;
     }
 
-    const s = await getClawCorpProviderStore();
+    const s = await getAgentCorpProviderStore();
     const keys = (s.get('apiKeys') || {}) as Record<string, string>;
     const legacyApiKey = keys[providerId];
     if (!legacyApiKey) {
@@ -161,7 +161,7 @@ export async function hasApiKey(providerId: string): Promise<boolean> {
     return true;
   }
 
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   const keys = (s.get('apiKeys') || {}) as Record<string, string>;
   if (!(providerId in keys)) {
     return false;
@@ -182,7 +182,7 @@ export async function hasApiKey(providerId: string): Promise<boolean> {
  */
 export async function listStoredKeyIds(): Promise<string[]> {
   await ensureProviderStoreMigrated();
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   const providerSecrets = (s.get('providerSecrets') || {}) as Record<string, unknown>;
   const keys = (s.get('apiKeys') || {}) as Record<string, string>;
   const ids = new Set([...Object.keys(providerSecrets), ...Object.keys(keys)]);
@@ -220,7 +220,7 @@ export async function listStoredKeyIds(): Promise<string[]> {
  */
 export async function saveProvider(config: ProviderConfig): Promise<void> {
   await ensureProviderStoreMigrated();
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   const providers = s.get('providers') as Record<string, ProviderConfig>;
   providers[config.id] = config;
   s.set('providers', providers);
@@ -236,7 +236,7 @@ export async function saveProvider(config: ProviderConfig): Promise<void> {
  */
 export async function getProvider(providerId: string): Promise<ProviderConfig | null> {
   await ensureProviderStoreMigrated();
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   const providers = s.get('providers') as Record<string, ProviderConfig>;
   if (providers[providerId]) {
     return providers[providerId];
@@ -251,7 +251,7 @@ export async function getProvider(providerId: string): Promise<ProviderConfig | 
  */
 export async function getAllProviders(): Promise<ProviderConfig[]> {
   await ensureProviderStoreMigrated();
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   const providers = s.get('providers') as Record<string, ProviderConfig>;
   const legacyProviders = Object.values(providers);
   if (legacyProviders.length > 0) {
@@ -272,7 +272,7 @@ export async function deleteProvider(providerId: string): Promise<boolean> {
     await deleteApiKey(providerId);
 
     // Delete the provider config
-    const s = await getClawCorpProviderStore();
+    const s = await getAgentCorpProviderStore();
     const providers = s.get('providers') as Record<string, ProviderConfig>;
     delete providers[providerId];
     s.set('providers', providers);
@@ -296,7 +296,7 @@ export async function deleteProvider(providerId: string): Promise<boolean> {
  */
 export async function setDefaultProvider(providerId: string): Promise<void> {
   await ensureProviderStoreMigrated();
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   s.set('defaultProvider', providerId);
   await setDefaultProviderAccount(providerId);
 }
@@ -306,7 +306,7 @@ export async function setDefaultProvider(providerId: string): Promise<void> {
  */
 export async function getDefaultProvider(): Promise<string | undefined> {
   await ensureProviderStoreMigrated();
-  const s = await getClawCorpProviderStore();
+  const s = await getAgentCorpProviderStore();
   return (s.get('defaultProvider') as string | undefined)
     ?? (s.get('defaultProviderAccountId') as string | undefined);
 }

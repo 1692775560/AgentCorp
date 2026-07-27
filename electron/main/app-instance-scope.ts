@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 
-export const WINDOWS_APP_USER_MODEL_ID = 'app.clawcorp.desktop';
-export const WINDOWS_DEV_APP_USER_MODEL_ID = 'app.clawcorp.desktop.dev';
-export const PACKAGED_LOCK_NAME = 'clawcorp';
-export const DEV_LOCK_NAME = 'clawcorp-dev';
+export const WINDOWS_APP_USER_MODEL_ID = 'app.agentcorp.desktop';
+export const WINDOWS_DEV_APP_USER_MODEL_ID = 'app.agentcorp.desktop.dev';
+export const PACKAGED_LOCK_NAME = 'agentcorp';
+export const DEV_LOCK_NAME = 'agentcorp-dev';
 
 export interface AppInstanceScope {
   lockName: string;
@@ -30,7 +30,7 @@ export function resolveAppInstanceScope(params: {
     lockName: DEV_LOCK_NAME,
     useElectronSingleInstanceLock: false,
     forceCleanProcessLock: false,
-    userDataDir: join(params.appDataDir, 'ClawCorp-dev'),
+    userDataDir: join(params.appDataDir, 'AgentCorp-dev'),
     windowsAppUserModelId: WINDOWS_DEV_APP_USER_MODEL_ID,
   };
 }

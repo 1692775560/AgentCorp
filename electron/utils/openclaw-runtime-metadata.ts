@@ -6,7 +6,7 @@ import { logger } from './logger';
 import type { Team } from '../../src/types/team';
 
 const METADATA_VERSION = 1;
-const RUNTIME_METADATA_FILE = join(getOpenClawConfigDir(), 'clawcorp-runtime-metadata.json');
+const RUNTIME_METADATA_FILE = join(getOpenClawConfigDir(), 'agentcorp-runtime-metadata.json');
 
 type AgentTeamRole = 'leader' | 'worker';
 type AgentChatAccess = 'direct' | 'leader_only';
@@ -154,10 +154,10 @@ export async function writeStoredAgentMetadata(metadataMap: Record<string, Agent
 }
 
 /**
- * Move ClawCorp-only extensions out of openclaw.json so OpenClaw CLI/Gateway
+ * Move AgentCorp-only extensions out of openclaw.json so OpenClaw CLI/Gateway
  * strict schema validation won't reject the config.
  */
-export async function migrateClawCorpExtensionsOutOfOpenClawConfig(
+export async function migrateAgentCorpExtensionsOutOfOpenClawConfig(
   config: Record<string, unknown>,
 ): Promise<boolean> {
   let configModified = false;

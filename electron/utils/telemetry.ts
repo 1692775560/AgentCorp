@@ -4,12 +4,20 @@ import { app } from 'electron';
 import { getSetting, setSetting } from './store';
 import { logger } from './logger';
 
-const POSTHOG_API_KEY = 'phc_aGNegeJQP5FzNiF2rEoKqQbkuCpiiETMttplibXpB0n';
+// Security (T08): the PostHog API key is NEVER hardcoded in source. It must be
+// supplied at runtime via the POSTHOG_API_KEY env var (operator-provided). With
+// no key present, telemetry cannot initialize and no data leaves the machine.
 const POSTHOG_HOST = 'https://us.i.posthog.com';
 const TELEMETRY_SHUTDOWN_TIMEOUT_MS = 1500;
 
 let posthogClient: PostHog | null = null;
 let distinctId: string = '';
+// Runtime gate: true only after a successful, key-present init. Guards all sends.
+let telemetryInitialized = false;
+
+function getPostHogApiKey(): string {
+  return process.env.POSTHOG_API_KEY ?? '';
+}
 
 function getCommonProperties(): Record<string, string> {
     return {
@@ -62,15 +70,25 @@ async function telemetryFetch(input: string, init?: RequestInit): Promise<Respon
  * Initialize PostHog telemetry
  */
 export async function initTelemetry(): Promise<void> {
-    try {
-        const telemetryEnabled = await getSetting('telemetryEnabled');
-        if (!telemetryEnabled) {
-            logger.info('Telemetry is disabled in settings');
-            return;
-        }
+  try {
+    const telemetryEnabled = await getSetting('telemetryEnabled');
+    if (!telemetryEnabled) {
+      telemetryInitialized = false;
+      logger.info('Telemetry is disabled in settings');
+      return;
+    }
 
-        // Initialize PostHog client
-        posthogClient = new PostHog(POSTHOG_API_KEY, { host: POSTHOG_HOST, fetch: telemetryFetch });
+    // Security (T08): no hardcoded key — must be provided via POSTHOG_API_KEY env.
+    const apiKey = getPostHogApiKey();
+    if (!apiKey) {
+      telemetryInitialized = false;
+      logger.info('Telemetry enabled but no PostHog API key configured (POSTHOG_API_KEY); skipping init');
+      return;
+    }
+
+    // Initialize PostHog client
+    posthogClient = new PostHog(apiKey, { host: POSTHOG_HOST, fetch: telemetryFetch });
+    telemetryInitialized = true;
 
         // Get or generate machine ID
         distinctId = await getSetting('machineId');
@@ -112,9 +130,9 @@ export function trackMetric(event: string, properties: Record<string, unknown> =
 }
 
 export function captureTelemetryEvent(event: string, properties: Record<string, unknown> = {}): void {
-    if (!posthogClient || !distinctId) {
-        return;
-    }
+  if (!telemetryInitialized || !posthogClient || !distinctId) {
+    return;
+  }
 
     try {
         posthogClient.capture({
@@ -134,9 +152,10 @@ export function captureTelemetryEvent(event: string, properties: Record<string, 
  * Best-effort telemetry shutdown that never blocks app exit on network issues.
  */
 export async function shutdownTelemetry(): Promise<void> {
-    const client = posthogClient;
-    posthogClient = null;
-    distinctId = '';
+  const client = posthogClient;
+  posthogClient = null;
+  distinctId = '';
+  telemetryInitialized = false;
 
     if (!client) {
         return;

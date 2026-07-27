@@ -161,7 +161,7 @@ export function ContextRail() {
             <div className="mb-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-[16px] font-semibold text-[#000000]">{currentSessionLabel}</p>
-                <p className="mt-1 text-[12px] text-[#8e8e93]">{currentAgent?.name ?? 'ClawCorp'}</p>
+                <p className="mt-1 text-[12px] text-[#8e8e93]">{currentAgent?.name ?? 'AgentCorp'}</p>
               </div>
               {isPinnedSession ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-black/[0.08] bg-white px-2 py-1 text-[11px] text-[#3c3c43]">
@@ -276,7 +276,7 @@ export function ContextRail() {
         <div className="mb-3 flex h-[80px] w-[80px] items-center justify-center rounded-full bg-clawx-ac text-[32px] text-white shadow-[0_4px_16px_rgba(0,122,255,0.25)]">
           ✦
         </div>
-        <p className="text-[16px] font-semibold text-[#000000]">{currentAgent?.name ?? 'ClawCorp 主脑'}</p>
+        <p className="text-[16px] font-semibold text-[#000000]">{currentAgent?.name ?? 'AgentCorp 主脑'}</p>
         <p className="mt-0.5 text-[13px] text-[#8e8e93]">{currentAgent?.id ?? 'AI coworker'}</p>
       </div>
 

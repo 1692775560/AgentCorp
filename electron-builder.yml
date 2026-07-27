@@ -1,6 +1,6 @@
-﻿appId: app.clawcorp.desktop
-productName: ClawCorp
-copyright: Copyright 漏 2026 ClawCorp
+﻿appId: app.agentcorp.desktop
+productName: AgentCorp
+copyright: Copyright 漏 2026 AgentCorp
 compression: maximum
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
@@ -82,8 +82,8 @@ mac:
   entitlementsInherit: entitlements.mac.plist
   notarize: true
   extendInfo:
-    NSMicrophoneUsageDescription: ClawCorp requires microphone access for voice features
-    NSCameraUsageDescription: ClawCorp requires camera access for video features
+    NSMicrophoneUsageDescription: AgentCorp requires microphone access for voice features
+    NSCameraUsageDescription: AgentCorp requires camera access for video features
 
 dmg:
   background: resources/dmg-background.png
@@ -130,8 +130,8 @@ nsis:
   differentialPackage: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: ClawCorp
-  uninstallDisplayName: ClawCorp
+  shortcutName: AgentCorp
+  uninstallDisplayName: AgentCorp
   license: LICENSE
   include: scripts/installer.nsh
   installerIcon: resources/icons/icon.ico
@@ -158,17 +158,17 @@ linux:
       arch:
         - x64
   category: Utility
-  maintainer: ClawCorp Team <public@valuecell.ai>
-  vendor: ClawCorp
+  maintainer: AgentCorp Team <public@valuecell.ai>
+  vendor: AgentCorp
   synopsis: AI Assistant powered by OpenClaw
-  description: ClawCorp is a graphical AI assistant application that integrates with OpenClaw Gateway to provide intelligent automation and assistance across multiple messaging platforms.
+  description: AgentCorp is a graphical AI assistant application that integrates with OpenClaw Gateway to provide intelligent automation and assistance across multiple messaging platforms.
   desktop:
     entry:
-      Name: ClawCorp
+      Name: AgentCorp
       Comment: AI Assistant powered by OpenClaw
       Categories: Utility;Network;
       Keywords: ai;assistant;automation;chat;
-      StartupWMClass: clawcorp
+      StartupWMClass: agentcorp
       # Note: --no-sandbox for Kylin V11 / UOS compatibility is injected at
       # runtime via app.commandLine.appendSwitch() in electron/main/index.ts.
       # electron-builder forbids setting Exec here (it auto-generates it).

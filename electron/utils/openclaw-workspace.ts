@@ -30,11 +30,11 @@ async function ensureDir(dir: string): Promise<void> {
 // ── Pure helpers (no I/O) ────────────────────────────────────────
 
 /**
- * Merge a ClawCorp context section into an existing file's content.
+ * Merge a AgentCorp context section into an existing file's content.
  * If markers already exist, replaces the section in-place.
  * Otherwise appends it at the end.
  */
-export function mergeClawCorpSection(existing: string, section: string): string {
+export function mergeAgentCorpSection(existing: string, section: string): string {
   const wrapped = `${CLAWX_BEGIN}\n${section.trim()}\n${CLAWX_END}`;
   const beginIdx = existing.indexOf(CLAWX_BEGIN);
   const endIdx = existing.indexOf(CLAWX_END);
@@ -95,10 +95,10 @@ async function resolveAllWorkspaceDirs(): Promise<string[]> {
 // ── Bootstrap file repair ────────────────────────────────────────
 
 /**
- * Detect and remove bootstrap .md files that contain only ClawCorp markers
+ * Detect and remove bootstrap .md files that contain only AgentCorp markers
  * with no meaningful OpenClaw content outside them.
  */
-export async function repairClawCorpOnlyBootstrapFiles(): Promise<void> {
+export async function repairAgentCorpOnlyBootstrapFiles(): Promise<void> {
   const workspaceDirs = await resolveAllWorkspaceDirs();
   for (const workspaceDir of workspaceDirs) {
     if (!(await fileExists(workspaceDir))) continue;
@@ -127,9 +127,9 @@ export async function repairClawCorpOnlyBootstrapFiles(): Promise<void> {
       if (before === '' && after === '') {
         try {
           await unlink(filePath);
-          logger.info(`Removed ClawCorp-only bootstrap file for re-seeding: ${file} (${workspaceDir})`);
+          logger.info(`Removed AgentCorp-only bootstrap file for re-seeding: ${file} (${workspaceDir})`);
         } catch {
-          logger.warn(`Failed to remove ClawCorp-only bootstrap file: ${filePath}`);
+          logger.warn(`Failed to remove AgentCorp-only bootstrap file: ${filePath}`);
         }
       }
     }
@@ -139,14 +139,14 @@ export async function repairClawCorpOnlyBootstrapFiles(): Promise<void> {
 // ── Context merging ──────────────────────────────────────────────
 
 /**
- * Merge ClawCorp context snippets into workspace bootstrap files that
+ * Merge AgentCorp context snippets into workspace bootstrap files that
  * already exist on disk.  Returns the number of target files that were
  * skipped because they don't exist yet.
  */
-async function mergeClawCorpContextOnce(): Promise<number> {
+async function mergeAgentCorpContextOnce(): Promise<number> {
   const contextDir = join(getResourcesDir(), 'context');
   if (!(await fileExists(contextDir))) {
-    logger.debug('ClawCorp context directory not found, skipping context merge');
+    logger.debug('AgentCorp context directory not found, skipping context merge');
     return 0;
   }
 
@@ -176,10 +176,10 @@ async function mergeClawCorpContextOnce(): Promise<number> {
       const section = await readFile(join(contextDir, file), 'utf-8');
       const existing = await readFile(targetPath, 'utf-8');
 
-      const merged = mergeClawCorpSection(existing, section);
+      const merged = mergeAgentCorpSection(existing, section);
       if (merged !== existing) {
         await writeFile(targetPath, merged, 'utf-8');
-        logger.info(`Merged ClawCorp context into ${targetName} (${workspaceDir})`);
+        logger.info(`Merged AgentCorp context into ${targetName} (${workspaceDir})`);
       }
     }
   }
@@ -191,24 +191,24 @@ const RETRY_INTERVAL_MS = 2000;
 const MAX_RETRIES = 15;
 
 /**
- * Ensure ClawCorp context snippets are merged into the openclaw workspace
+ * Ensure AgentCorp context snippets are merged into the openclaw workspace
  * bootstrap files.
  */
-export async function ensureClawCorpContext(): Promise<void> {
-  let skipped = await mergeClawCorpContextOnce();
+export async function ensureAgentCorpContext(): Promise<void> {
+  let skipped = await mergeAgentCorpContextOnce();
   if (skipped === 0) return;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     await new Promise((r) => setTimeout(r, RETRY_INTERVAL_MS));
-    skipped = await mergeClawCorpContextOnce();
+    skipped = await mergeAgentCorpContextOnce();
     if (skipped === 0) {
-      logger.info(`ClawCorp context merge completed after ${attempt} retry(ies)`);
+      logger.info(`AgentCorp context merge completed after ${attempt} retry(ies)`);
       return;
     }
-    logger.debug(`ClawCorp context merge: ${skipped} file(s) still missing (retry ${attempt}/${MAX_RETRIES})`);
+    logger.debug(`AgentCorp context merge: ${skipped} file(s) still missing (retry ${attempt}/${MAX_RETRIES})`);
   }
 
-  logger.warn(`ClawCorp context merge: ${skipped} file(s) still missing after ${MAX_RETRIES} retries`);
+  logger.warn(`AgentCorp context merge: ${skipped} file(s) still missing after ${MAX_RETRIES} retries`);
 }
 
 // ── Workspace clone utilities ──────────────────────────────────────

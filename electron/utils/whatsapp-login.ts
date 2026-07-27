@@ -282,7 +282,7 @@ export class WhatsAppLoginManager extends EventEmitter {
                 logger: pino({ level: 'silent' }), // Silent logger
                 connectTimeoutMs: 60000,
                 // mobile: false,
-                // browser: ['ClawCorp', 'Chrome', '1.0.0'],
+                // browser: ['AgentCorp', 'Chrome', '1.0.0'],
             });
 
             let connectionOpened = false;

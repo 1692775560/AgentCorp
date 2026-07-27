@@ -30,7 +30,7 @@ export function normalizeUpdateChannel(channel: unknown): UpdateChannel {
  * Generate a random token for gateway authentication
  */
 function generateToken(): string {
-  return `clawcorp-${randomBytes(16).toString('hex')}`;
+  return `agentcorp-${randomBytes(16).toString('hex')}`;
 }
 
 /**
@@ -84,6 +84,9 @@ export interface AppSettings {
   selectedBundles: string[];
   enabledSkills: string[];
   disabledSkills: string[];
+
+  // Evaluation (MiniCPM-o judge model service)
+  modelServiceUrl: string;
 }
 
 /**
@@ -106,7 +109,7 @@ function createDefaultSettings(): AppSettings {
     language: resolveSupportedLanguage(getSystemLocale()),
     startMinimized: false,
     launchAtStartup: false,
-    telemetryEnabled: true,
+    telemetryEnabled: false,
     machineId: '',
     hasReportedInstall: false,
 
@@ -148,6 +151,9 @@ function createDefaultSettings(): AppSettings {
     selectedBundles: ['productivity', 'developer'],
     enabledSkills: [],
     disabledSkills: [],
+
+    // Evaluation (MiniCPM-o judge model service)
+    modelServiceUrl: 'http://localhost:8000',
   };
 }
 

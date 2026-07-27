@@ -1,5 +1,5 @@
 /**
- * Task type definitions for ClawCorp Kanban board
+ * Task type definitions for AgentCorp Kanban board
  * Phase 02: Task Board Redesign
  */
 

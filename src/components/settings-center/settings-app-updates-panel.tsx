@@ -151,7 +151,7 @@ export function SettingsAppUpdatesPanel() {
       >
         <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl bg-[#f2f2f7] px-4 py-4">
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold text-[#000000]">ClawCorp v{currentVersion}</p>
+            <p className="text-[13px] font-semibold text-[#000000]">AgentCorp v{currentVersion}</p>
             <p className="mt-1 text-[12px] text-[#667085]">{statusText}</p>
             {updateInfo?.releaseDate ? (
               <p className="mt-1 text-[12px] text-[#8e8e93]">

@@ -25,10 +25,12 @@ from sse_starlette.sse import EventSourceResponse
 
 from .config import settings
 from .evaluator import evaluate as run_evaluate
+from .evaluator import evaluate_run as run_evaluate_run
 from .model_loader import get_model
 from .schemas import (
     CandidateProfile,
     EvaluationRequest,
+    JudgeRunRequest,
     PersonaText,
     to_event_dict,
 )
@@ -86,6 +88,32 @@ async def api_evaluate(req: EvaluationRequest):
 
     async def event_gen():
         async for ev in run_evaluate(req, mode=mode):
+            yield {
+                "event": ev["type"],
+                "data": json.dumps(to_event_dict(_wrap(ev)), ensure_ascii=False),
+            }
+
+    return EventSourceResponse(event_gen())
+
+
+@app.post("/api/evaluate-run")
+async def api_evaluate_run(req: JudgeRunRequest):
+    """
+    运行期裁判端点（T07）：接收 JudgeRunInput（transcript + usage + task），
+    产出与 /api/evaluate 同构的 SSE 事件流（radar_update ×6 + verdict + done）。
+    无 NPU / MOCK=true 时走 Mock 派生；模型可用时走真实推理。
+    """
+    model = get_model()
+    if not settings.mock and not model.available:
+        raise HTTPException(
+            status_code=503,
+            detail="模型不可用：无 NPU 或未配置权重。请部署到昇腾环境，或设置 MOCK=true。",
+        )
+
+    mode = "mock" if settings.mock else "auto"
+
+    async def event_gen():
+        async for ev in run_evaluate_run(req, mode=mode):
             yield {
                 "event": ev["type"],
                 "data": json.dumps(to_event_dict(_wrap(ev)), ensure_ascii=False),

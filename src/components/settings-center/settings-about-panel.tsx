@@ -141,7 +141,7 @@ export function SettingsAboutPanel({ onRerunSetup }: SettingsAboutPanelProps) {
       <SettingsSectionCard title={t('about.title', { defaultValue: 'About' })}>
         <div className="rounded-2xl bg-[linear-gradient(135deg,#f8fafc_0%,#eef2ff_100%)] px-5 py-5">
           <h2 className="text-[24px] font-semibold text-[#111827]">
-            {t('about.appName', { defaultValue: 'ClawCorp' })}
+            {t('about.appName', { defaultValue: 'AgentCorp' })}
           </h2>
           <p className="mt-2 text-[14px] text-[#475467]">
             Graphical AI assistant for OpenClaw teams, runtime operators, and daily agent work.
@@ -157,7 +157,7 @@ export function SettingsAboutPanel({ onRerunSetup }: SettingsAboutPanelProps) {
           <div className="rounded-xl bg-[#f9fafb] px-4 py-4">
             <p className="text-[13px] font-semibold text-[#111827]">Product & Team</p>
             <p className="mt-2 text-[12px] leading-6 text-[#667085]">
-              ClawCorp keeps the OpenClaw runtime approachable with a desktop-first control plane,
+              AgentCorp keeps the OpenClaw runtime approachable with a desktop-first control plane,
               clearer settings, and a tighter path from experimentation to real team workflows.
             </p>
             <p className="mt-2 text-[12px] leading-6 text-[#667085]">
@@ -204,7 +204,7 @@ export function SettingsAboutPanel({ onRerunSetup }: SettingsAboutPanelProps) {
         <div className="rounded-xl bg-[#f9fafb] px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-[13px] font-semibold text-[#111827]">ClawCorp Doctor</p>
+              <p className="text-[13px] font-semibold text-[#111827]">AgentCorp Doctor</p>
               <p className="mt-1 text-[12px] text-[#667085]">
                 从设置页直接运行 OpenClaw 诊断检查，无需打开独立维护路由。
               </p>

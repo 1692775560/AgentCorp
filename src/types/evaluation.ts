@@ -2,7 +2,7 @@
  * src/types/evaluation.ts
  * ★ AgentCorp 评估层单一类型真相源（Single Source of Truth）。
  *
- * 移植自原 Web Demo 的 src/types/index.ts，作为 AgentCorp（基于 ClawCorp 基底）
+ * 移植自原 Web Demo 的 src/types/index.ts，作为 AgentCorp（基于 AgentCorp 基底）
  * 评估层的契约根。前端 TS 与后端 `model-service/app/schemas.py`（待扩展）严格镜像。
  *
  * 关键契约：
@@ -10,7 +10,7 @@
  * - EvaluationEvent：SSE 事件流联合类型，五种事件
  *   radar_update / narration / audio / verdict / done。
  *
- * 注：ClawCorp 基底的 src/types 下无 index.ts，评估类型统一收敛到此文件，
+ * 注：AgentCorp 基底的 src/types 下无 index.ts，评估类型统一收敛到此文件，
  * 其余领域类型见 src/types/agent.ts 等。
  */
 
@@ -285,4 +285,38 @@ export interface TelemetryEvent {
   escalations: number; // 升级/求助次数
   out_of_domain: boolean; // 是否跨域（泛化）任务
   ts: string; // ISO8601 UTC
+}
+
+/* ===================== 评估档案落库（T03 · 阶段 A 持久化契约） ===================== */
+
+/**
+ * 评估档案（本地落库，见 docs/architecture-pivot.md §2.D / §3）。
+ * 以 agentId 为键存于 electron-store 命名空间 `agentcorp.evaluation`。
+ *
+ * 注意：`lifecycle` 采用评估层大写别名 `LifecycleState`（与运行时小写
+ * `AgentLifecycleStatus` 经 lifecycle.ts 的 LIFECYCLE_TO_STATE 对齐，单源真相在小写侧）。
+ */
+export interface EvaluationProfile {
+  agentId: string;
+  radarLatest: RadarScore;
+  radarHistory: RadarScore[];
+  kpiLatest: KpiRecord;
+  kpiHistory: KpiRecord[];
+  roiLatest: RoiSnapshot;
+  lifecycle: LifecycleState;
+  runIds: string[];
+  updatedAt: string; // ISO8601 UTC
+}
+
+/**
+ * 执行主键关联（runId ↔ taskId ↔ agentId ↔ session）。
+ * 以 runId 为键存于 electron-store 命名空间 `agentcorp.runlinks`（见 §2.D）。
+ */
+export interface RunTaskLink {
+  runId: string;
+  taskId: string;
+  agentId: string;
+  sessionKey: string;
+  sessionId: string;
+  evaluatedAt: string; // ISO8601 UTC
 }

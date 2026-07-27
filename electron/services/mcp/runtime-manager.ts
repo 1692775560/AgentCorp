@@ -253,7 +253,7 @@ export class McpRuntimeManager {
 
     const transport = this.createTransport(config);
     const client = new Client(
-      { name: 'clawcorp-mcp-runtime', version: '0.1.0' },
+      { name: 'agentcorp-mcp-runtime', version: '0.1.0' },
       { capabilities: {} },
     );
 

@@ -20,7 +20,7 @@ import { warmupNetworkOptimization } from '../utils/uv-env';
 import { initTelemetry } from '../utils/telemetry';
 
 import { ClawHubService } from '../gateway/clawhub';
-import { ensureClawCorpContext, repairClawCorpOnlyBootstrapFiles } from '../utils/openclaw-workspace';
+import { ensureAgentCorpContext, repairAgentCorpOnlyBootstrapFiles } from '../utils/openclaw-workspace';
 import { autoInstallCliIfNeeded, generateCompletionCache, installCompletionToProfile } from '../utils/openclaw-cli';
 import { isQuitting, setQuitting } from './app-state';
 import { applyProxySettings } from './proxy';
@@ -73,11 +73,11 @@ clearDevChromiumCaches({
 });
 
 // On Linux, set CHROME_DESKTOP so Chromium can find the correct .desktop file.
-// On Wayland this maps the running window to clawcorp.desktop (→ icon + app grouping);
+// On Wayland this maps the running window to agentcorp.desktop (→ icon + app grouping);
 // on X11 it supplements the StartupWMClass matching.
 // Must be called before app.whenReady() / before any window is created.
 if (process.platform === 'linux') {
-  (app as Electron.App & { setDesktopName?: (name: string) => void }).setDesktopName?.('clawcorp.desktop');
+  (app as Electron.App & { setDesktopName?: (name: string) => void }).setDesktopName?.('agentcorp.desktop');
 }
 
 // Prevent multiple instances of the app from running simultaneously.
@@ -291,7 +291,7 @@ function createMainWindow(): BrowserWindow {
 async function initialize(): Promise<void> {
   // Initialize logger first
   logger.init();
-  logger.info('=== ClawCorp Application Starting ===');
+  logger.info('=== AgentCorp Application Starting ===');
   logger.debug(
     `Runtime: platform=${process.platform}/${process.arch}, electron=${process.versions.electron}, node=${process.versions.node}, packaged=${app.isPackaged}`
   );
@@ -349,6 +349,7 @@ async function initialize(): Promise<void> {
     eventBus: hostEventBus,
     mainWindow: window,
     hostApiSessionToken,
+    modelServiceUrl: await getSetting('modelServiceUrl'),
   });
 
   loadWindowContents(window);
@@ -383,10 +384,10 @@ async function initialize(): Promise<void> {
   // Note: Auto-check for updates is driven by the renderer (update store init)
   // so it respects the user's "Auto-check for updates" setting.
 
-  // Repair any bootstrap files that only contain ClawCorp markers (no OpenClaw
-  // template content). This fixes a race condition where ensureClawCorpContext()
+  // Repair any bootstrap files that only contain AgentCorp markers (no OpenClaw
+  // template content). This fixes a race condition where ensureAgentCorpContext()
   // previously created the file before the gateway could seed the full template.
-  void repairClawCorpOnlyBootstrapFiles().catch((error) => {
+  void repairAgentCorpOnlyBootstrapFiles().catch((error) => {
     logger.warn('Failed to repair bootstrap files:', error);
   });
 
@@ -408,8 +409,8 @@ async function initialize(): Promise<void> {
   gatewayManager.on('status', (status: { state: string }) => {
     hostEventBus.emit('gateway:status', status);
     if (status.state === 'running') {
-      void ensureClawCorpContext().catch((error) => {
-        logger.warn('Failed to re-merge ClawCorp context after gateway reconnect:', error);
+      void ensureAgentCorpContext().catch((error) => {
+        logger.warn('Failed to re-merge AgentCorp context after gateway reconnect:', error);
       });
     }
   });
@@ -494,11 +495,11 @@ async function initialize(): Promise<void> {
     logger.info('Gateway auto-start disabled in settings');
   }
 
-  // Merge ClawCorp context snippets into the workspace bootstrap files.
+  // Merge AgentCorp context snippets into the workspace bootstrap files.
   // The gateway seeds workspace files asynchronously after its HTTP server
-  // is ready, so ensureClawCorpContext will retry until the target files appear.
-  void ensureClawCorpContext().catch((error) => {
-    logger.warn('Failed to merge ClawCorp context into workspace:', error);
+  // is ready, so ensureAgentCorpContext will retry until the target files appear.
+  void ensureAgentCorpContext().catch((error) => {
+    logger.warn('Failed to merge AgentCorp context into workspace:', error);
   });
 
   // Auto-install openclaw CLI and shell completions (non-blocking).
@@ -582,7 +583,7 @@ if (gotTheLock) {
 
   // When a second instance is launched, focus the existing window instead.
   app.on('second-instance', () => {
-    logger.info('Second ClawCorp instance detected; redirecting to the existing window');
+    logger.info('Second AgentCorp instance detected; redirecting to the existing window');
 
     const focusRequest = requestSecondInstanceFocus(
       mainWindowFocusState,

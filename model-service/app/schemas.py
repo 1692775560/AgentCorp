@@ -9,7 +9,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, AliasGenerator
+from pydantic.alias_generators import to_camel
 
 
 class RadarDim(str, Enum):
@@ -99,6 +100,43 @@ class EvaluationRequest(BaseModel):
     candidate: CandidateProfile
     preference: UserPreference
     options: Optional[dict] = None
+
+
+# ===================== 运行期裁判请求（/api/evaluate-run） =====================
+class JudgeTask(BaseModel):
+    """评估关联的任务（轻量结构，对齐前端 JudgeRunInput.task）"""
+    title: str = ""
+    description: str = ""
+    weight: float = 1.0
+
+
+class JudgeRunRequest(BaseModel):
+    """
+    运行期裁判请求（评估设计 §1.3 / T07）。
+    由前端 judgeClient 经 Host API 代理 POST 至模型服务。
+    携带真实 transcript + usage（TokenUsageHistoryEntry[]）+ task，
+    后端据此产出与 /api/evaluate 同构的 SSE 事件流
+    （radar_update ×6 + verdict + done）。
+
+    契约兼容：前端经 Host API 代理发送的 JSON 为 camelCase（agentId /
+    agentName），而后端旧有测试与内部调用使用 snake_case（agent_id /
+    agent_name）。此处通过 pydantic 的 AliasGenerator + populate_by_name 同时
+    接受两种写法，避免前端真实请求缺少 agent_id 触发 422 而静默回退 mock。
+    """
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    agent_name: str = ""
+    persona: Optional[str] = None
+    task: JudgeTask = Field(default_factory=JudgeTask)
+    transcript: str = ""
+    usage: List[dict] = Field(default_factory=list)
+    preference: Optional[dict] = None
 
 
 # ===================== SSE 事件（五种） =====================
