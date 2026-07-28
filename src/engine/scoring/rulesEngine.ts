@@ -6,6 +6,7 @@
  * 零新增依赖（纯 TS）。
  */
 import type { JobType, StageKey, SubjectiveDim, CraftDim } from "./registry";
+import { JOB_GENERIC_WEIGHT } from "./registry";
 
 /** 规则 JSON 的类型（与 presets/default.json 同构，架构 §3.2） */
 export interface ScoringRules {
@@ -47,11 +48,16 @@ export function flattenDimWeight(
 ): Record<string, number> {
   const stageCfg = rules.stages[stage];
   const bw = stageCfg.objectiveBlockWeight;
-  const genericW = stageCfg.genericRadarWeight;
   const genericBlock = bw.generic ?? 0;
   const craftBlock = bw.craft ?? 0;
 
   const craftDims = rules.jobs[jobType]?.craftDims ?? [];
+
+  // generic 六维权重：优先按工种差异化（Q2，JOB_GENERIC_WEIGHT[jobType]），
+  // 缺失时回退阶段级 genericRadarWeight
+  const genericW =
+    (JOB_GENERIC_WEIGHT as Record<string, Record<string, number>>)[jobType] ??
+    stageCfg.genericRadarWeight;
 
   const raw: Record<string, number> = {};
   // generic 块

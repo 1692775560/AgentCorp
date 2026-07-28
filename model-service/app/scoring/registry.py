@@ -9,8 +9,8 @@ model-service/app/scoring/registry.py
 - 全部为纯 Python 常量 + 一个小辅助函数，**零新增依赖**。
 - JOB_GENERIC_WEIGHT 为按工种差异化的通用六维权重（Σ=1，仅通用六维内部），
   对应 owner 决策 Q2（image 重 creativity、text 重 comm/quality、code 重 reliability/cost）。
-  注：当前 flatten_dim_weight 在 T1 中消费的是 rules JSON 的阶段级 genericRadarWeight，
-  本常量作为「按工种差异化」的权威数据集与未来的回灌/对比基准（见 §一致性审查 待确认点）。
+  注：flatten_dim_weight 在 T1 中已优先消费本常量（Q2 真正生效），
+  仅在 registry 未提供该工种时才回退 rules JSON 的阶段级 genericRadarWeight。
 """
 from __future__ import annotations
 

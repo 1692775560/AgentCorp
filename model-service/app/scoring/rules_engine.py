@@ -19,6 +19,7 @@ import os
 from typing import Dict, List, Optional
 
 from ..schemas import Verdict
+from .registry import JOB_GENERIC_WEIGHT
 
 _PRESETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "presets")
 
@@ -62,7 +63,9 @@ def flatten_dim_weight(stage: str, job_type: str, rules: dict) -> Dict[str, floa
     按架构 §3.2 + §7.8 预折叠为扁平 dimWeight（Σ=1，仅含本阶段启用客观维）。
 
     公式：
-      generic 块：genericRadarWeight[dim] × objectiveBlockWeight.generic
+      generic 块：generic 六维权重 × objectiveBlockWeight.generic
+                  来源：优先 registry.JOB_GENERIC_WEIGHT[job_type]（Q2 按工种差异化，
+                  内部 Σ=1）；缺失时回退阶段级 genericRadarWeight。
       craft   块：objectiveBlockWeight.craft 均分给 jobs[job_type].craftDims
       kpiRoi  块：performance 阶段预留（本批次无 kpi/roi 维 → 占位 0 维）
       最后整体归一化使 Σ=1（保证缺 kpiRoi 维时不会 <1）。
@@ -71,12 +74,14 @@ def flatten_dim_weight(stage: str, job_type: str, rules: dict) -> Dict[str, floa
     """
     stage_cfg = rules["stages"][stage]
     bw = stage_cfg.get("objectiveBlockWeight", {})
-    generic_w = stage_cfg.get("genericRadarWeight", {})
     generic_block = float(bw.get("generic", 0.0))
     craft_block = float(bw.get("craft", 0.0))
 
     job_cfg = rules.get("jobs", {}).get(job_type, {})
     craft_dims = job_cfg.get("craftDims", [])
+
+    # generic 六维权重：优先按工种差异化（Q2），否则回退阶段级 genericRadarWeight
+    generic_w = JOB_GENERIC_WEIGHT.get(job_type) or stage_cfg.get("genericRadarWeight", {})
 
     raw: Dict[str, float] = {}
     # —— generic 块 ——
