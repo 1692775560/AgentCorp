@@ -14,6 +14,49 @@
  * 其余领域类型见 src/types/agent.ts 等。
  */
 
+/* ===================== 评估层扩展（T0 · 三阶段×三工种） ===================== */
+/**
+ * 工种类型（owner 决策 Q2：image 重 creativity / text 重 comm·quality / code 重 reliability·cost）。
+ * 严格照搬架构 §3.1，不改动既有 RadarDim / Verdict / LifecycleState。
+ */
+export type JobType = "image" | "text" | "code";
+/** 阶段键（S1/S2/S3） */
+export type StageKey = "preScreen" | "interview" | "performance";
+/** 主观维度（分阶段启用，PRD §2.4），键名 sub_* 不冲突 */
+export type SubjectiveDim =
+  | "sub_potential"
+  | "sub_aesthetic_lean"
+  | "sub_task_feel"
+  | "sub_communication"
+  | "sub_surprise"
+  | "sub_trust"
+  | "sub_rehire";
+/** 工种 craft 维度（前缀隔离，PRD §2.2） */
+export type CraftDim =
+  | "img_composition"
+  | "img_style_fit"
+  | "img_fidelity"
+  | "img_aesthetic_consistency"
+  | "img_multimodal_follow"
+  | "txt_factuality"
+  | "txt_coherence"
+  | "txt_tone_fit"
+  | "txt_info_density"
+  | "txt_instruction_follow"
+  | "code_runnability"
+  | "code_efficiency"
+  | "code_test_coverage"
+  | "code_maintainability"
+  | "code_security";
+/** craft 维元数据（架构 §3.1 CraftDimMeta） */
+export interface CraftDimMeta {
+  key: CraftDim;
+  jobType: JobType;
+  links: RadarDim[]; // 关联通用六维（回灌/加权）
+  requiresReal: boolean; // Q6：code_runnability/code_security = true
+  anchor: { 0: string; 3: string; 5: string }; // 0–5 锚点
+}
+
 /** 六维雷达维度键（顺序即展示顺序） */
 export type RadarDim =
   | "task"

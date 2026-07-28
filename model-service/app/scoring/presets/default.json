@@ -1,0 +1,41 @@
+{
+  "$schema": "agentcorp.scoring-rules/v1",
+  "version": "1.0",
+  "presetId": "default",
+  "genericRadar": ["task", "quality", "comm", "creativity", "reliability", "cost"],
+  "jobs": {
+    "image": { "craftDims": ["img_composition", "img_style_fit", "img_fidelity", "img_aesthetic_consistency", "img_multimodal_follow"] },
+    "text": { "craftDims": ["txt_factuality", "txt_coherence", "txt_tone_fit", "txt_info_density", "txt_instruction_follow"] },
+    "code": { "craftDims": ["code_runnability", "code_efficiency", "code_test_coverage", "code_maintainability", "code_security"] }
+  },
+  "stages": {
+    "preScreen": {
+      "enabledObjective": ["__generic__", "__craft__"],
+      "enabledSubjective": ["sub_potential", "sub_aesthetic_lean"],
+      "objectiveBlockWeight": { "generic": 0.6, "craft": 0.4 },
+      "objectiveWeight": 0.6,
+      "subjectiveWeight": 0.4,
+      "genericRadarWeight": { "task": 0.18, "quality": 0.17, "comm": 0.15, "creativity": 0.17, "reliability": 0.17, "cost": 0.16 },
+      "thresholds": { "mvp": 78, "observe": 50 }
+    },
+    "interview": {
+      "enabledObjective": ["__generic__", "__craft__", "kpi:completion/latency/rework"],
+      "enabledSubjective": ["sub_task_feel", "sub_communication", "sub_surprise"],
+      "objectiveBlockWeight": { "generic": 0.5, "craft": 0.5 },
+      "objectiveWeight": 0.5,
+      "subjectiveWeight": 0.5,
+      "genericRadarWeight": { "task": 0.18, "quality": 0.17, "comm": 0.15, "creativity": 0.17, "reliability": 0.17, "cost": 0.16 },
+      "thresholds": { "mvp": 78, "observe": 50 }
+    },
+    "performance": {
+      "enabledObjective": ["__generic__", "__craft__", "kpi:*", "roi:*"],
+      "enabledSubjective": ["sub_trust", "sub_rehire", "sub_aesthetic_lean"],
+      "objectiveBlockWeight": { "generic": 0.4, "craft": 0.3, "kpiRoi": 0.3 },
+      "objectiveWeight": 0.7,
+      "subjectiveWeight": 0.3,
+      "genericRadarWeight": { "task": 0.18, "quality": 0.17, "comm": 0.15, "creativity": 0.17, "reliability": 0.17, "cost": 0.16 },
+      "thresholds": { "mvp": 78, "observe": 50 }
+    }
+  },
+  "subjective": { "capPercent": 8, "neutralBaseline": 3 }
+}
