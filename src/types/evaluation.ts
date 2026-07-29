@@ -363,3 +363,148 @@ export interface RunTaskLink {
   sessionId: string;
   evaluatedAt: string; // ISO8601 UTC
 }
+
+/* ===================== 评估层扩展·批次2（T4–T9 + T19） ===================== */
+/**
+ * 单次客观维得分（含来源 + 扁平权重，供 Q7 craft 独立存库/工种雷达）。
+ * 与后端 schemas.ObjectiveScoreItem 严格镜像。
+ */
+export interface ObjectiveScoreItem {
+  dim: string;
+  score: number;
+  source: 'judge' | 'telemetry' | 'mixed';
+  weight: number;
+  evidence?: string;
+}
+
+/** 单次主观赋分（人类 owner，PRD §5.2）。镜像后端 schemas.SubjectiveScore */
+export interface SubjectiveScore {
+  agentId: string;
+  stage: StageKey;
+  scores: Partial<Record<SubjectiveDim, number>>;
+  notes?: string;
+  scoredBy: string;
+  ts: string;
+}
+
+/** craft 维独立存库（Q7）。镜像后端 schemas.CraftScores */
+export interface CraftScores {
+  jobType: JobType;
+  dims: Partial<Record<CraftDim, number>>;
+  downweighted: CraftDim[];
+  evidence: Partial<Record<CraftDim, string>>;
+}
+
+/** 三阶段评分卡（S1/S2/S3 同构）。镜像后端 schemas.StageScore */
+export interface StageScore {
+  agentId: string;
+  stage: StageKey;
+  jobType: JobType;
+  objective: ObjectiveScoreItem[];
+  subjective: SubjectiveScore;
+  objectiveWeight: number;
+  subjectiveWeight: number;
+  objectiveScore: number;
+  subjectiveScore: number;
+  total: number;
+  verdict: 'MVP' | 'OBSERVE' | 'FIRED';
+  craftScores: CraftScores;
+  window?: string;
+  ts: string;
+}
+
+/** POST /api/evaluate-stage 入参。镜像后端 schemas.StageScoreRequest */
+export interface StageScoreRequest {
+  agentId: string;
+  stage: StageKey;
+  jobType: JobType;
+  objective: Record<string, number>;
+  subjective: Record<string, number>;
+  craftEvidence?: Record<string, string>;
+  presetId?: string;
+  scoredBy?: string;
+  window?: string;
+}
+
+/** 双 Leaderboard · 客观榜条目（按 objectiveScore 排序）。镜像后端 schemas.LeaderboardEntry */
+export interface ObjectiveBoardEntry {
+  agentId: string;
+  name: string;
+  jobType: JobType;
+  objectiveScore: number;
+  roiNorm: number;
+  rank: number;
+  state: string;
+  tier: 'MVP' | 'NORMAL' | 'BOTTOM';
+}
+
+/** 双 Leaderboard · 主观榜条目（可拖拽）。镜像后端 schemas.SubjectiveRankEntry */
+export interface SubjectiveBoardEntry {
+  agentId: string;
+  name: string;
+  jobType: JobType;
+  subjectiveScore: number;
+  objectiveRank: number;
+  dragRank: number;
+}
+
+/** 客观序 vs 拖拽序发散（自动派生）。镜像后端 schemas.RankDivergence */
+export interface RankDivergence {
+  agentId: string;
+  objectiveRank: number;
+  dragRank: number;
+  delta: number;
+}
+
+/** 双 Leaderboard 聚合（客观榜 + 可拖拽主观榜 + 复核发散）。镜像后端 schemas.DualLeaderboard */
+export interface DualLeaderboard {
+  stage: StageKey;
+  jobType: JobType | 'all';
+  objective: ObjectiveBoardEntry[];
+  subjective: SubjectiveBoardEntry[];
+  divergences: RankDivergence[];
+  updatedAt: string;
+}
+
+/** 一次拖拽 = 一个偏好信号（Q5 回灌）。镜像后端 schemas.PreferenceSignal */
+export interface PreferenceSignal {
+  id: string;
+  ownerId: string;
+  stage: StageKey;
+  jobType: JobType;
+  agentId: string;
+  srcRank: number;
+  dstRank: number;
+  direction: 'up' | 'down';
+  craftScores?: Record<string, number>;
+  ts: string;
+}
+
+/** 聚合后回灌 UserPreference.weight 的偏好画像。镜像后端 schemas.PreferenceProfile */
+export interface PreferenceProfile {
+  ownerId: string;
+  signals: PreferenceSignal[];
+  pairwiseWins: Record<string, number>;
+  dimLift: Partial<Record<RadarDim, number>>;
+  updatedAt: string;
+}
+
+/** TaskSet 运行结果（T9）。镜像后端 schemas.TaskRunResult */
+export interface TaskRunResult {
+  agentId: string;
+  taskSetId: string;
+  jobType: JobType;
+  objectiveScores: Record<string, number>;
+  telemetry: unknown[];
+  usage: unknown[];
+  craftEvidence: Record<string, string>;
+  meta: Record<string, number>;
+}
+
+/** TaskSet 元数据（前端注册表镜像用）。镜像后端 schemas.TaskSetMeta */
+export interface TaskSetMeta {
+  id: string;
+  title: string;
+  description: string;
+  applicableJobs: JobType[];
+}

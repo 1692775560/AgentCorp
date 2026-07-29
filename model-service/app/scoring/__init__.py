@@ -25,6 +25,18 @@ from .rules_engine import (
     compute_stage_score,
     verdict_from_total,
 )
+from .stage_scorer import build_stage_score
+from .preference import (
+    aggregate_preference,
+    apply_to_user_preference,
+)
+from .task_sets import (
+    TaskSet,
+    TaskSetRegistry,
+    UsageEfficiencyTaskSet,
+    get_task_set,
+    list_task_sets,
+)
 from .encoder import (
     encode_summary,
     pca2d,
@@ -55,6 +67,17 @@ __all__ = [
     "flatten_dim_weight",
     "compute_stage_score",
     "verdict_from_total",
+    # stage_scorer (T4)
+    "build_stage_score",
+    # preference (T8)
+    "aggregate_preference",
+    "apply_to_user_preference",
+    # task_sets (T9)
+    "TaskSet",
+    "TaskSetRegistry",
+    "UsageEfficiencyTaskSet",
+    "get_task_set",
+    "list_task_sets",
     # encoder (T14)
     "encode_summary",
     "pca2d",

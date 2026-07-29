@@ -71,6 +71,15 @@ interface ConvergenceState {
   /** 从服务端拉取评分 + 锚点（按 ownerId） */
   loadFromServer: (runId: string, ownerId?: string) => Promise<void>;
 
+  /**
+   * T19：双 Leaderboard 拖拽锚点回填。
+   * 将拖拽置顶候选回填为 HumanAnchor（source="dual_leaderboard_drag"），
+   * 与 explicit_pin 源互斥合并（共用锚点库）。
+   * - 无活跃 trace 时静默 noop（返回 false，不报错）；
+   * - 候选不在当前 trace 候选集时静默 noop（返回 false）。
+   */
+  setAnchor: (candidateId: string, source?: ConvSource) => Promise<boolean>;
+
   /** 清空当前会话（保留 electron-store 落库数据） */
   reset: () => void;
 }
@@ -189,6 +198,51 @@ export const useConvergenceStore = create<ConvergenceState>((set, get) => ({
   },
 
   reset: () => set({ trace: null, score: null, explicitPin: null }),
+
+  setAnchor: async (candidateId, source = 'dual_leaderboard_drag') => {
+    const { trace } = get();
+    // 无活跃 trace → 静默 noop（T19 不报错）
+    if (!trace) return false;
+    // 在当前 trace 候选集中定位该候选的 embedding
+    let embedding: number[] | null = null;
+    for (const t of trace.turns) {
+      const c = t.candidates.find((cc) => cc.candidate_id === candidateId);
+      if (c) {
+        embedding = c.embedding;
+        break;
+      }
+    }
+    // 候选不在 trace 候选集 → 静默 noop（双榜 agent 与收敛候选可能不同源）
+    if (!embedding) return false;
+
+    const anchor = {
+      anchor_id: makeAnchorId(trace.run_id, candidateId),
+      candidate_id: candidateId,
+      embedding,
+      owner_id: trace.created_by,
+      source,
+      ts: new Date().toISOString(),
+    } as HumanAnchor;
+
+    // 落库（网络失败仍保留内存态）
+    try {
+      await convergenceService.postAnchor(anchor);
+    } catch {
+      // 忽略网络错误
+    }
+    const anchors = [
+      ...get().anchors.filter((a) => a.anchor_id !== anchor.anchor_id),
+      anchor,
+    ];
+    const next: ConvergenceTrace = {
+      ...trace,
+      human_anchor_id: candidateId,
+      // 若与 explicit_pin 同源候选冲突，后者被本来源覆盖（互斥合并）
+    };
+    set({ anchors, trace: next, explicitPin: null });
+    void convergenceService.cacheTrace(next);
+    return true;
+  },
 }));
 
 export const convergenceStore = useConvergenceStore;
