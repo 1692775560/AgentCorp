@@ -1,11 +1,12 @@
 """
 model-service/app/scoring/__init__.py
-评估层扩展核心包（架构 §1.3 / T0–T3）。
+评估层扩展核心包（架构 §1.3 / T0–T3 / T13–T18）。
 
-本批次仅导出地基模块：registry（维度注册表）、rules_engine（规则引擎）。
-后续批次（T4+）将在此追加 stage_scorer / preference / task_sets。
+本批次在批次 1（registry / rules_engine）之上，追加 Layer3 收敛类模块：
+- encoder：确定性投影编码器 + 纯 Python PCA + ConvergenceConfig（T14）
+- convergence：收敛数据模型 + ConvergenceEngine（T13 / T15）
 
-T0–T3 不引入任何新运行时依赖（纯 Python + pydantic，见架构 §6.1）。
+零新增运行时依赖（纯 Python + pydantic）。
 """
 from __future__ import annotations
 
@@ -24,6 +25,21 @@ from .rules_engine import (
     compute_stage_score,
     verdict_from_total,
 )
+from .encoder import (
+    encode_summary,
+    pca2d,
+    ConvergenceConfig,
+    cosine_similarity,
+)
+from .convergence import (
+    CandidateEmbedding,
+    TurnState,
+    ConvergenceTrace,
+    HumanAnchor,
+    ConvergenceScore,
+    ConvergenceEngine,
+    ConvSource,
+)
 
 __all__ = [
     # registry
@@ -39,4 +55,17 @@ __all__ = [
     "flatten_dim_weight",
     "compute_stage_score",
     "verdict_from_total",
+    # encoder (T14)
+    "encode_summary",
+    "pca2d",
+    "ConvergenceConfig",
+    "cosine_similarity",
+    # convergence (T13 / T15)
+    "CandidateEmbedding",
+    "TurnState",
+    "ConvergenceTrace",
+    "HumanAnchor",
+    "ConvergenceScore",
+    "ConvergenceEngine",
+    "ConvSource",
 ]

@@ -137,6 +137,9 @@ class JudgeRunRequest(BaseModel):
     transcript: str = ""
     usage: List[dict] = Field(default_factory=list)
     preference: Optional[dict] = None
+    # Layer3 收敛扩展（T16，可选）：命中则 /api/evaluate-run 记录收敛轨迹
+    # 并发 convergence_update / convergence_score SSE 事件（不破坏既有字段）。
+    convergence: Optional[dict] = None
 
 
 # ===================== SSE 事件（五种） =====================

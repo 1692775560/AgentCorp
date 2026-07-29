@@ -96,3 +96,6 @@ docs/pr-session-notes-*.md
 .golutra/
 .claude/
 /anthropic-ai-claude-code-*.tgz
+
+# Layer3 可选 JSON 落盘（运行时生成，非源码）
+convergence-store.json

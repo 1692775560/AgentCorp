@@ -52,10 +52,10 @@ def load_minicpmo(model_path: str) -> MiniCPMModel:
             "MiniCPM-o 权重未在当前环境加载（无 NPU / 未配置权重）。"
             "返回不可用模型；推理将报错或走 Mock。部署到昇腾环境后自动启用真实推理。"
         )
-        return MiniCPMModel(available=False)
+        return MiniCPMModel()
     except Exception as exc:  # noqa: BLE001
         logger.error("模型加载失败：%s", exc)
-        return MiniCPMModel(available=False)
+        return MiniCPMModel()
 
 
 def to_npu(model: Any) -> Any:
