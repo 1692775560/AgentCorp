@@ -12,6 +12,7 @@
  */
 import { invokeIpc } from '@/lib/api-client';
 import type { EvaluationEvent, TelemetryEvent, RadarScore, RadarDim, Verdict } from '@/types/evaluation';
+import type { ConvergenceScore, TurnState } from '@/types/convergence';
 import { computeKpi } from '@/engine/metricsEngine';
 
 // 与 src/lib/host-api.ts 保持一致
@@ -38,6 +39,92 @@ export interface JudgeRunInput {
     aesthetic?: string;
     budget_max?: number;
     weight?: Partial<Record<string, number>>;
+  };
+  /**
+   * 收敛层开关（仅加法，后端不识别时忽略该字段）。
+   * k = 每轮候选数（建议 3–7，保可逆性）；captureSummaries = 是否回传候选摘要文本。
+   */
+  convergence?: {
+    k?: number;
+    captureSummaries?: boolean;
+  };
+}
+
+/* ───────────── 收敛层 SSE 侧信道（设计 §5.2，纯加法） ─────────────
+ * `convergence_update` / `convergence_score` 不属于 EvaluationEvent 联合类型
+ * （评估域契约保持不动），故走独立监听器分发，订阅方（convergenceStore）
+ * 自行决定如何落到轨迹上。无人订阅时静默丢弃，不影响评估主流。 */
+
+/** 收敛事件（判别联合） */
+export type JudgeConvergenceEvent =
+  | { type: 'convergence_update'; runId: string; turn: TurnState }
+  | { type: 'convergence_score'; runId: string; score: ConvergenceScore };
+
+type ConvergenceHandler = (event: JudgeConvergenceEvent) => void;
+
+const convergenceHandlers = new Set<ConvergenceHandler>();
+
+/**
+ * 订阅收敛事件。
+ * @returns 取消订阅函数
+ */
+export function onConvergenceEvent(handler: ConvergenceHandler): () => void {
+  convergenceHandlers.add(handler);
+  return () => {
+    convergenceHandlers.delete(handler);
+  };
+}
+
+/** 广播收敛事件（订阅方异常不影响其他订阅方与主流） */
+function emitConvergence(event: JudgeConvergenceEvent): void {
+  for (const handler of convergenceHandlers) {
+    try {
+      handler(event);
+    } catch {
+      // 订阅方自身异常吞掉
+    }
+  }
+}
+
+/** 把 SSE 原始 JSON 解析成 TurnState（字段缺失时给安全默认值） */
+function toTurnState(json: Record<string, unknown>): TurnState {
+  const rawCandidates = Array.isArray(json.candidates) ? (json.candidates as unknown[]) : [];
+  return {
+    turn: Number(json.turn ?? 0),
+    candidates: rawCandidates.map((item) => {
+      const c = (item ?? {}) as Record<string, unknown>;
+      return {
+        candidate_id: String(c.candidate_id ?? ''),
+        turn: Number(c.turn ?? json.turn ?? 0),
+        summary_text: String(c.summary_text ?? ''),
+        embedding: Array.isArray(c.embedding) ? (c.embedding as unknown[]).map(Number) : [],
+        job_type: c.job_type as TurnState['candidates'][number]['job_type'],
+      };
+    }),
+    belief_embedding: Array.isArray(json.belief_embedding)
+      ? (json.belief_embedding as unknown[]).map(Number)
+      : [],
+  };
+}
+
+/** 把 SSE 原始 JSON 解析成 ConvergenceScore（字段缺失时给安全默认值） */
+function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
+  const weights = (json.weights ?? {}) as Record<string, unknown>;
+  return {
+    run_id: String(json.run_id ?? ''),
+    agent_id: String(json.agent_id ?? ''),
+    contraction_rate: Number(json.contraction_rate ?? 0),
+    residual: Number(json.residual ?? 0),
+    stability: Number(json.stability ?? 0),
+    convergence_score: Number(json.convergence_score ?? 0),
+    reversibility: Number(json.reversibility ?? 0),
+    convergence_quality: json.convergence_quality === 1 ? 1 : 0,
+    weights: {
+      w1: Number(weights.w1 ?? 0),
+      w2: Number(weights.w2 ?? 0),
+      w3: Number(weights.w3 ?? 0),
+    },
+    ts: String(json.ts ?? new Date().toISOString()),
   };
 }
 
@@ -129,6 +216,23 @@ function parseBlock(block: string): EvaluationEvent | null {
     }
     if (type === 'done') {
       return { type: 'done', evaluation_id: String(json.evaluation_id ?? '') } as EvaluationEvent;
+    }
+    // 收敛层事件走侧信道，不进入 EvaluationEvent 主流
+    if (type === 'convergence_update') {
+      emitConvergence({
+        type: 'convergence_update',
+        runId: String(json.run_id ?? ''),
+        turn: toTurnState(json),
+      });
+      return null;
+    }
+    if (type === 'convergence_score') {
+      emitConvergence({
+        type: 'convergence_score',
+        runId: String(json.run_id ?? ''),
+        score: toConvergenceScore(json),
+      });
+      return null;
     }
     return null;
   } catch {

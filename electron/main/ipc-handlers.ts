@@ -853,7 +853,9 @@ interface GatewayCronJob {
 /**
  * Transform a Gateway CronJob to the frontend CronJob format
  */
-function transformCronJob(job: GatewayCronJob) {
+// 该纯变换函数同时被 ipc-handlers 内部（cron 相关处理逻辑）以及
+// electron/api/routes/agents.ts 复用，故在此处作为单一实现源导出。
+export function transformCronJob(job: GatewayCronJob) {
   // Extract message from payload
   const message = job.payload?.message || job.payload?.text || '';
 

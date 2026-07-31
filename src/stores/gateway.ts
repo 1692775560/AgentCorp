@@ -206,22 +206,6 @@ function handleGatewayChatMessage(data: unknown): void {
   }).catch(() => {});
 }
 
-function mapChannelStatus(status: string): 'connected' | 'connecting' | 'disconnected' | 'error' {
-  switch (status) {
-    case 'connected':
-    case 'running':
-      return 'connected';
-    case 'connecting':
-    case 'starting':
-      return 'connecting';
-    case 'error':
-    case 'failed':
-      return 'error';
-    default:
-      return 'disconnected';
-  }
-}
-
 export const useGatewayStore = create<GatewayState>((set, get) => ({
   status: {
     state: 'stopped',
@@ -260,21 +244,9 @@ export const useGatewayStore = create<GatewayState>((set, get) => ({
           unsubscribers.push(subscribeHostEvent('gateway:chat-message', (payload) => {
             handleGatewayChatMessage(payload);
           }));
-          unsubscribers.push(subscribeHostEvent<{ channelId?: string; status?: string }>(
-            'gateway:channel-status',
-            (update) => {
-              import('./channels')
-                .then(({ useChannelsStore }) => {
-                  if (!update.channelId || !update.status) return;
-                  const state = useChannelsStore.getState();
-                  const channel = state.channels.find((item) => item.type === update.channelId);
-                  if (channel) {
-                    state.updateChannel(channel.id, { status: mapChannelStatus(update.status) });
-                  }
-                })
-                .catch(() => {});
-            },
-          ));
+          // 注：原先此处还订阅了 'gateway:channel-status'，用于把状态同步进 './channels' store。
+          // 该 store 已随 channels 特性整体下线（见 c2c929f），动态 import 必然 reject 并被
+          // .catch 吞掉，订阅实际早已是空操作，故一并移除，避免悬空引用。
           gatewayEventUnsubscribers = unsubscribers;
         }
       } catch (error) {

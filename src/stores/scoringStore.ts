@@ -29,6 +29,11 @@ import type {
 import { hostApiFetch } from '@/lib/host-api';
 import { preferenceStore } from '@/services/preferenceStore';
 import { leaderboardClient } from '@/services/leaderboardClient';
+import { stageScoreStore } from '@/services/stageScoreStore';
+import {
+  load as loadEvaluationProfile,
+  save as saveEvaluationProfile,
+} from '@/services/evaluationStore';
 
 /** 默认 UserPreference.weight（与后端 WeightVector 同构，Σ=1）。 */
 export const DEFAULT_WEIGHT: Record<RadarDim, number> = {
@@ -78,6 +83,38 @@ interface ScoringState {
 }
 
 const subKey = (stage: StageKey, agentId: string) => `${stage}:${agentId}`;
+
+/**
+ * 阶段评分卡持久化（★通道③存储端，仅加法）。
+ *
+ * 两件事：
+ * 1) 写 `agentcorp.stage-scores`（键 `${agentId}:${stage}`，同阶段覆盖写）；
+ * 2) 同步回写 `EvaluationProfile.stageScores`，让
+ *    `engine/marketplace/radarSource.latestStageScore('performance')` 能读到
+ *    最新绩效卡，进而在市场页产生 perfBoost 重排。
+ *
+ * 全程 best-effort：非 Electron 运行时或落库异常都静默跳过，不影响评分主流程。
+ */
+async function persistStageScore(score: StageScore): Promise<void> {
+  try {
+    await stageScoreStore.save(score);
+  } catch {
+    // 渲染层无 electron-store（如浏览器预览）时忽略
+  }
+  try {
+    const profile = await loadEvaluationProfile(score.agentId);
+    if (!profile) return;
+    const kept = (profile.stageScores ?? []).filter((item) => item.stage !== score.stage);
+    await saveEvaluationProfile({
+      ...profile,
+      jobType: profile.jobType ?? score.jobType,
+      stageScores: [...kept, score],
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {
+    // 档案不存在或落库失败不阻断
+  }
+}
 
 export const useScoringStore = create<ScoringState>((set, get) => ({
   subjectiveScores: {},
@@ -188,6 +225,9 @@ export const useScoringStore = create<ScoringState>((set, get) => ({
         stageScores: { ...s.stageScores, [req.agentId]: ss },
         streaming: false,
       }));
+      // ★ 通道③（存储端）：评分卡落库 + 同步回写评估档案，
+      // 让市场页的 perfBoost / 面试页的基线在刷新后仍可读到（best-effort，不阻断）。
+      await persistStageScore(ss);
       return ss;
     } catch (e) {
       set({

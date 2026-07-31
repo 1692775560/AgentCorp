@@ -3,7 +3,15 @@ export type AgentChatAccess = 'direct' | 'leader_only';
 
 // 生命周期状态机（小写运行时真相，定义见 src/types/lifecycle.ts）。
 // 复用自评估层；AgentSummary.lifecycleStatus 缺省视为 'active'。
-export type { AgentLifecycleStatus } from './lifecycle';
+// 注意：必须先 import 进本模块作用域再 re-export，
+// 单独的 `export type { X } from './lifecycle'` 只做转发，不会把 X 引入本文件作用域，
+// 因此下方 AgentSummary.lifecycleStatus 会报 TS2304 找不到名称。
+import type { AgentLifecycleStatus } from './lifecycle';
+
+export type { AgentLifecycleStatus };
+
+/** Agent 来源渠道（由 electron/utils/openclaw-workspace.ts 在快照中下发） */
+export type AgentSource = 'marketplace' | 'local' | 'custom';
 
 export interface AgentSummary {
   id: string;
@@ -28,6 +36,11 @@ export interface AgentSummary {
    * 缺省（未赋值）按 'active' 处理，与 src/stores/agents.ts 的 deriveLifecycleStatus 一致。
    */
   lifecycleStatus?: AgentLifecycleStatus;
+  /**
+   * Agent 来源渠道。由主进程 electron/utils/openclaw-workspace.ts 写入
+   * （实际下发 'marketplace' | 'local'），渲染层缺省按 'custom' 兜底。
+   */
+  source?: AgentSource;
 }
 
 export interface AgentsSnapshot {

@@ -349,6 +349,38 @@ export interface EvaluationProfile {
   lifecycle: LifecycleState;
   runIds: string[];
   updatedAt: string; // ISO8601 UTC
+
+  /* —— 三模块增量（v1.0-frontend-increment §5.4）——
+   * 全部 optional 仅加法，向后兼容既有落库数据；绝不删改上方既有字段。 */
+  /** 工种（S1/S2/S3 评分卡与双榜筛选用） */
+  jobType?: JobType;
+  /** S1/S2/S3 评分卡（stageScoreStore 同步回写） */
+  stageScores?: StageScore[];
+  /** 最近一次主观赋分 */
+  subjectiveLatest?: SubjectiveScore;
+  /** 主观赋分历史 */
+  subjectiveHistory?: SubjectiveScore[];
+  /** Q7 craft 维最新得分（键为 CraftDim 字符串） */
+  craftLatest?: Record<string, number>;
+  /**
+   * ② 面试 → 绩效基线（来自最新 InterviewReport）。
+   * metrics 就地内联定义（与 types/interview.ts 的 InterviewReport['metrics']
+   * 结构镜像），避免评估域 → 面试域的跨模块循环依赖。
+   */
+  interviewBaseline?: {
+    /** 面试期六维（finalRadar ?? baselineRadar，可能缺失） */
+    radar: RadarScore | null;
+    /** 面试期关键能力数据（仅展示/参考，不并入 KpiRecord 聚合） */
+    metrics: {
+      avgReplyLatencyMs: number | null; // 思考时间基线
+      totalTokens: number | null; // token 消耗基线
+      clarificationCount: number; // agent 主动澄清次数
+      followupCount: number; // 被追问次数
+      coverageRatio: number; // targetDims 覆盖比
+    };
+    reportId: string;
+    ts: string;
+  };
 }
 
 /**

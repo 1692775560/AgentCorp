@@ -20,7 +20,6 @@ import {
   getUnreadCounts,
   saveUnreadCounts,
   markAsRead as markAsReadInStorage,
-  incrementUnreadCount as incrementUnreadInStorage,
 } from '@/lib/session-unread';
 
 // ── Types ────────────────────────────────────────────────────────

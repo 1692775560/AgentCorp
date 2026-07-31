@@ -1,6 +1,6 @@
 /**
  * src/components/evaluation/DualLeaderboard.tsx
- * 双 Leaderboard（T7 + T19，架构 §2.2 / §4.2 / 增量 T19）。
+ * 双 Leaderboard（T7 + T19 → T39 重写，架构 §2.2 / §4.2 / 增量 §8.2）。
  *
  * - 客观榜：按 objectiveScore 降序（原逻辑，不污染公平排名）。
  * - 主观榜：默认序=客观序预排；用户可用 @dnd-kit 拖拽重排（仅偏好 overlay）。
@@ -11,16 +11,16 @@
  * 外，额外调用 convergenceStore.setAnchor(trace, topCandidateId,
  * "dual_leaderboard_drag")——把拖拽置顶候选回填为 HumanAnchor。若当前无活跃
  * convergence trace，则静默 noop（不报错），与 explicit_pin 源互斥合并。
+ *
+ * T39 重写说明（MUI → Tailwind，零 @mui import）：
+ * - Paper            → section.rounded-2xl border bg-white/60（对齐 Leaderboard.tsx 风格）；
+ * - List/ListItem    → ul/li + flex 行布局；
+ * - Chip(warning Δ)  → span.rounded-full bg-amber-100 text-amber-700；
+ * - Divider          → ui/separator（Radix）。
+ * @dnd-kit 拖拽逻辑、onReorder（T8 回灌）与 setAnchor（T19 锚点回填）**原样保留**；
+ * props 契约不变（stage / jobType），调用方零适配。
  */
-import React, { useEffect, useMemo, useState } from 'react';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import Chip from '@mui/material/Chip';
-import Divider from '@mui/material/Divider';
-import Paper from '@mui/material/Paper';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -37,6 +37,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+import { Separator } from '@/components/ui/separator';
 import { useScoringStore } from '@/stores/scoringStore';
 import { useConvergenceStore } from '@/stores/convergenceStore';
 import type {
@@ -50,6 +51,7 @@ interface Props {
   jobType: JobType | 'all';
 }
 
+/** 主观榜可拖拽行（发散项琥珀色高亮 + Δ 徽章） */
 function SortableRow({
   entry,
   divergent,
@@ -62,35 +64,54 @@ function SortableRow({
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: entry.agentId,
   });
-  const style = {
+  const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
-    cursor: 'grab',
   };
   return (
-    <ListItem
+    <li
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      sx={{
-        border: divergent ? '1px solid #e0a000' : '1px solid transparent',
-        borderRadius: 1,
-        bgcolor: divergent ? 'rgba(224,160,0,0.08)' : 'background.paper',
-      }}
-      secondaryAction={
-        divergent ? (
-          <Chip size="small" color="warning" label={`Δ${entry.dragRank - entry.objectiveRank}`} />
-        ) : null
-      }
+      className={`flex cursor-grab items-center justify-between rounded-xl border px-3 py-2 transition-colors active:cursor-grabbing ${
+        divergent
+          ? 'border-amber-400/70 bg-amber-400/10'
+          : 'border-transparent bg-white/70 hover:bg-white dark:bg-white/5 dark:hover:bg-white/10'
+      }`}
     >
-      <ListItemText
-        primary={`#${rank} ${entry.name || entry.agentId}`}
-        secondary={`主观分 ${entry.subjectiveScore.toFixed(1)} · 客观序 #${entry.objectiveRank}`}
-      />
-    </ListItem>
+      <div className="min-w-0">
+        <p className="truncate text-[13px] font-bold text-[#1A1C1E] dark:text-white">
+          #{rank} {entry.name || entry.agentId}
+        </p>
+        <p className="text-[11px] text-gray-400">
+          主观分 {entry.subjectiveScore.toFixed(1)} · 客观序 #{entry.objectiveRank}
+        </p>
+      </div>
+      {divergent ? (
+        <span className="ml-2 shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+          Δ{entry.dragRank - entry.objectiveRank}
+        </span>
+      ) : null}
+    </li>
   );
 }
+
+/** 榜单卡片外壳（客观/主观两栏共用，对齐 rounded-2xl border bg-white/60 风格） */
+function BoardCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="min-w-[280px] flex-1 rounded-2xl border border-white/40 bg-white/60 p-3 dark:bg-white/5">
+      <h3 className="mb-2 px-1 text-[12px] font-bold text-[#1A1C1E] dark:text-white">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+const TIER_CLS: Record<string, string> = {
+  MVP: 'bg-[#FFD233] text-[#1A1C1E]',
+  NORMAL: 'bg-white/60 text-gray-500 dark:bg-white/10',
+  BOTTOM: 'bg-rose-500 text-white',
+};
 
 export function DualLeaderboard({ stage, jobType }: Props) {
   const dualLeaderboard = useScoringStore((s) => s.dualLeaderboard);
@@ -147,48 +168,71 @@ export function DualLeaderboard({ stage, jobType }: Props) {
   }
 
   if (!dualLeaderboard) {
-    return <Typography variant="body2">加载双 Leaderboard…</Typography>;
+    return <p className="text-[13px] text-gray-400">加载双 Leaderboard…</p>;
   }
 
   return (
-    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+    <div className="flex flex-wrap gap-4">
       {/* 客观榜 */}
-      <Paper sx={{ flex: 1, minWidth: 280, p: 1.5 }} variant="outlined">
-        <Typography variant="subtitle2" gutterBottom>
-          客观榜（按客观分排序，不可拖拽）
-        </Typography>
-        <List dense>
-          {dualLeaderboard.objective.map((e) => (
-            <ListItem key={e.agentId} divider>
-              <ListItemText
-                primary={`#${e.rank} ${e.name || e.agentId}`}
-                secondary={`客观分 ${e.objectiveScore.toFixed(1)} · ${e.tier}`}
-              />
-            </ListItem>
-          ))}
-        </List>
-      </Paper>
+      <BoardCard title="客观榜（按客观分排序，不可拖拽）">
+        <ul className="space-y-1.5">
+          {dualLeaderboard.objective.length === 0 ? (
+            <li className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-center text-[12px] text-gray-400">
+              暂无客观榜数据。
+            </li>
+          ) : (
+            dualLeaderboard.objective.map((e) => (
+              <li
+                key={e.agentId}
+                className="flex items-center justify-between rounded-xl bg-white/70 px-3 py-2 dark:bg-white/5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-bold text-[#1A1C1E] dark:text-white">
+                    #{e.rank} {e.name || e.agentId}
+                  </p>
+                  <p className="text-[11px] text-gray-400">客观分 {e.objectiveScore.toFixed(1)}</p>
+                </div>
+                <span
+                  className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    TIER_CLS[e.tier] ?? TIER_CLS.NORMAL
+                  }`}
+                >
+                  {e.tier}
+                </span>
+              </li>
+            ))
+          )}
+        </ul>
+      </BoardCard>
 
       {/* 主观榜（可拖拽） */}
-      <Paper sx={{ flex: 1, minWidth: 280, p: 1.5 }} variant="outlined">
-        <Typography variant="subtitle2" gutterBottom>
-          主观榜（拖拽重排 = 偏好 overlay）
-        </Typography>
+      <BoardCard title="主观榜（拖拽重排 = 偏好 overlay）">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={subList.map((e) => e.agentId)} strategy={verticalListSortingStrategy}>
-            <List dense>
-              {subList.map((e, i) => (
-                <SortableRow key={e.agentId} entry={e} divergent={divergentIds.has(e.agentId)} rank={i + 1} />
-              ))}
-            </List>
+            <ul className="space-y-1.5">
+              {subList.length === 0 ? (
+                <li className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-center text-[12px] text-gray-400">
+                  暂无主观榜数据。
+                </li>
+              ) : (
+                subList.map((e, i) => (
+                  <SortableRow
+                    key={e.agentId}
+                    entry={e}
+                    divergent={divergentIds.has(e.agentId)}
+                    rank={i + 1}
+                  />
+                ))
+              )}
+            </ul>
           </SortableContext>
         </DndContext>
-        <Divider sx={{ my: 1 }} />
-        <Typography variant="caption" color="text.secondary">
+        <Separator className="my-2 bg-white/60 dark:bg-white/10" />
+        <p className="px-1 text-[11px] text-gray-400">
           拖拽仅为偏好 overlay，不改客观结论。高亮项 = 客观序与拖拽序发散（Δ 为位移）。
-        </Typography>
-      </Paper>
-    </Box>
+        </p>
+      </BoardCard>
+    </div>
   );
 }
 

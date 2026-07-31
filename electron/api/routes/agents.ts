@@ -26,7 +26,9 @@ import { logger } from '../../utils/logger';
 import { syncAllProviderAuthToRuntime } from '../../services/providers/provider-runtime-sync';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
-import { transformCronJob } from './cron';
+// transformCronJob 的真实定义位于 electron/main/ipc-handlers.ts，
+// 该模块并未反向依赖 routes 目录，故此处直接从其唯一实现源导入，避免悬空引用。
+import { transformCronJob } from '../../main/ipc-handlers';
 
 function scheduleGatewayReload(ctx: HostApiContext, reason: string): void {
   if (ctx.gatewayManager.getStatus().state !== 'stopped') {

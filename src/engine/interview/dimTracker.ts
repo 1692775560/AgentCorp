@@ -1,0 +1,362 @@
+/**
+ * src/engine/interview/dimTracker.ts
+ * 维度证据追踪与追问建议引擎（模块 B · 设计 §5.3 / §3.2）。
+ *
+ * 「对话式收敛」的收敛度量在这里：每一轮回答都会被折算成对应维度的**证据强度**，
+ * 覆盖度（coverage）就是「模糊 → 清晰」的进度条；证据最薄弱的维度会被翻译成
+ * 具体追问建议（FollowupSuggestChips），驱动 HR 把提问打到信息缺口上，
+ * 而不是随机寒暄——这就是「用结构化追问压低认知熵」的可执行形式。
+ *
+ * 本文件全部为纯函数、无副作用（不读 store / 不发网络），可直接单测。
+ */
+import type { CraftDim, RadarDim, RadarScore } from '@/types/evaluation';
+import type { InterviewMetrics, InterviewRecommendation, InterviewTurn } from '@/types/interview';
+import { RADAR_DIMS, CRAFT_LINKS } from '@/engine/scoring/registry';
+import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
+
+/** 单维证据覆盖情况 */
+export interface DimCoverage {
+  /** 维度键（通用六维或 craft 维） */
+  dim: RadarDim | CraftDim;
+  /** 中文标签 */
+  label: string;
+  /** 命中该维的提问轮数 */
+  asked: number;
+  /** 提供了有效回答的轮数（非空回答） */
+  answered: number;
+  /** 证据强度累计（0–1 × 轮数） */
+  strength: number;
+  /** 覆盖度（0–1，1 = 证据充分） */
+  coverage: number;
+  /** HR 已给分（仅通用六维，未打分为 null） */
+  rating: number | null;
+}
+
+/** 追问建议（喂给 FollowupSuggestChips） */
+export interface FollowupSuggestion {
+  /** 建议要补的维度 */
+  dim: RadarDim | CraftDim;
+  /** 维度中文标签 */
+  label: string;
+  /** 为什么建议追这个维（覆盖度说明） */
+  reason: string;
+  /** 可直接发送的追问题干 */
+  prompt: string;
+}
+
+/** craft 维中文标签（题库/看板复用） */
+export const CRAFT_DIM_LABELS: Record<CraftDim, string> = {
+  img_composition: '构图',
+  img_style_fit: '风格契合',
+  img_fidelity: '细节保真',
+  img_aesthetic_consistency: '审美一致性',
+  img_multimodal_follow: '多模态遵循',
+  txt_factuality: '事实准确',
+  txt_coherence: '结构连贯',
+  txt_tone_fit: '语气契合',
+  txt_info_density: '信息密度',
+  txt_instruction_follow: '指令遵循',
+  code_runnability: '可运行性',
+  code_efficiency: '性能效率',
+  code_test_coverage: '测试覆盖',
+  code_maintainability: '可维护性',
+  code_security: '安全性',
+};
+
+/** 维度追问模板（按维给出「打在信息缺口上」的追问） */
+const FOLLOWUP_TEMPLATES: Record<string, string> = {
+  task: '回到任务本身：请把交付物拆成可勾选的清单，并标出你认为最容易翻车的一项。',
+  quality: '你所说的「做好」具体是什么标准？请给出两条我能直接验收的判据。',
+  comm: '如果要向一个完全不懂这块的人解释你的方案，你会怎么讲？请用三句话说完。',
+  creativity: '除了你刚才这一种做法，还有没有第二、第三种路径？它们各自的代价是什么？',
+  reliability: '这个方案最可能在哪一步失败？失败后你怎么发现、怎么回滚？',
+  cost: '这套做法的时间与算力成本大概是多少？如果预算只有一半，你砍哪里？',
+  img_composition: '请把构图讲到可执行：主体占比、重心位置、留白比例分别是多少？',
+  img_style_fit: '请把「风格」翻译成参数：色板、材质、光线、参考各给一个具体值。',
+  img_fidelity: '出现结构崩坏时你的修复顺序是什么？哪一步之后你会选择重生成？',
+  img_aesthetic_consistency: '系列图一致性靠什么锁定？你怎么验收「像同一个人做的」？',
+  img_multimodal_follow: '图文冲突时你的判定规则是什么？举一个必须以文字为准的例子。',
+  txt_factuality: '这条信息你怎么核实？无法核实时你在正文里怎么表述？',
+  txt_coherence: '请给出这篇的结构骨架（每段一句话），让我看到逻辑链条。',
+  txt_tone_fit: '同样的意思，换成另一类读者你会怎么改写？请各给一句开头。',
+  txt_info_density: '请把你刚才那段话删掉三分之一而不丢信息，删的是哪些？',
+  txt_instruction_follow: '需求里互相冲突的两条，你怎么取舍？什么情况下你会回来问我？',
+  code_runnability: '交付前你会跑哪几条验证？本地通过、线上不通时第一步做什么？',
+  code_efficiency: '请给出定位性能问题的前三步，以及每一步你看的指标。',
+  code_test_coverage: '你会覆盖哪些分支、主动放弃哪些？放弃的风险怎么向我交代？',
+  code_maintainability: '请说明你的模块边界划分依据，并举一个你会拒绝的抽象。',
+  code_security: '这个功能暴露到公网你重点防哪三类风险？怎么验证防住了？',
+};
+
+/** 证据充分所需的强度阈值（达到即视为覆盖度 1） */
+const EVIDENCE_TARGET = 1;
+
+/** 维度中文标签（通用六维 + craft 维统一入口） */
+export function dimLabel(dim: RadarDim | CraftDim | string): string {
+  if ((RADAR_DIMS as string[]).includes(dim)) {
+    return RADAR_DIM_LABELS[dim as RadarDim];
+  }
+  return CRAFT_DIM_LABELS[dim as CraftDim] ?? String(dim);
+}
+
+/**
+ * 单条回答的证据强度（0–1，确定性启发式）。
+ *
+ * 打分信号（全部可解释，不使用随机）：
+ * - 长度：太短的回答几乎不含证据；
+ * - 结构化：出现编号 / 分点 / 换行，说明在给方法而不是口号；
+ * - 具体性：包含数字、单位、专有名词（英文/代码符号）；
+ * - 条件性：出现「如果 / 否则 / 取决于」等取舍语，说明在讲判断而非背诵。
+ */
+export function evidenceStrength(reply: string): number {
+  const text = (reply ?? '').trim();
+  if (text.length === 0) return 0;
+
+  let score = 0;
+  // 长度分（最多 0.4）
+  if (text.length >= 20) score += 0.15;
+  if (text.length >= 80) score += 0.15;
+  if (text.length >= 200) score += 0.1;
+  // 结构化分（最多 0.2）
+  if (/(\n|^)\s*(\d+[.、)]|[-*·])/.test(text)) score += 0.12;
+  if (text.split('\n').filter((line) => line.trim().length > 0).length >= 3) score += 0.08;
+  // 具体性分（最多 0.25）
+  if (/\d/.test(text)) score += 0.1;
+  if (/[A-Za-z_]{3,}/.test(text)) score += 0.08;
+  if (/(比如|例如|举例|案例)/.test(text)) score += 0.07;
+  // 取舍/条件分（最多 0.15）
+  if (/(如果|若|否则|取决于|权衡|取舍|代价|风险)/.test(text)) score += 0.15;
+
+  return Math.min(1, Math.round(score * 100) / 100);
+}
+
+/** 回答是否属于「主动澄清」（反问或显式声明假设） */
+export function isClarification(reply: string): boolean {
+  const text = (reply ?? '').trim();
+  if (text.length === 0) return false;
+  return /[?？]/.test(text) || /(我先假设|默认假设|前提是|需要你确认|想跟你确认)/.test(text);
+}
+
+/** 该轮是否为追问（qId 带 `:fu` 后缀，由 makeFollowupQuestion 生成） */
+export function isFollowupTurn(turn: InterviewTurn): boolean {
+  return turn.qId.includes(':fu');
+}
+
+/**
+ * 逐维聚合证据覆盖度。
+ * @param turns 已完成的问答轮次
+ * @param targetDims 本场面试要覆盖的全部维度（来自 questionBank.planTargetDims）
+ */
+export function computeCoverage(
+  turns: InterviewTurn[],
+  targetDims: (RadarDim | CraftDim)[],
+): DimCoverage[] {
+  // 汇总每维的 HR 评分（取最近一次非空评分）
+  const ratings: Partial<Record<RadarDim, number>> = {};
+  for (const turn of turns) {
+    for (const [dim, value] of Object.entries(turn.hrRatings)) {
+      if (typeof value === 'number') ratings[dim as RadarDim] = value;
+    }
+  }
+
+  return targetDims.map((dim) => {
+    let asked = 0;
+    let answered = 0;
+    let strength = 0;
+    for (const turn of turns) {
+      if (!turn.targetDims.includes(dim)) continue;
+      asked += 1;
+      const s = evidenceStrength(turn.replyText);
+      if (s > 0) {
+        answered += 1;
+        strength += s;
+      }
+    }
+    const isRadar = (RADAR_DIMS as string[]).includes(dim);
+    return {
+      dim,
+      label: dimLabel(dim),
+      asked,
+      answered,
+      strength: Math.round(strength * 100) / 100,
+      coverage: Math.min(1, strength / EVIDENCE_TARGET),
+      rating: isRadar ? (ratings[dim as RadarDim] ?? null) : null,
+    } satisfies DimCoverage;
+  });
+}
+
+/** 全场覆盖比（0–1，InterviewMetrics.coverageRatio） */
+export function coverageRatio(coverage: DimCoverage[]): number {
+  if (coverage.length === 0) return 0;
+  const sum = coverage.reduce((acc, item) => acc + item.coverage, 0);
+  return Math.round((sum / coverage.length) * 100) / 100;
+}
+
+/**
+ * 追问建议：优先覆盖证据最薄弱的维度（默认至少 2 个）。
+ * 已经充分覆盖（coverage ≥ 0.8）的维度不再建议。
+ */
+export function suggestFollowups(
+  turns: InterviewTurn[],
+  targetDims: (RadarDim | CraftDim)[],
+  opts: { max?: number; min?: number; threshold?: number } = {},
+): FollowupSuggestion[] {
+  const max = opts.max ?? 3;
+  const min = opts.min ?? 2;
+  const threshold = opts.threshold ?? 0.8;
+
+  const coverage = computeCoverage(turns, targetDims);
+  const weakFirst = [...coverage].sort((a, b) => (a.coverage - b.coverage) || (a.asked - b.asked));
+
+  const picked = weakFirst.filter((item) => item.coverage < threshold).slice(0, max);
+  // 即使全部达标，也保留最薄弱的 min 个，保证 HR 始终有可点的追问
+  const result = picked.length >= min ? picked : weakFirst.slice(0, Math.min(min, weakFirst.length));
+
+  return result.map((item) => ({
+    dim: item.dim,
+    label: item.label,
+    reason:
+      item.asked === 0
+        ? '尚未提问，零证据'
+        : item.answered === 0
+          ? '已提问但未获得有效回答'
+          : `证据偏薄（覆盖 ${(item.coverage * 100).toFixed(0)}%）`,
+    prompt:
+      FOLLOWUP_TEMPLATES[item.dim] ??
+      `关于「${item.label}」，请再具体一点：给出你的做法、判断标准和一个真实例子。`,
+  }));
+}
+
+/** agent 主动澄清次数 */
+export function countClarifications(turns: InterviewTurn[]): number {
+  return turns.filter((t) => isClarification(t.replyText)).length;
+}
+
+/** 被追问次数 */
+export function countFollowups(turns: InterviewTurn[]): number {
+  return turns.filter(isFollowupTurn).length;
+}
+
+/** 平均回答时延（全部手动模式返回 null） */
+export function averageLatency(turns: InterviewTurn[]): number | null {
+  const values = turns
+    .map((t) => t.replyLatencyMs)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+}
+
+/** 累计 token 消耗（全部不可得返回 null） */
+export function totalTokens(turns: InterviewTurn[]): number | null {
+  const values = turns
+    .map((t) => t.tokensUsed)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * 汇总 HR 逐轮评分为通用六维（缺维回落到 craft 维的 CRAFT_LINKS 映射，再缺则回落基线）。
+ * @param turns 问答轮次
+ * @param baseline 入场基线六维（可为 null）
+ */
+export function aggregateHrRadar(
+  turns: InterviewTurn[],
+  baseline: RadarScore | null = null,
+): RadarScore | null {
+  const sums: Partial<Record<RadarDim, number>> = {};
+  const counts: Partial<Record<RadarDim, number>> = {};
+
+  for (const turn of turns) {
+    for (const [key, value] of Object.entries(turn.hrRatings)) {
+      if (typeof value !== 'number') continue;
+      const dim = key as RadarDim;
+      sums[dim] = (sums[dim] ?? 0) + value;
+      counts[dim] = (counts[dim] ?? 0) + 1;
+      // craft 维证据经 CRAFT_LINKS 回灌通用六维（PRD §2.2）
+      for (const target of turn.targetDims) {
+        const links = (CRAFT_LINKS as Record<string, RadarDim[]>)[target];
+        if (!links) continue;
+        for (const linked of links) {
+          if (linked === dim) continue;
+          sums[linked] = (sums[linked] ?? 0) + value * 0.5;
+          counts[linked] = (counts[linked] ?? 0) + 0.5;
+        }
+      }
+    }
+  }
+
+  const rated = RADAR_DIMS.filter((dim) => (counts[dim] ?? 0) > 0);
+  if (rated.length === 0) return baseline ? { ...baseline } : null;
+
+  const radar: RadarScore = {
+    task: 0,
+    quality: 0,
+    comm: 0,
+    creativity: 0,
+    reliability: 0,
+    cost: 0,
+  };
+  for (const dim of RADAR_DIMS) {
+    const count = counts[dim] ?? 0;
+    if (count > 0) {
+      const avg = (sums[dim] ?? 0) / count;
+      radar[dim] = Math.round(Math.min(5, Math.max(0, avg)) * 2) / 2;
+    } else {
+      radar[dim] = baseline ? baseline[dim] : 0;
+    }
+  }
+  return radar;
+}
+
+/** 汇总面试指标（写入 InterviewReport.metrics / EvaluationProfile.interviewBaseline） */
+export function buildMetrics(
+  turns: InterviewTurn[],
+  targetDims: (RadarDim | CraftDim)[],
+): InterviewMetrics {
+  return {
+    avgReplyLatencyMs: averageLatency(turns),
+    totalTokens: totalTokens(turns),
+    clarificationCount: countClarifications(turns),
+    followupCount: countFollowups(turns),
+    coverageRatio: coverageRatio(computeCoverage(turns, targetDims)),
+  };
+}
+
+/** 逐维证据文本（写入 InterviewReport.dimEvidence） */
+export function buildDimEvidence(turns: InterviewTurn[]): Partial<Record<string, string[]>> {
+  const evidence: Record<string, string[]> = {};
+  for (const turn of turns) {
+    const note = (turn.evidenceNote ?? '').trim();
+    const snippet = note.length > 0 ? note : turn.replyText.trim().slice(0, 120);
+    if (snippet.length === 0) continue;
+    for (const dim of turn.targetDims) {
+      if (!evidence[dim]) evidence[dim] = [];
+      evidence[dim].push(`T${turn.turn}｜${snippet}`);
+    }
+  }
+  return evidence;
+}
+
+/**
+ * HR 结论建议（stageScoreTotal 优先，缺失时用覆盖度 + 六维均值兜底）。
+ * 仅为建议值，HR 可在 UI 上覆盖。
+ */
+export function recommendationOf(
+  stageScoreTotal: number | null,
+  finalRadar: RadarScore | null,
+  ratio: number,
+): InterviewRecommendation {
+  if (typeof stageScoreTotal === 'number') {
+    if (stageScoreTotal >= 75) return 'hire';
+    if (stageScoreTotal >= 55) return 'hold';
+    return 'reject';
+  }
+  if (finalRadar) {
+    const mean = RADAR_DIMS.reduce((acc, dim) => acc + finalRadar[dim], 0) / RADAR_DIMS.length;
+    if (mean >= 4 && ratio >= 0.6) return 'hire';
+    if (mean >= 2.5) return 'hold';
+    return 'reject';
+  }
+  return 'hold';
+}

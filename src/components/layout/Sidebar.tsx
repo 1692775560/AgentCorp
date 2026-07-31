@@ -4,6 +4,7 @@ import {
   ChevronRight,
   LayoutDashboard,
   MessageSquare,
+  MessagesSquare,
   PanelLeft,
   PanelLeftClose,
   Plus,
@@ -232,6 +233,12 @@ export function Sidebar() {
       label: tSidebar('taskBoard', 'Task board'),
       path: '/kanban',
       icon: LayoutDashboard,
+    },
+    // 模块 B：HR 面试（S2）—— 位于市场初审与绩效考核之间
+    {
+      label: tSidebar('interview', 'Interview'),
+      path: '/interview',
+      icon: MessagesSquare,
     },
     {
       label: tSidebar('evaluation', 'Evaluation'),

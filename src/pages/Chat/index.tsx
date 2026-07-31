@@ -4,11 +4,10 @@
  * via gateway:rpc IPC. The page now acts as the main KaiTianClaw
  * workbench surface while retaining the existing chat runtime wiring.
  */
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Loader2, Sparkles, PanelRight, FileText, Bot } from 'lucide-react';
+import { AlertCircle, Loader2, Sparkles, FileText, Bot } from 'lucide-react';
 import { useChatStore, type RawMessage } from '@/stores/chat';
-import { hostApiFetch } from '@/lib/host-api';
 import { toast } from 'sonner';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
@@ -37,7 +36,6 @@ export function Chat() {
   const gatewayStatus = useGatewayStore((s) => s.status);
   const isGatewayRunning = gatewayStatus.state === 'running';
   const rightPanelMode = useSettingsStore((s) => s.rightPanelMode);
-  const setRightPanelMode = useSettingsStore((s) => s.setRightPanelMode);
   const openPanel = useRightPanelStore((s) => s.openPanel);
 
   const messages = useChatStore((s) => s.messages);
@@ -144,36 +142,6 @@ export function Chat() {
 
   const isEmpty = messages.length === 0 && !sending;
 
-  const [extracting, setExtracting] = useState(false);
-  const handleExtractMemory = useCallback(async () => {
-    if (extracting || messages.length < 2) return;
-    setExtracting(true);
-    try {
-      const payload = messages.map((m) => ({
-        role: m.role,
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      }));
-      const res = await hostApiFetch<{ ok: boolean; skipped?: boolean; reason?: string; extracted?: string; scopeId?: string; usedLlm?: boolean }>('/api/memory/extract', {
-        method: 'POST',
-        body: JSON.stringify({
-          messages: payload,
-          sessionKey: currentSessionKey ?? '',
-          label: currentAgentName,
-          agentId: currentAgentId ?? 'main',
-          useLlm: true,
-        }),
-      });
-      if (res.skipped) {
-        toast.info('对话中未发现可记忆的内容');
-      } else {
-        toast.success(res.usedLlm ? '✨ AI 已提取记忆并写入今日日志' : '记忆已提取并写入今日日志');
-      }
-    } catch {
-      toast.error('记忆提取失败');
-    } finally {
-      setExtracting(false);
-    }
-  }, [extracting, messages, currentSessionKey, currentAgentName, currentAgentId]);
 
   const handleSendMessage = (
     text: string,

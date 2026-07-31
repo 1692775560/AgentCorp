@@ -22,6 +22,8 @@ const Setup = lazy(() => import('./pages/Setup').then((m) => ({ default: m.Setup
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })));
 const TeamBuilder = lazy(() => import('./pages/TeamBuilder').then((m) => ({ default: m.TeamBuilder })));
 const Evaluation = lazy(() => import('./pages/Evaluation').then((m) => ({ default: m.Evaluation })));
+// 模块 B：HR 面试（S2）—— 三阶段流水线 S1 → 【S2】 → S3 的中间环节
+const Interview = lazy(() => import('./pages/Interview').then((m) => ({ default: m.Interview })));
 import { useSettingsStore } from './stores/settings';
 import { useGatewayStore } from './stores/gateway';
 import { isBrowserPreviewMode } from './lib/browser-preview';
@@ -217,6 +219,7 @@ function App() {
             <Route path="team-map/:teamId" element={<TeamMap />} />
             <Route path="team-map" element={<Navigate to="/team-overview" replace />} />
             <Route path="marketplace" element={<Marketplace />} />
+            <Route path="interview" element={<Interview />} />
             <Route path="evaluation" element={<Evaluation />} />
             {/* /memory 已迁移至 Settings > 记忆与知识 */}
             <Route path="memory" element={<Navigate to="/settings?section=memory-knowledge" replace />} />

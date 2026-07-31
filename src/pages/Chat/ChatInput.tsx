@@ -8,7 +8,7 @@
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { SendHorizontal, Square, X, Paperclip, FileText, Film, Music, FileArchive, File, Loader2, AtSign, FolderOpen } from 'lucide-react';
+import { SendHorizontal, Square, X, Paperclip, FileText, Film, Music, FileArchive, File, Loader2, FolderOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -32,7 +32,6 @@ import {
   isLeaderOnlyAgent,
   resolveReportingLeader,
 } from '@/lib/team-chat-access';
-import { FolderSelectorPopover } from './FolderSelectorPopover';
 import { getChatInputSlashMatches, isSlashCommandPrefixInput, parseChatInputSlashCommand } from './slash-commands';
 
 const CHAT_REQUEST_FILE_UPLOAD_EVENT = 'chat:request-file-upload';
@@ -122,10 +121,10 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false, i
   const [targetAgentId, setTargetAgentId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
-  const [folderPopoverOpen, setFolderPopoverOpen] = useState(false);
+  // 弹层开关只被写入、不再被读取（选择器 UI 已下线），故省略取值绑定，仅保留 setter。
+  const [, setFolderPopoverOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const folderBtnRef = useRef<HTMLButtonElement>(null);
   const isComposingRef = useRef(false);
   const agents = useAgentsStore((s) => s.agents);
   const currentAgentId = useChatStore((s) => s.currentAgentId);
@@ -162,10 +161,6 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false, i
     }
     return options;
   }, [providerAccounts, providerVendors]);
-  const mentionableAgents = useMemo(
-    () => agents.filter((agent) => agent.id !== currentAgentId),
-    [agents, currentAgentId],
-  );
   const selectedTarget = useMemo(
     () => agents.find((agent) => agent.id === targetAgentId) ?? null,
     [agents, targetAgentId],
@@ -178,7 +173,6 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false, i
     }
     toast.error(buildLeaderOnlyBlockedMessage(blockedAgent, resolveReportingLeader(blockedAgent, agents)));
   }, [agents]);
-  const showAgentPicker = mentionableAgents.length > 0;
   const slashMatches = useMemo(() => getChatInputSlashMatches(composerDraft), [composerDraft]);
   const showSlashMenu = useMemo(
     () => isSlashCommandPrefixInput(composerDraft) && slashMatches.length > 0,
@@ -935,32 +929,6 @@ function AttachmentPreview({
   );
 }
 
-function AgentPickerItem({
-  agent,
-  selected,
-  onSelect,
-}: {
-  agent: AgentSummary;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        'flex w-full flex-col items-start rounded-xl px-3 py-2 text-left transition-colors',
-        selected ? 'bg-primary/10 text-foreground' : 'hover:bg-black/5 dark:hover:bg-white/5'
-      )}
-    >
-      <span className="text-[14px] font-medium text-foreground">{agent.name}</span>
-      <span className="text-[11px] text-muted-foreground">
-        {agent.modelDisplay}
-      </span>
-    </button>
-  );
-}
-
 // ── Model Picker Dropdown (portal) ──────────────────────────────
 
 function ModelPickerDropdown({
@@ -1038,53 +1006,3 @@ function ModelPickerDropdown({
   );
 }
 
-// ── Agent Picker Dropdown (portal) ──────────────────────────────
-
-function AgentPickerDropdown({
-  anchorRef,
-  agents,
-  targetAgentId,
-  title,
-  onSelect,
-  onClose,
-}: {
-  anchorRef: React.RefObject<HTMLDivElement | null>;
-  agents: AgentSummary[];
-  targetAgentId: string | null;
-  title: string;
-  onSelect: (id: string) => void;
-  onClose: () => void;
-}) {
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-
-  useEffect(() => {
-    const el = anchorRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setPos({ top: rect.top - 8, left: rect.left });
-  }, [anchorRef]);
-
-  return (
-    <div className="fixed inset-0 z-[200]" onMouseDown={onClose}>
-      <div
-        className="fixed z-[201] w-72 overflow-hidden rounded-2xl border border-black/10 bg-white p-1.5 shadow-xl"
-        style={{ top: pos.top, left: pos.left, transform: 'translateY(-100%)' }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="px-3 py-2 text-[11px] font-medium text-[#8e8e93]">
-          {title}
-        </div>
-        <div className="max-h-64 overflow-y-auto">
-          {agents.map((agent) => (
-            <AgentPickerItem
-              key={agent.id}
-              agent={agent}
-              selected={agent.id === targetAgentId}
-              onSelect={() => onSelect(agent.id)}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}

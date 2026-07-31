@@ -36,6 +36,11 @@ import { tokenUsageCollector } from '@/services/tokenUsageCollector';
 import { telemetryCollector } from '@/services/telemetryCollector';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
 import { linkRunToTask } from '@/services/evaluationRuntime';
+// 模块 B 增量（仅加法）：
+// - interviewStore：★通道②读取端（面试报告 → EvaluationProfile.interviewBaseline）
+// - scoringStore  ：★通道③回灌端（偏好权重 → 裁判 → 绩效六维 → 市场重排）
+import { latestByAgent as latestInterviewByAgent } from '@/services/interviewStore';
+import { useScoringStore } from '@/stores/scoringStore';
 
 /** 一次评估运行的入参（由 Evaluation 页面在捕获 runId 后传入） */
 export interface EvaluationRunInput {
@@ -258,6 +263,10 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       const roi = tokenUsageCollector.buildRoiSnapshot(entries, events, input.agentId, window);
 
       // 5) 外部裁判（MiniCPM-o），失败时 judgeClient 内部回退 Mock
+      // ★ 通道③（回灌端）：把用户拖拽学出来的六维权重带进裁判，
+      // 使 S3 打分反映「这个用户真正在乎什么」，最终经 stageScore →
+      // radarSource.latestStageScore('performance') → matchScore.perfBoost 影响市场排序。
+      const userWeight = useScoringStore.getState().userWeight;
       const judgeInput: JudgeRunInput = {
         agentId: input.agentId,
         agentName: input.agentName,
@@ -265,6 +274,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         task: input.task ?? { title: 'Ad-hoc task', description: '', weight: 1 },
         transcript,
         usage: entries,
+        preference: { weight: { ...userWeight } },
       };
 
       const radar: Partial<RadarScore> = {};
@@ -285,6 +295,9 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
 
       // 6) 落库画像
       const prev = get().profiles[input.agentId];
+      // ★ 通道②（读取端）：拉取该 agent 最新面试报告，作为绩效对比基线写入档案。
+      // 面试期承诺（finalRadar / 时延 / 澄清次数）在这里与上岗后实际表现并置。
+      const interviewBaseline = await readInterviewBaseline(input.agentId, prev);
       const profile: EvaluationProfile = {
         agentId: input.agentId,
         radarLatest: radarScore,
@@ -295,6 +308,13 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         lifecycle,
         runIds: [...(prev?.runIds ?? []), ...(input.runId ? [input.runId] : [])],
         updatedAt: new Date().toISOString(),
+        // 仅加法字段：无面试记录时保持既有值（可能是 undefined）
+        jobType: prev?.jobType,
+        stageScores: prev?.stageScores,
+        subjectiveLatest: prev?.subjectiveLatest,
+        subjectiveHistory: prev?.subjectiveHistory,
+        craftLatest: prev?.craftLatest,
+        interviewBaseline,
       };
       await evalSave(profile);
 
@@ -334,6 +354,40 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+/**
+ * ★ 通道②（读取端）：面试报告 → 绩效基线。
+ *
+ * 取该 agent 最新一份 InterviewReport，折叠成 EvaluationProfile.interviewBaseline。
+ * 若已有更新的基线（面试收尾时已即时回写）或读不到报告，则沿用既有值，
+ * 保证「面试刚结束 → 立刻跑绩效」不会把新基线覆盖成旧的。
+ */
+async function readInterviewBaseline(
+  agentId: string,
+  prev: EvaluationProfile | undefined,
+): Promise<EvaluationProfile['interviewBaseline']> {
+  try {
+    const report = await latestInterviewByAgent(agentId);
+    if (!report) return prev?.interviewBaseline;
+    const existing = prev?.interviewBaseline;
+    if (existing && String(existing.ts) >= String(report.ts)) return existing;
+    return {
+      radar: report.finalRadar ?? report.baselineRadar,
+      metrics: {
+        avgReplyLatencyMs: report.metrics.avgReplyLatencyMs,
+        totalTokens: report.metrics.totalTokens,
+        clarificationCount: report.metrics.clarificationCount,
+        followupCount: report.metrics.followupCount,
+        coverageRatio: report.metrics.coverageRatio,
+      },
+      reportId: report.interviewId,
+      ts: report.ts,
+    };
+  } catch {
+    // 无 electron-store 运行时或读取失败：不影响绩效主流程
+    return prev?.interviewBaseline;
+  }
+}
 
 /** KPI 零值占位（治理动作在无画像时使用） */
 function emptyKpi(agentId: string): KpiRecord {

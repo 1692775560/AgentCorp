@@ -30,25 +30,43 @@ const DIM_LABELS: Record<keyof RadarScore, string> = {
   cost: '性价比',
 };
 
-/** 将 RadarScore 转为 recharts 所需的一维序列 */
-function toSeries(score: RadarScore | null): Array<{ dim: string; score: number }> {
-  const s: RadarScore = score ?? {
-    task: 0,
-    quality: 0,
-    comm: 0,
-    creativity: 0,
-    reliability: 0,
-    cost: 0,
-  };
+/** 零分兜底，避免 score 为 null 时取值报错 */
+const EMPTY_SCORE: RadarScore = {
+  task: 0,
+  quality: 0,
+  comm: 0,
+  creativity: 0,
+  reliability: 0,
+  cost: 0,
+};
+
+/** 雷达图单点：dim 为维度名，score 为主序列，baseline 为可选对比序列 */
+interface RadarDatum {
+  dim: string;
+  score: number;
+  baseline?: number;
+}
+
+/**
+ * 将 RadarScore（及可选基线）转为 recharts 所需的一维序列。
+ *
+ * 注意：recharts 的 <Radar> 只接受 dataKey，不接受 data
+ * （见 node_modules/recharts/types/polar/Radar.d.ts 的 RadarProps）。
+ * 多序列叠加的正确做法是把所有序列合并进 <RadarChart data>，
+ * 再由各 <Radar> 用不同 dataKey 取值。
+ */
+function toSeries(score: RadarScore | null, baseline?: RadarScore | null): RadarDatum[] {
+  const s: RadarScore = score ?? EMPTY_SCORE;
   return (Object.keys(DIM_LABELS) as Array<keyof RadarScore>).map((dim) => ({
     dim: DIM_LABELS[dim],
     score: s[dim],
+    ...(baseline ? { baseline: baseline[dim] } : {}),
   }));
 }
 
 export function RadarChartView({ score, baseline, height = 280 }: RadarChartProps) {
-  const data = toSeries(score);
-  const baselineData = baseline ? toSeries(baseline) : null;
+  const data = toSeries(score, baseline);
+  const hasBaseline = Boolean(baseline);
 
   return (
     <div style={{ width: '100%', height }} className="rounded-2xl bg-white/60 p-3 dark:bg-white/5">
@@ -62,11 +80,10 @@ export function RadarChartView({ score, baseline, height = 280 }: RadarChartProp
             tick={{ fill: '#64748b', fontSize: 10 }}
             axisLine={false}
           />
-          {baselineData ? (
+          {hasBaseline ? (
             <Radar
               name="基线"
-              data={baselineData}
-              dataKey="score"
+              dataKey="baseline"
               stroke="#94a3b8"
               fill="#94a3b8"
               fillOpacity={0.1}
