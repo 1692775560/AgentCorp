@@ -8,7 +8,7 @@ import {
   deleteTeam,
 } from '../../utils/team-config';
 import { clearChannelOwnerBindingsForTeam } from '../../utils/channel-owner-binding';
-import type { CreateTeamRequest, UpdateTeamRequest } from '../../src/types/team';
+import type { CreateTeamRequest, UpdateTeamRequest } from '../../../src/types/team';
 import { logger } from '../../utils/logger';
 
 /**

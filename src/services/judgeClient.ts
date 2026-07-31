@@ -116,6 +116,21 @@ function parseBlock(block: string): EvaluationEvent | null {
         evidence: String(json.evidence ?? ''),
       } as EvaluationEvent;
     }
+    if (type === 'narration') {
+      return {
+        type: 'narration',
+        delta: String(json.delta ?? ''),
+        is_final: Boolean(json.is_final),
+      } as EvaluationEvent;
+    }
+    if (type === 'audio') {
+      return {
+        type: 'audio',
+        chunk: String(json.chunk ?? ''),
+        format: json.format === 'pcm16' ? 'pcm16' : 'wav',
+        sample_rate: Number(json.sample_rate ?? 16000),
+      } as EvaluationEvent;
+    }
     if (type === 'verdict') {
       return {
         type: 'verdict',
@@ -231,6 +246,29 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
   const avg = dims.reduce((s, d) => s + radar[d], 0) / dims.length;
   const verdict = avg >= 4 ? 'MVP' : avg >= 2.5 ? 'OBSERVE' : 'FIRED';
   const userFit = Math.round(avg * 20);
+
+  // 讲解文本（离线语音闭环：narration 由渲染层直接 TTS 播报）
+  const DIM_LABELS: Record<keyof RadarScore, string> = {
+    task: '任务完成',
+    quality: '产出质量',
+    comm: '沟通协作',
+    creativity: '创造泛化',
+    reliability: '稳定可靠',
+    cost: '性价比',
+  };
+  const strongest = dims.reduce((a, b) => (radar[a] >= radar[b] ? a : b));
+  const weakest = dims.reduce((a, b) => (radar[a] <= radar[b] ? a : b));
+  const verdictLabel = verdict === 'MVP' ? 'MVP' : verdict === 'OBSERVE' ? '待观察' : 'You are fired';
+  const narrationLines = [
+    `${input.agentName ?? input.agentId} 的六维评估已完成。`,
+    `最强维度是${DIM_LABELS[strongest]}（${radar[strongest].toFixed(1)} 分），最弱维度是${DIM_LABELS[weakest]}（${radar[weakest].toFixed(1)} 分）。`,
+    `综合判定为${verdictLabel}。`,
+  ];
+  for (const line of narrationLines) {
+    await sleep(120);
+    yield { type: 'narration', delta: line, is_final: false };
+  }
+  yield { type: 'narration', delta: '', is_final: true };
 
   await sleep(150);
   yield {

@@ -80,16 +80,31 @@ def test_evaluate_run_event_sequence_and_contract():
     req = _make_request("agent-eval-01", usage_cost=0.3)
     events = _collect(req, mode="mock")
 
-    # 总计：6 雷达 + 1 宣判 + 1 done
-    assert len(events) == 8, f"期望 8 个事件，实际 {len(events)}"
-
+    # 按类型计数：6 雷达 + 1 宣判 + 1 done + 讲解/语音（语音闭环）
     radar_events = [e for e in events if e["type"] == "radar_update"]
     verdict_events = [e for e in events if e["type"] == "verdict"]
     done_events = [e for e in events if e["type"] == "done"]
+    narration_events = [e for e in events if e["type"] == "narration"]
+    audio_events = [e for e in events if e["type"] == "audio"]
 
     assert len(radar_events) == 6, "radar_update 必须恰好 6 个"
     assert len(verdict_events) == 1, "verdict 必须恰好 1 个"
     assert len(done_events) == 1, "done 必须恰好 1 个"
+    assert len(narration_events) >= 2, "至少 1 条讲解 delta + 1 条 is_final"
+    assert len(audio_events) >= 2, "讲解句 + 宣判各至少 1 个 audio 块"
+    assert narration_events[-1]["is_final"] is True
+
+    # audio chunk 必须可 base64 解码（mock 为 UTF-8 文本）
+    import base64 as _b64
+
+    for a in audio_events:
+        assert set(["chunk", "format", "sample_rate"]).issubset(a.keys())
+        decoded = _b64.b64decode(a["chunk"]).decode("utf-8")
+        assert decoded.strip(), "mock audio chunk 应为非空 UTF-8 文本"
+
+    # 事件顺序：最后一个 audio（宣判）在 verdict 之后、done 之前
+    types = [e["type"] for e in events]
+    assert types.index("verdict") < len(types) - 1 - types[::-1].index("audio") < types.index("done")
 
     # 六维集合完整且唯一（无 off-by-one / 缺失维度）
     dims = {e["dim"] for e in radar_events}

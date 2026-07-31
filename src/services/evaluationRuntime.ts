@@ -7,7 +7,7 @@
  * 确保 RunTaskLink 在评估触发前已保存（仅 runId 关联落库，
  * 不修改 approvals.ts 的 task 模型；sessionKey/agentId 已在其 canonicalExecution 上）。
  */
-import { runLinkStore } from '@/services/runLinkStore';
+import { saveForRun } from '@/services/runLinkStore';
 import type { RunTaskLink } from '@/types/evaluation';
 
 /** linkRunToTask 的关联上下文（不含 runId，由调用方从 chat.send 返回值提供） */
@@ -28,7 +28,7 @@ export async function linkRunToTask(
   runId: string,
   ctx: RunLinkContext,
 ): Promise<RunTaskLink> {
-  return runLinkStore.saveForRun(runId, {
+  return saveForRun(runId, {
     taskId: ctx.taskId,
     agentId: ctx.agentId,
     sessionKey: ctx.sessionKey,

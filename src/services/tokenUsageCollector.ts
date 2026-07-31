@@ -1,14 +1,12 @@
 /**
  * src/services/tokenUsageCollector.ts
- * 真实 token 用量采集（T05）。
+ * token 用量采集 + ROI 计算（Host API 客户端 + 纯函数）。
  *
- * 复用 AgentCorp 既有能力 getRecentTokenUsageHistory（@electron/utils/token-usage），
- * 按 agentId / sessionId 过滤得到 TokenUsageHistoryEntry[]，供真实 ROI 计算使用。
- *
- * 注意：该采集依赖主进程文件系统能力（getRecentTokenUsageHistory 读取
- * ~/.openclaw 转录），与 T03 evaluationStore 的 electron-store 同属主进程服务。
+ * 用量扫描已迁入主进程（electron/services/evaluation/eval-data.ts）；
+ * collectBySession / collectByAgent 委托 Host API。
+ * buildRoiSnapshot 为纯函数，保留在渲染层供编排 store 与单测直接使用。
  */
-import { getRecentTokenUsageHistory } from '@electron/utils/token-usage';
+import { collectRunData } from '@/services/evaluationData';
 import type { TokenUsageHistoryEntry } from '@electron/utils/token-usage-core';
 import {
   computeRoi,
@@ -23,14 +21,14 @@ const NOMINAL_COST_PER_1K_TOKENS = 0.01;
 
 /** 单 agent 的全部近期 token 用量 */
 export async function collectByAgent(agentId: string): Promise<TokenUsageHistoryEntry[]> {
-  const all = await getRecentTokenUsageHistory(2000);
-  return all.filter((e) => e.agentId === agentId);
+  const data = await collectRunData(agentId, '');
+  return data.entries;
 }
 
 /** 单 session 的全部近期 token 用量 */
 export async function collectBySession(sessionId: string): Promise<TokenUsageHistoryEntry[]> {
-  const all = await getRecentTokenUsageHistory(2000);
-  return all.filter((e) => e.sessionId === sessionId);
+  const data = await collectRunData('', sessionId);
+  return data.entries;
 }
 
 /**

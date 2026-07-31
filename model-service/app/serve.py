@@ -21,6 +21,7 @@ from typing import List
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from .config import settings
@@ -48,6 +49,14 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# /api/upload 落盘目录同时以 /uploads 静态挂载（前端据返回 URL 渲染媒体）
+os.makedirs(settings.upload_dir, exist_ok=True)
+app.mount(
+    "/uploads",
+    StaticFiles(directory=settings.upload_dir),
+    name="uploads",
 )
 
 
@@ -87,10 +96,17 @@ async def api_evaluate(req: EvaluationRequest):
     mode = "mock" if settings.mock else "auto"
 
     async def event_gen():
-        async for ev in run_evaluate(req, mode=mode):
+        try:
+            async for ev in run_evaluate(req, mode=mode):
+                yield {
+                    "event": ev["type"],
+                    "data": json.dumps(to_event_dict(_wrap(ev)), ensure_ascii=False),
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("/api/evaluate 事件流中断")
             yield {
-                "event": ev["type"],
-                "data": json.dumps(to_event_dict(_wrap(ev)), ensure_ascii=False),
+                "event": "error",
+                "data": json.dumps({"message": str(exc)}, ensure_ascii=False),
             }
 
     return EventSourceResponse(event_gen())
@@ -113,10 +129,17 @@ async def api_evaluate_run(req: JudgeRunRequest):
     mode = "mock" if settings.mock else "auto"
 
     async def event_gen():
-        async for ev in run_evaluate_run(req, mode=mode):
+        try:
+            async for ev in run_evaluate_run(req, mode=mode):
+                yield {
+                    "event": ev["type"],
+                    "data": json.dumps(to_event_dict(_wrap(ev)), ensure_ascii=False),
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("/api/evaluate-run 事件流中断")
             yield {
-                "event": ev["type"],
-                "data": json.dumps(to_event_dict(_wrap(ev)), ensure_ascii=False),
+                "event": "error",
+                "data": json.dumps({"message": str(exc)}, ensure_ascii=False),
             }
 
     return EventSourceResponse(event_gen())

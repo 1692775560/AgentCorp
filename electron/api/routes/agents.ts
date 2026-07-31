@@ -26,7 +26,7 @@ import { logger } from '../../utils/logger';
 import { syncAllProviderAuthToRuntime } from '../../services/providers/provider-runtime-sync';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
-import { transformCronJob } from './cron';
+import { transformCronJob } from '../../utils/cron-transform';
 
 function scheduleGatewayReload(ctx: HostApiContext, reason: string): void {
   if (ctx.gatewayManager.getStatus().state !== 'stopped') {

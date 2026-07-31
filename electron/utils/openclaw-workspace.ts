@@ -469,6 +469,11 @@ export async function hireFromMarketplaceTemplate(
   templateId: string,
   agentName: string,
 ): Promise<{ workspacePath: string; agentId: string }> {
+  // Validate templateId against the marketplace listing to prevent path traversal
+  const templates = await listMarketplaceTemplates();
+  if (!templates.some(t => t.id === templateId)) {
+    throw new Error(`Unknown marketplace template: ${templateId}`);
+  }
   const templateDir = join(getResourcesDir(), 'marketplace', templateId);
   if (!(await fileExists(templateDir))) {
     throw new Error(`Marketplace template not found: ${templateId}`);
@@ -489,7 +494,7 @@ export async function hireFromMarketplaceTemplate(
       }
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Workspace already exists')) throw err;
-      throw new Error(`Workspace already exists: ${newWorkspace}`);
+      throw new Error(`Workspace already exists: ${newWorkspace}`, { cause: err });
     }
   }
 
@@ -572,6 +577,11 @@ export async function hireTeamFromMarketplaceTemplate(
   teamName: string,
   capabilities: string[],
 ): Promise<{ leaderId: string; workerIds: string[]; teamId: string; teamName: string }> {
+  // Validate templateId against the marketplace listing to prevent path traversal
+  const templates = await listMarketplaceTemplates();
+  if (!templates.some(t => t.id === templateId)) {
+    throw new Error(`Unknown marketplace template: ${templateId}`);
+  }
   const templateDir = join(getResourcesDir(), 'marketplace', templateId);
   if (!(await fileExists(templateDir))) {
     throw new Error(`Marketplace template not found: ${templateId}`);

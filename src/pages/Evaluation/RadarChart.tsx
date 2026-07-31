@@ -49,11 +49,15 @@ function toSeries(score: RadarScore | null): Array<{ dim: string; score: number 
 export function RadarChartView({ score, baseline, height = 280 }: RadarChartProps) {
   const data = toSeries(score);
   const baselineData = baseline ? toSeries(baseline) : null;
+  // recharts v2 的 <Radar> 不接受 data prop；基线序列并入图表数据，用独立 dataKey 叠加
+  const chartData = baselineData
+    ? data.map((point, index) => ({ ...point, baseline: baselineData[index]?.score ?? 0 }))
+    : data;
 
   return (
     <div style={{ width: '100%', height }} className="rounded-2xl bg-white/60 p-3 dark:bg-white/5">
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={data} outerRadius="72%">
+        <RadarChart data={chartData} outerRadius="72%">
           <PolarGrid stroke="rgba(148,163,184,0.35)" />
           <PolarAngleAxis dataKey="dim" tick={{ fill: '#94a3b8', fontSize: 12 }} />
           <PolarRadiusAxis
@@ -65,8 +69,7 @@ export function RadarChartView({ score, baseline, height = 280 }: RadarChartProp
           {baselineData ? (
             <Radar
               name="基线"
-              data={baselineData}
-              dataKey="score"
+              dataKey="baseline"
               stroke="#94a3b8"
               fill="#94a3b8"
               fillOpacity={0.1}

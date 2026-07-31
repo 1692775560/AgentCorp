@@ -15,7 +15,6 @@ import {
 import { getOpenClawStatus, getOpenClawDir, getOpenClawConfigDir, getOpenClawSkillsDir, ensureDir } from '../utils/paths';
 import { getOpenClawCliCommand } from '../utils/openclaw-cli';
 import { getAllSettings, getSetting, resetSettings, setSetting, type AppSettings } from '../utils/store';
-import { HOST_API_SESSION_HEADER } from '../api/route-utils';
 import {
   saveProviderKeyToOpenClaw,
 } from '../utils/openclaw-auth';
@@ -45,6 +44,7 @@ import { proxyAwareFetch } from '../utils/proxy-fetch';
 import { getRecentTokenUsageHistory } from '../utils/token-usage';
 import { registerHostApiProxyHandlers } from './ipc/host-api-proxy';
 import type { AppRequest, AppErrorCode } from './ipc/request-helpers';
+import { transformCronJob, type GatewayCronJob } from '../utils/cron-transform';
 import { getProviderService } from '../services/providers/provider-service';
 import {
   getOpenClawProviderKey,
@@ -57,16 +57,6 @@ import {
 } from '../services/providers/provider-runtime-sync';
 import { validateApiKeyWithProvider } from '../services/providers/provider-validation';
 import { appUpdater } from './updater';
-import { PORTS } from '../utils/config';
-
-type AppRequest = {
-  id?: string;
-  module: string;
-  action: string;
-  payload?: unknown;
-};
-
-type AppErrorCode = 'VALIDATION' | 'PERMISSION' | 'TIMEOUT' | 'GATEWAY' | 'INTERNAL' | 'UNSUPPORTED';
 
 type AppResponse = {
   id?: string;
@@ -150,75 +140,6 @@ export function registerIpcHandlers(
 
   // Workspace handlers
   registerWorkspaceHandlers();
-}
-
-type HostApiFetchRequest = {
-  path: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: unknown;
-};
-
-function registerHostApiProxyHandlers(hostApiSessionToken: string): void {
-  // Expose the per-session auth token to the renderer so the browser-fallback
-  // path in host-api.ts can authenticate against the Host API server.
-  ipcMain.handle('hostapi:token', () => hostApiSessionToken);
-
-  ipcMain.handle('hostapi:fetch', async (_, request: HostApiFetchRequest) => {
-    try {
-      const path = typeof request?.path === 'string' ? request.path : '';
-      if (!path || !path.startsWith('/')) {
-        throw new Error(`Invalid host API path: ${String(request?.path)}`);
-      }
-
-      const method = (request.method || 'GET').toUpperCase();
-      const headers: Record<string, string> = {
-        ...(request.headers || {}),
-        [HOST_API_SESSION_HEADER]: hostApiSessionToken,
-      };
-      let body: string | undefined;
-
-      if (request.body !== undefined && request.body !== null) {
-        if (typeof request.body === 'string') {
-          body = request.body;
-        } else {
-          body = JSON.stringify(request.body);
-          if (!headers['Content-Type'] && !headers['content-type']) {
-            headers['Content-Type'] = 'application/json';
-          }
-        }
-      }
-
-      const response = await proxyAwareFetch(`http://127.0.0.1:${PORTS.CLAWX_HOST_API}${path}`, {
-        method,
-        headers,
-        body,
-      });
-
-      const data: { status: number; ok: boolean; json?: unknown; text?: string } = {
-        status: response.status,
-        ok: response.ok,
-      };
-
-      if (response.status !== 204) {
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          data.json = await response.json().catch(() => undefined);
-        } else {
-          data.text = await response.text().catch(() => '');
-        }
-      }
-
-      return { ok: true, data };
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          message: error instanceof Error ? error.message : String(error),
-        },
-      };
-    }
-  });
 }
 
 function mapAppErrorCode(error: unknown): AppErrorCode {
@@ -825,71 +746,6 @@ function registerSkillConfigHandlers(): void {
   ipcMain.handle('skill:getAllConfigs', async () => {
     return await getAllSkillConfigs();
   });
-}
-
-/**
- * Gateway CronJob type (as returned by cron.list RPC)
- */
-interface GatewayCronJob {
-  id: string;
-  name: string;
-  description?: string;
-  enabled: boolean;
-  createdAtMs: number;
-  updatedAtMs: number;
-  schedule: { kind: string; expr?: string; everyMs?: number; at?: string; tz?: string };
-  payload: { kind: string; message?: string; text?: string };
-  delivery?: { mode: string; channel?: string; to?: string };
-  sessionTarget?: string;
-  state: {
-    nextRunAtMs?: number;
-    lastRunAtMs?: number;
-    lastStatus?: string;
-    lastError?: string;
-    lastDurationMs?: number;
-  };
-}
-
-/**
- * Transform a Gateway CronJob to the frontend CronJob format
- */
-function transformCronJob(job: GatewayCronJob) {
-  // Extract message from payload
-  const message = job.payload?.message || job.payload?.text || '';
-
-  // Build target from delivery info — only if a delivery channel is specified
-  const channelType = job.delivery?.channel;
-  const target = channelType
-    ? { channelType, channelId: channelType, channelName: channelType }
-    : undefined;
-
-  // Build lastRun from state
-  const lastRun = job.state?.lastRunAtMs
-    ? {
-      time: new Date(job.state.lastRunAtMs).toISOString(),
-      success: job.state.lastStatus === 'ok',
-      error: job.state.lastError,
-      duration: job.state.lastDurationMs,
-    }
-    : undefined;
-
-  // Build nextRun from state
-  const nextRun = job.state?.nextRunAtMs
-    ? new Date(job.state.nextRunAtMs).toISOString()
-    : undefined;
-
-  return {
-    id: job.id,
-    name: job.name,
-    message,
-    schedule: job.schedule, // Pass the object through; frontend parseCronSchedule handles it
-    target,
-    enabled: job.enabled,
-    createdAt: new Date(job.createdAtMs).toISOString(),
-    updatedAt: new Date(job.updatedAtMs).toISOString(),
-    lastRun,
-    nextRun,
-  };
 }
 
 /**
@@ -2114,12 +1970,26 @@ function registerProviderHandlers(gatewayManager: GatewayManager): void {
   );
 }
 
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
+
+function isAllowedExternalUrl(url: string): boolean {
+  try {
+    return ALLOWED_EXTERNAL_PROTOCOLS.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Shell-related IPC handlers
  */
 function registerShellHandlers(): void {
-  // Open external URL
+  // Open external URL (restricted to safe schemes)
   ipcMain.handle('shell:openExternal', async (_, url: string) => {
+    if (typeof url !== 'string' || !isAllowedExternalUrl(url)) {
+      logger.warn('Blocked shell.openExternal for disallowed URL', { scope: 'shell.openExternal', url });
+      return;
+    }
     await shell.openExternal(url);
   });
 
@@ -2575,6 +2445,10 @@ function registerSessionHandlers(): void {
       }
 
       const agentId = parts[1];
+      // Prevent path traversal — agentId is joined into a filesystem path below
+      if (!agentId || agentId.includes('/') || agentId.includes('\\') || agentId.includes('..')) {
+        return { success: false, error: `Invalid agentId in sessionKey: ${sessionKey}` };
+      }
       const openclawConfigDir = getOpenClawConfigDir();
       const sessionsDir = join(openclawConfigDir, 'agents', agentId, 'sessions');
       const sessionsJsonPath = join(sessionsDir, 'sessions.json');

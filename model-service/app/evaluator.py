@@ -45,6 +45,22 @@ RADAR_DIMS: List[str] = [
     "cost",
 ]
 
+# 六维中文名（讲解稿 / 语音播报用）
+DIM_LABELS: Dict[str, str] = {
+    "task": "任务完成",
+    "quality": "产出质量",
+    "comm": "沟通协作",
+    "creativity": "创造泛化",
+    "reliability": "稳定可靠",
+    "cost": "性价比",
+}
+
+_VERDICT_LABELS: Dict[str, str] = {
+    "MVP": "MVP",
+    "OBSERVE": "待观察",
+    "FIRED": "You are fired",
+}
+
 
 # ======================================================================
 # 1) 用户契合度计算（与前端 src/utils/radar.ts 严格一致）
@@ -527,8 +543,22 @@ def _build_run_prompt(req: JudgeRunRequest) -> str:
     )
 
 
+def _build_run_narration(req: JudgeRunRequest, radar: RadarScore, verdict: Verdict) -> str:
+    """由雷达 + 判定生成中文讲解稿（mock-run 语音闭环用）。"""
+    name = req.agent_name or req.agent_id
+    scores = {d: float(getattr(radar, d)) for d in RADAR_DIMS}
+    strongest = max(scores, key=lambda d: scores[d])
+    weakest = min(scores, key=lambda d: scores[d])
+    return (
+        f"{name} 的六维评估已完成。"
+        f"最强维度是{DIM_LABELS[strongest]}（{scores[strongest]:.1f} 分），"
+        f"最弱维度是{DIM_LABELS[weakest]}（{scores[weakest]:.1f} 分）。"
+        f"综合判定为{_VERDICT_LABELS[verdict.value]}。"
+    )
+
+
 async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
-    """Mock 运行期裁判流：雷达逐维点亮 → 判定 → done。"""
+    """Mock 运行期裁判流：雷达逐维点亮 → 讲解/语音 → 判定 → 语音宣判 → done。"""
     radar = _derive_run_radar(req)
     for dim in RADAR_DIMS:
         await asyncio.sleep(0.3)
@@ -543,6 +573,23 @@ async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
     verdict = _verdict_from_radar(radar)
     avg = sum(getattr(radar, d) for d in RADAR_DIMS) / len(RADAR_DIMS)
     user_fit = round(avg * 20, 1)
+
+    # 讲解（逐句 narration delta）+ 语音（audio 事件，chunk=base64 UTF-8 文本）
+    # 注意：audio 必须先于本句 narration 发出——渲染层见到首个 audio 后才把
+    # narration 降级为「只上屏不播报」，先发 narration 会导致首句被双播。
+    narration = _build_run_narration(req, radar, verdict)
+    sentences = [s for s in re.split(r"(?<=[。！？])", narration) if s.strip()]
+    for sent in sentences:
+        yield {
+            "type": "audio",
+            "chunk": _encode_text(sent),
+            "format": "wav",
+            "sample_rate": 16000,
+        }
+        await asyncio.sleep(0.2)
+        yield {"type": "narration", "delta": sent, "is_final": False}
+    yield {"type": "narration", "delta": "", "is_final": True}
+
     total_cost = sum(float(u.get("costUsd", 0) or 0) for u in (req.usage or []))
     await asyncio.sleep(0.3)
     yield {
@@ -557,12 +604,24 @@ async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
         "confidence": 0.85,
     }
 
+    # 语音宣判
+    verdict_text = (
+        f"综合判定：{_VERDICT_LABELS[verdict.value]}。"
+        f"用户契合度 {user_fit:.0f}%。"
+    )
+    yield {
+        "type": "audio",
+        "chunk": _encode_text(verdict_text),
+        "format": "wav",
+        "sample_rate": 16000,
+    }
+
     await asyncio.sleep(0.2)
     yield {"type": "done", "evaluation_id": f"mock-run-{req.agent_id}-{id(req)}"}
 
 
 async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
-    """真实运行期裁判流（需模型可用）。"""
+    """真实运行期裁判流（需模型可用）。含讲解 narration；tts 可用时附 audio。"""
     model = get_model()
     if not model.available:
         raise RuntimeError("真实推理不可用：模型未加载（无 NPU / 未配置权重）。请设置 MOCK=true。")
@@ -584,6 +643,23 @@ async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
             ),
         }
 
+    # 讲解（逐句 narration delta）+ 语音（tts 字节；不可用时仅 narration）
+    # audio 先于本句 narration 发出，理由同 _stream_mock_run（防首句双播）。
+    narration = parsed["audio_script"] or parsed["narration"]
+    for sent in re.split(r"(?<=[。！？])", narration):
+        if not sent.strip():
+            continue
+        audio_bytes = tts_bridge.synthesize(sent)
+        if audio_bytes:
+            yield {
+                "type": "audio",
+                "chunk": base64.b64encode(audio_bytes).decode("ascii"),
+                "format": "wav",
+                "sample_rate": 16000,
+            }
+        yield {"type": "narration", "delta": sent, "is_final": False}
+    yield {"type": "narration", "delta": "", "is_final": True}
+
     fit, evidence = compute_user_fit(parsed["radar"], _default_pref(), 200.0, [], None)
     yield {
         "type": "verdict",
@@ -592,6 +668,21 @@ async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
         "evidence_trace": parsed["evidence_trace"] + evidence,
         "confidence": parsed["confidence"],
     }
+
+    # 语音宣判（tts 可用时）
+    verdict_text = (
+        f"综合判定：{_VERDICT_LABELS.get(parsed['verdict'].value, parsed['verdict'].value)}。"
+        f"用户契合度 {fit:.0f}%。"
+    )
+    verdict_audio = tts_bridge.synthesize(verdict_text)
+    if verdict_audio:
+        yield {
+            "type": "audio",
+            "chunk": base64.b64encode(verdict_audio).decode("ascii"),
+            "format": "wav",
+            "sample_rate": 16000,
+        }
+
     yield {"type": "done", "evaluation_id": f"real-run-{req.agent_id}-{id(req)}"}
 
 

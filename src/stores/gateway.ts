@@ -206,22 +206,6 @@ function handleGatewayChatMessage(data: unknown): void {
   }).catch(() => {});
 }
 
-function mapChannelStatus(status: string): 'connected' | 'connecting' | 'disconnected' | 'error' {
-  switch (status) {
-    case 'connected':
-    case 'running':
-      return 'connected';
-    case 'connecting':
-    case 'starting':
-      return 'connecting';
-    case 'error':
-    case 'failed':
-      return 'error';
-    default:
-      return 'disconnected';
-  }
-}
-
 export const useGatewayStore = create<GatewayState>((set, get) => ({
   status: {
     state: 'stopped',
@@ -260,21 +244,6 @@ export const useGatewayStore = create<GatewayState>((set, get) => ({
           unsubscribers.push(subscribeHostEvent('gateway:chat-message', (payload) => {
             handleGatewayChatMessage(payload);
           }));
-          unsubscribers.push(subscribeHostEvent<{ channelId?: string; status?: string }>(
-            'gateway:channel-status',
-            (update) => {
-              import('./channels')
-                .then(({ useChannelsStore }) => {
-                  if (!update.channelId || !update.status) return;
-                  const state = useChannelsStore.getState();
-                  const channel = state.channels.find((item) => item.type === update.channelId);
-                  if (channel) {
-                    state.updateChannel(channel.id, { status: mapChannelStatus(update.status) });
-                  }
-                })
-                .catch(() => {});
-            },
-          ));
           gatewayEventUnsubscribers = unsubscribers;
         }
       } catch (error) {

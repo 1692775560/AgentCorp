@@ -77,7 +77,7 @@ export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps)
 
   // Combine and sort all results
   const allResults = useMemo((): SearchResult[] => {
-    const results: SearchResult[] = [];
+    const results: Array<Extract<SearchResult, { type: 'session' }>> = [];
 
     // Add regular sessions with search results
     for (const searchResult of sessionSearchResults) {

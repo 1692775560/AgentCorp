@@ -18,10 +18,12 @@ logger = logging.getLogger("model_loader")
 class MiniCPMModel:
     """轻量包装：真实推理时持有 model + processor；不可用时 available=False。"""
 
-    def __init__(self, model: Any = None, processor: Any = None) -> None:
+    def __init__(
+        self, model: Any = None, processor: Any = None, available: bool = True
+    ) -> None:
         self.model = model
         self.processor = processor
-        self.available = model is not None
+        self.available = available
 
 
 _model: Optional[MiniCPMModel] = None
