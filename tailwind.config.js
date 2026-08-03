@@ -48,6 +48,11 @@ export default {
         observe: "#d97706",
         fired: "#dc2626",
       },
+      boxShadow: {
+        soft: "0 8px 30px rgba(15, 23, 42, 0.06)",
+        glass: "0 8px 32px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7)",
+        "glass-lg": "0 16px 48px rgba(15, 23, 42, 0.10)",
+      },
       fontFamily: {
         sans: ["system-ui", "PingFang SC", "Microsoft YaHei", "sans-serif"],
       },

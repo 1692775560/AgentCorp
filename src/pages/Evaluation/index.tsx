@@ -122,7 +122,7 @@ export function Evaluation() {
   const selectedState = selectedAgentId ? (lifecycle[selectedAgentId] ?? 'ONBOARDING') : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#F7F6F2] dark:bg-background">
+    <div className="tech-bg flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-white/40 px-6 py-4">
         <div>
           <h1 className="text-lg font-extrabold text-[#1A1C1E] dark:text-white">评估中心 · Evaluation</h1>

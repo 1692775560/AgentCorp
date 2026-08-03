@@ -107,7 +107,7 @@ export function InterviewCandidatePanel() {
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
       {/* ★通道①：任务画像 → 考查维度 */}
-      <section className="space-y-2 rounded-lg border border-border bg-card p-3">
+      <section className="glass space-y-2 rounded-2xl p-3">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <Briefcase className="h-4 w-4 text-[#FFD233]" />
           任务画像（来自人才市场）
@@ -145,7 +145,7 @@ export function InterviewCandidatePanel() {
 
       {/* 候选选择 / 场次信息 */}
       {idle ? (
-        <section className="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+        <section className="glass flex min-h-0 flex-1 flex-col gap-2 rounded-2xl p-3">
           <div className="flex items-center justify-between">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <UserCheck className="h-4 w-4 text-[#FFD233]" />
@@ -177,7 +177,7 @@ export function InterviewCandidatePanel() {
                     className={`w-full rounded-md border px-2.5 py-2 text-left transition-colors ${
                       active
                         ? 'border-[#FFD233] bg-[#FFD233]/10'
-                        : 'border-transparent bg-muted/40 hover:bg-muted'
+                        : 'border-transparent bg-white/40 hover:bg-white/60 dark:bg-white/5'
                     }`}
                   >
                     <p className="truncate text-sm font-medium text-foreground">{agent.name}</p>
@@ -198,7 +198,7 @@ export function InterviewCandidatePanel() {
           </Button>
         </section>
       ) : (
-        <section className="space-y-2 rounded-lg border border-border bg-card p-3">
+        <section className="glass space-y-2 rounded-2xl p-3">
           <h3 className="text-sm font-semibold text-foreground">本场面试</h3>
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between gap-2">
@@ -221,12 +221,12 @@ export function InterviewCandidatePanel() {
 
       {/* 收尾区 */}
       {!idle && !finished && (
-        <section className="space-y-2 rounded-lg border border-border bg-card p-3">
+        <section className="glass space-y-2 rounded-2xl p-3">
           <h3 className="text-sm font-semibold text-foreground">面试结论</h3>
           <select
             value={recommendation}
             onChange={(e) => setRecommendation(e.target.value as InterviewRecommendation | 'auto')}
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="h-9 w-full rounded-md border border-white/60 bg-white/50 px-2 text-xs text-foreground shadow-sm backdrop-blur focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#FFD233] dark:bg-white/5"
           >
             {RECOMMENDATION_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -239,7 +239,7 @@ export function InterviewCandidatePanel() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="面试备注（写进报告，绩效复盘可见）"
-            className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="w-full resize-y rounded-xl border border-white/60 bg-white/50 px-2.5 py-1.5 text-xs text-foreground shadow-sm backdrop-blur placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#FFD233] dark:bg-white/5"
           />
           <Button
             className="w-full"
@@ -264,7 +264,7 @@ export function InterviewCandidatePanel() {
 
       {/* 报告摘要 */}
       {finished && report && (
-        <section className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
+        <section className="space-y-2 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 backdrop-blur">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
             面试报告已归档

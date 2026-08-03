@@ -49,7 +49,7 @@ export function FollowupSuggestChips({
                   type="button"
                   disabled={disabled}
                   onClick={() => onApply(item)}
-                  className="group inline-flex max-w-full items-center gap-1 rounded-full border border-[#FFD233]/50 bg-[#FFD233]/10 px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-[#FFD233]/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="group inline-flex max-w-full items-center gap-1 rounded-full border border-[#FFD233]/50 bg-[#FFD233]/10 px-2.5 py-1 text-xs text-foreground shadow-sm backdrop-blur transition-colors hover:bg-[#FFD233]/25 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="h-3 w-3 shrink-0 text-[#FFD233]" />
                   <span className="truncate">追问「{item.label}」</span>

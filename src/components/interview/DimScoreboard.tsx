@@ -43,7 +43,7 @@ export function DimScoreboard({ coverage, ratio, turnCount = 0 }: DimScoreboardP
   const covered = coverage.filter((item) => item.coverage >= 0.8).length;
 
   return (
-    <div className="space-y-3">
+    <div className="glass space-y-3 rounded-2xl p-3">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <Target className="h-4 w-4 text-[#FFD233]" />

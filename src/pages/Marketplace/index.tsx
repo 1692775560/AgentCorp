@@ -209,7 +209,7 @@ export function Marketplace() {
   );
 
   return (
-    <div className="h-full overflow-y-auto bg-[#F2F0E9] p-6">
+    <div className="tech-bg h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-7xl space-y-8">
         {/* Header */}
         <motion.div

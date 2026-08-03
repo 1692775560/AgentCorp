@@ -67,7 +67,7 @@ export function MarketCandidateCard({
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: Math.min(index * 0.06, 0.5) }}
-      className="group relative flex flex-col overflow-hidden rounded-[40px] bg-white p-7 shadow-[0_20px_50px_rgba(0,0,0,0.03)] transition-shadow duration-300 hover:shadow-[0_30px_60px_rgba(0,0,0,0.06)]"
+      className="group relative flex flex-col overflow-hidden rounded-[40px] glass p-7 shadow-[0_20px_50px_rgba(0,0,0,0.04)] transition-shadow duration-300 hover:shadow-[0_30px_60px_rgba(0,0,0,0.06)]"
     >
       {/* 装饰光晕 */}
       <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#FFD233]/10 blur-3xl transition-colors duration-700 group-hover:bg-[#FFD233]/20" />

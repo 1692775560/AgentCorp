@@ -235,3 +235,122 @@
     animation: none;
   }
 }
+
+/* ============================================================
+ * 苹果极简科技风 · 磨砂玻璃设计系统（模块 A/B/C UI 打磨）
+ * ============================================================ */
+@layer components {
+  /* 近白极简底 + 冷蓝/紫极光晕染 + 一抹暖黄呼应品牌色 */
+  .tech-bg {
+    background-color: #f5f5f7;
+    background-image:
+      radial-gradient(60rem 60rem at 8% -5%, rgba(56, 139, 253, 0.16), transparent 60%),
+      radial-gradient(48rem 48rem at 94% 2%, rgba(168, 85, 247, 0.13), transparent 55%),
+      radial-gradient(52rem 52rem at 80% 90%, rgba(250, 204, 21, 0.10), transparent 55%),
+      radial-gradient(46rem 46rem at 10% 96%, rgba(16, 185, 129, 0.08), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  /* 暗色极简科技风：深空底 + 冷蓝/紫极光（保持同一套设计语言） */
+  .dark .tech-bg {
+    background-color: #0b0d12;
+    background-image:
+      radial-gradient(60rem 60rem at 8% -5%, rgba(56, 139, 253, 0.22), transparent 60%),
+      radial-gradient(48rem 48rem at 94% 2%, rgba(168, 85, 247, 0.18), transparent 55%),
+      radial-gradient(52rem 52rem at 80% 90%, rgba(250, 204, 21, 0.10), transparent 55%),
+      radial-gradient(46rem 46rem at 10% 96%, rgba(16, 185, 129, 0.10), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  /* 磨砂玻璃表面（半透明白 + 背景模糊 + 细白边 + 柔和多层阴影） */
+  .glass {
+    background-color: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 8px 32px rgba(15, 23, 42, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .glass-strong {
+    background-color: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow:
+      0 12px 40px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  }
+
+  .dark .glass {
+    background-color: rgba(30, 34, 45, 0.55);
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .dark .glass-strong {
+    background-color: rgba(30, 34, 45, 0.72);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* 磨砂圆角面板（卡片通用外壳） */
+  .glass-panel {
+    background-color: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow:
+      0 8px 32px rgba(15, 23, 42, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    border-radius: 1.5rem;
+  }
+
+  .dark .glass-panel {
+    background-color: rgba(30, 34, 45, 0.55);
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* 精致滑块（六维打分）：白底圆thumb + 柔影 + hover 微放大 */
+  .range-glass {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: rgba(15, 23, 42, 0.10);
+    outline: none;
+    cursor: pointer;
+  }
+
+  .range-glass::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 2px solid rgba(15, 23, 42, 0.12);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+    cursor: pointer;
+    transition: transform 0.15s var(--ease-spring, ease);
+  }
+
+  .range-glass::-webkit-slider-thumb:hover {
+    transform: scale(1.14);
+  }
+
+  .range-glass::-moz-range-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 2px solid rgba(15, 23, 42, 0.12);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+    cursor: pointer;
+  }
+}

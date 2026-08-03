@@ -46,9 +46,9 @@ export function Interview() {
   const ratio = useMemo(() => currentCoverageRatio(coverage), [coverage]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div className="tech-bg flex h-full flex-col overflow-hidden">
       {/* 页头 */}
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+      <header className="flex shrink-0 items-center gap-2 border-b border-white/60 bg-white/45 px-4 py-3 backdrop-blur dark:bg-white/5">
         <MessagesSquare className="h-5 w-5 text-[#FFD233]" />
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold text-foreground">HR 面试 · S2</h1>
@@ -72,7 +72,7 @@ export function Interview() {
       {/* 三栏主体 */}
       <div className="flex min-h-0 flex-1">
         {/* 左栏 */}
-        <aside className="hidden w-72 shrink-0 border-r border-border bg-muted/20 lg:block">
+        <aside className="hidden w-72 shrink-0 border-r border-white/50 bg-white/35 backdrop-blur-xl lg:block dark:bg-white/5">
           <InterviewCandidatePanel />
         </aside>
 
@@ -82,7 +82,7 @@ export function Interview() {
         </main>
 
         {/* 右栏 */}
-        <aside className="hidden w-80 shrink-0 border-l border-border bg-muted/20 xl:block">
+        <aside className="hidden w-80 shrink-0 border-l border-white/50 bg-white/35 backdrop-blur-xl xl:block dark:bg-white/5">
           <Tabs defaultValue="coverage" className="flex h-full flex-col">
             <TabsList className="mx-3 mt-3 grid w-auto grid-cols-3">
               <TabsTrigger value="coverage">覆盖</TabsTrigger>

@@ -6,10 +6,11 @@
  * 打分不是走过场：hrRatings 会被 dimTracker.aggregateHrRadar 聚合成 finalRadar，
  * 进而成为 S2 评分卡与绩效基线的输入（★通道②的源头数据）。
  *
- * 纯受控组件：不持有面试状态，全部通过回调上抛。
+ * UI 打磨：苹果极简科技风 —— 磨砂玻璃圆角卡 + 左/右对话气泡（面试官 / 候选）
+ * + 精致磨砂滑块（六维打分）。纯受控组件：不持有面试状态，全部通过回调上抛。
  */
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Clock, Coins, MessageSquareQuote, User2 } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, Clock, Coins, MessageSquareQuote, User2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { RADAR_DIMS, craftLinks } from '@/engine/scoring/registry';
@@ -61,20 +62,20 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
   const isFollowup = turn.qId.includes(':fu');
 
   return (
-    <article className="space-y-2 rounded-lg border border-border bg-card p-3">
+    <article className="glass-panel space-y-3 p-4">
       {/* 轮次头：轮号 / 追问标记 / 考查维度 */}
       <header className="flex flex-wrap items-center gap-1.5">
-        <Badge variant="outline" className="tabular-nums">
+        <Badge variant="outline" className="rounded-full tabular-nums">
           第 {turn.turn} 轮
         </Badge>
         {isFollowup && (
-          <Badge variant="warning" className="gap-1">
+          <Badge variant="warning" className="gap-1 rounded-full">
             <MessageSquareQuote className="h-3 w-3" />
             追问
           </Badge>
         )}
         {turn.targetDims.map((dim) => (
-          <Badge key={dim} variant="secondary" title={dim}>
+          <Badge key={dim} variant="secondary" title={dim} className="rounded-full">
             {dimLabel(dim)}
           </Badge>
         ))}
@@ -94,25 +95,36 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
         </span>
       </header>
 
-      {/* 题干 */}
-      <div className="rounded-md bg-muted/60 px-3 py-2">
-        <p className="text-xs font-medium text-muted-foreground">面试官</p>
-        <p className="mt-0.5 whitespace-pre-wrap text-sm text-foreground">{turn.question}</p>
+      {/* 对话气泡：左 = 面试官，右 = 候选（磨砂质感 + 聊天尾角） */}
+      <div className="space-y-2.5">
+        {/* 面试官 */}
+        <div className="flex items-end gap-2">
+          <span className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/70 text-[#1A1C1E] shadow-sm ring-1 ring-black/5 dark:bg-white/10 dark:text-foreground">
+            <Bot className="h-4 w-4" />
+          </span>
+          <div className="max-w-[82%] rounded-2xl rounded-bl-md border border-white/60 bg-white/55 px-3.5 py-2.5 shadow-sm backdrop-blur dark:bg-white/5">
+            <p className="mb-0.5 text-[11px] font-medium text-muted-foreground">面试官</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{turn.question}</p>
+          </div>
+        </div>
+
+        {/* 候选回答 */}
+        <div className="flex items-end justify-end gap-2">
+          <div className="max-w-[82%] rounded-2xl rounded-br-md border border-[#FFD233]/50 bg-[#FFD233]/12 px-3.5 py-2.5 shadow-sm backdrop-blur">
+            <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-[#FFD233]">
+              <User2 className="h-3 w-3" />
+              候选回答
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{turn.replyText}</p>
+          </div>
+          <span className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FFD233]/25 text-amber-700 shadow-sm ring-1 ring-[#FFD233]/40 dark:text-[#FFD233]">
+            <User2 className="h-4 w-4" />
+          </span>
+        </div>
       </div>
 
-      {/* 回答 */}
-      <div className="rounded-md border border-[#FFD233]/40 bg-[#FFD233]/5 px-3 py-2">
-        <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-          <User2 className="h-3 w-3" />
-          候选回答
-        </p>
-        <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-          {turn.replyText}
-        </p>
-      </div>
-
-      {/* HR 逐维打分：证据 → 可量化能力 */}
-      <div className="space-y-1.5">
+      {/* HR 逐维打分：证据 → 可量化能力（磨砂子卡 + 精致滑块） */}
+      <div className="glass space-y-2 rounded-2xl p-3">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">HR 本轮评分（0–5）</p>
           {restDims.length > 0 && (
@@ -137,7 +149,7 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
         {visibleDims.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">本题不直接映射通用六维，可展开手动补分。</p>
         ) : (
-          <div className="grid gap-1.5 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             {visibleDims.map((dim) => {
               const value = turn.hrRatings[dim];
               const rated = typeof value === 'number';
@@ -152,7 +164,7 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
                     disabled={readOnly}
                     value={rated ? value : 0}
                     onChange={(e) => onRate(turn.turn, dim, Number(e.target.value))}
-                    className="h-1 flex-1 cursor-pointer accent-[#FFD233] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="range-glass h-1.5 flex-1 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span
                     className={`w-7 shrink-0 text-right tabular-nums ${
@@ -175,7 +187,7 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
         value={turn.evidenceNote ?? ''}
         onChange={(e) => onNote(turn.turn, e.target.value)}
         placeholder="证据备注（可选）：这一轮暴露了什么？"
-        className="w-full resize-y rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring read-only:opacity-70"
+        className="w-full resize-y rounded-xl border border-white/60 bg-white/50 px-3 py-2 text-xs text-foreground shadow-sm backdrop-blur placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#FFD233] read-only:opacity-70 dark:bg-white/5"
       />
     </article>
   );

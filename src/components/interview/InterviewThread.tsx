@@ -64,7 +64,7 @@ export function InterviewThread() {
   return (
     <div className="flex h-full flex-col">
       {/* 题序进度：三阶段递进一眼可见 */}
-      <div className="shrink-0 border-b border-border bg-background/80 px-4 py-2.5 backdrop-blur">
+      <div className="shrink-0 border-b border-white/60 bg-white/45 px-4 py-2.5 backdrop-blur-md dark:bg-white/5">
         <div className="flex flex-wrap items-center gap-2">
           {phaseStats.map(({ phase, total, done }) => {
             const active = currentQuestion?.phase === phase;
@@ -113,7 +113,7 @@ export function InterviewThread() {
 
         {/* 当前题卡 */}
         {running && currentQuestion && (
-          <section className="space-y-2 rounded-lg border-2 border-dashed border-[#FFD233]/60 bg-[#FFD233]/5 p-3">
+          <section className="space-y-2 rounded-2xl border-2 border-dashed border-[#FFD233]/50 bg-[#FFD233]/10 p-3.5 backdrop-blur">
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="outline" className={PHASE_TONE[currentQuestion.phase]}>
                 {PHASE_LABELS[currentQuestion.phase]}
@@ -163,13 +163,13 @@ export function InterviewThread() {
         )}
 
         {running && !currentQuestion && (
-          <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-white/50 bg-white/40 px-3 py-4 text-center text-xs text-muted-foreground backdrop-blur dark:bg-white/5">
             题序已问完。可采纳下方追问建议补齐证据缺口，或在左栏结束面试生成 S2 评分卡。
           </div>
         )}
 
         {finished && (
-          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-3 text-center text-xs text-emerald-700 dark:text-emerald-300">
+          <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-3 text-center text-xs text-emerald-700 backdrop-blur dark:text-emerald-300">
             面试已结束，报告已落库并回写绩效基线。右栏可查看最终六维与收敛轨迹。
           </div>
         )}
@@ -177,7 +177,7 @@ export function InterviewThread() {
 
       {/* 错误条 */}
       {error && (
-        <div className="mx-4 mb-2 flex items-start gap-2 rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-700 dark:text-orange-300">
+        <div className="mx-4 mb-2 flex items-start gap-2 rounded-2xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-700 backdrop-blur dark:text-orange-300">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">{error}</span>
           <button type="button" onClick={clearError} className="shrink-0 opacity-70 hover:opacity-100">
