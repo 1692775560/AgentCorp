@@ -113,7 +113,7 @@ export function InterviewThread() {
 
         {/* 当前题卡 */}
         {running && currentQuestion && (
-          <section className="space-y-2 rounded-2xl border-2 border-dashed border-[#FFD233]/50 bg-[#FFD233]/10 p-3.5 backdrop-blur">
+          <section className="neu-inset space-y-2 rounded-2xl border-0 bg-[#FFD233]/10 p-3.5">
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="outline" className={PHASE_TONE[currentQuestion.phase]}>
                 {PHASE_LABELS[currentQuestion.phase]}

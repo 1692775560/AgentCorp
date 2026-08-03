@@ -1,11 +1,12 @@
 /**
- * GlassCard — 磨砂玻璃卡片原语（UI 打磨专项，T-UI）。
+ * GlassCard — 卡片原语（UI 打磨专项，T-UI）。
  *
- * 苹果极简科技风的统一表面：半透明白 + 背景模糊 + 细白边 + 柔和多层阴影。
- * API 与 shadcn Card 对齐（Card / CardHeader / CardTitle / CardDescription /
- * CardContent / CardFooter），便于三模块平滑替换朴素 card。
+ * 新拟物派（Neumorphism）统一表面：统一浅灰底 #e0e5ec + 双色柔光阴影
+ * （左上亮 / 右下暗），凸起 = 可交互。API 与 shadcn Card 对齐
+ * （Card / CardHeader / CardTitle / CardDescription / CardContent / CardFooter）。
  *
- * 设计令牌见 src/styles/globals.css 的 .glass / .glass-strong。
+ * 设计令牌见 src/styles/globals.css 的 .glass / .glass-strong / .neu-btn / .neu-inset。
+ * 注：类名沿用 GlassCard 仅为向后兼容，视觉已是新拟物风。
  */
 import * as React from 'react';
 import { cn } from '@/lib/utils';
@@ -16,7 +17,7 @@ const GlassCard = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('glass rounded-3xl', className)}
+    className={cn('glass rounded-2xl', className)}
     {...props}
   />
 ));
