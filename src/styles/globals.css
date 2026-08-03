@@ -13,18 +13,48 @@
     --ease-out: cubic-bezier(0, 0, 0.2, 1);
     --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-    /* Neumorphism 统一浅灰底 #e0e5ec */
-    --background: 215 5% 90%;
+    /* 白天模式 = 浅米色（beige）新拟物底 */
+    --background: 39 42% 89%;
     /* 品牌暖黄（运行时可被设置覆盖） */
     --ac: #f5b400;
     --ac-rgb: 245 180 0;
+    --foreground: 36 20% 24%;
+    --card: 39 42% 89%;
+    --card-foreground: 36 20% 24%;
+    --popover: 39 42% 89%;
+    --popover-foreground: 36 20% 24%;
+    --primary: 45 95% 50%;
+    --primary-foreground: 36 20% 24%;
+    --secondary: 40 30% 84%;
+    --secondary-foreground: 36 20% 24%;
+    --muted: 40 30% 84%;
+    --muted-foreground: 38 14% 44%;
+    --accent: 40 30% 84%;
+    --accent-foreground: 36 20% 24%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 39 42% 89%;
+    --input: 40 30% 84%;
+    --ring: 45 95% 50%;
+    --radius: 0.75rem;
+
+    /* 新拟物变量（白天 = 浅米色） */
+    --neu-surface: #efe7d8;
+    --neu-shadow-d: #cdc3b0;
+    --neu-shadow-l: #ffffff;
+    --neu-ink: #514a39;
+  }
+
+  /* 夜晚模式 = 浅灰底（#e0e5ec）新拟物（即原浅灰风格） */
+  .dark {
+    --background: 215 5% 90%;
     --foreground: 215 6% 17%;
     --card: 215 5% 90%;
     --card-foreground: 215 6% 17%;
     --popover: 215 5% 90%;
     --popover-foreground: 215 6% 17%;
     --primary: 45 95% 50%;
-    --primary-foreground: 222 47% 11%;
+    --primary-foreground: 215 6% 17%;
     --secondary: 215 5% 86%;
     --secondary-foreground: 215 6% 17%;
     --muted: 215 5% 86%;
@@ -36,30 +66,12 @@
     --border: 215 5% 90%;
     --input: 215 5% 86%;
     --ring: 45 95% 50%;
-    --radius: 0.75rem;
-  }
 
-  /* Neumorphism 暗色：深灰底 + 双色柔光阴影 */
-  .dark {
-    --background: 218 2% 18%;
-    --foreground: 210 20% 96%;
-    --card: 218 2% 18%;
-    --card-foreground: 210 20% 96%;
-    --popover: 218 2% 18%;
-    --popover-foreground: 210 20% 96%;
-    --primary: 45 95% 55%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 218 2% 22%;
-    --secondary-foreground: 210 20% 96%;
-    --muted: 218 2% 22%;
-    --muted-foreground: 215 12% 70%;
-    --accent: 218 2% 22%;
-    --accent-foreground: 210 20% 96%;
-    --destructive: 0 65% 50%;
-    --destructive-foreground: 210 20% 96%;
-    --border: 218 2% 18%;
-    --input: 218 2% 22%;
-    --ring: 45 95% 55%;
+    /* 新拟物变量（夜晚 = 浅灰底） */
+    --neu-surface: #e0e5ec;
+    --neu-shadow-d: #b8bcc2;
+    --neu-shadow-l: #ffffff;
+    --neu-ink: #1a1c1e;
   }
 }
 
@@ -243,114 +255,65 @@
  * 禁止：渐变、边框、纯黑白、位移、hover 增大阴影（与光影物理相悖）
  * ============================================================ */
 @layer components {
-  /* 页面基底：纯色浅灰，无渐变 */
+  /* 页面基底：跟随模式（白天 = 浅米色 / 夜晚 = 浅灰底） */
   .tech-bg {
-    background-color: #e0e5ec;
-  }
-
-  .dark .tech-bg {
-    background-color: #2a2d32;
+    background-color: var(--neu-surface);
   }
 
   /* 凸起表面（卡片 / 面板）：双色柔光阴影 */
   .glass,
   .glass-panel,
   .glass-strong {
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     border-radius: 1rem;
     box-shadow:
-      8px 8px 16px #b8bcc2,
-      -8px -8px 16px #ffffff;
-  }
-
-  .dark .glass,
-  .dark .glass-panel,
-  .dark .glass-strong {
-    background-color: #2a2d32;
-    border: 0;
-    box-shadow:
-      8px 8px 16px #1f2125,
-      -8px -8px 16px #353940;
+      8px 8px 16px var(--neu-shadow-d),
+      -8px -8px 16px var(--neu-shadow-l);
   }
 
   /* 中等凸起（按钮 / 小卡） */
   .glass-sm {
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     border-radius: 0.75rem;
     box-shadow:
-      6px 6px 12px #b8bcc2,
-      -6px -6px 12px #ffffff;
-  }
-
-  .dark .glass-sm {
-    background-color: #2a2d32;
-    box-shadow:
-      6px 6px 12px #1f2125,
-      -6px -6px 12px #353940;
+      6px 6px 12px var(--neu-shadow-d),
+      -6px -6px 12px var(--neu-shadow-l);
   }
 
   /* 凹陷（输入框 / 激活态）：内阴影 */
   .neu-inset {
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     box-shadow:
-      inset 4px 4px 8px #b8bcc2,
-      inset -4px -4px 8px #ffffff;
-  }
-
-  .dark .neu-inset {
-    background-color: #2a2d32;
-    box-shadow:
-      inset 4px 4px 8px #1f2125,
-      inset -4px -4px 8px #353940;
+      inset 4px 4px 8px var(--neu-shadow-d),
+      inset -4px -4px 8px var(--neu-shadow-l);
   }
 
   /* 新拟物按钮：凸起 → hover 阴影缩小 → active 凹陷 */
   .neu-btn {
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     border-radius: 0.75rem;
     box-shadow:
-      6px 6px 12px #b8bcc2,
-      -6px -6px 12px #ffffff;
+      6px 6px 12px var(--neu-shadow-d),
+      -6px -6px 12px var(--neu-shadow-l);
     transition: box-shadow 0.2s ease, color 0.2s ease;
   }
 
   .neu-btn:hover {
     box-shadow:
-      4px 4px 8px #b8bcc2,
-      -4px -4px 8px #ffffff;
+      4px 4px 8px var(--neu-shadow-d),
+      -4px -4px 8px var(--neu-shadow-l);
   }
 
   .neu-btn:active,
   .neu-btn[aria-pressed="true"],
   .neu-btn[data-active="true"] {
     box-shadow:
-      inset 4px 4px 8px #b8bcc2,
-      inset -4px -4px 8px #ffffff;
-  }
-
-  .dark .neu-btn {
-    background-color: #2a2d32;
-    box-shadow:
-      6px 6px 12px #1f2125,
-      -6px -6px 12px #353940;
-  }
-
-  .dark .neu-btn:hover {
-    box-shadow:
-      4px 4px 8px #1f2125,
-      -4px -4px 8px #353940;
-  }
-
-  .dark .neu-btn:active,
-  .dark .neu-btn[aria-pressed="true"],
-  .dark .neu-btn[data-active="true"] {
-    box-shadow:
-      inset 4px 4px 8px #1f2125,
-      inset -4px -4px 8px #353940;
+      inset 4px 4px 8px var(--neu-shadow-d),
+      inset -4px -4px 8px var(--neu-shadow-l);
   }
 
   /* 新拟物滑块：轨道凹陷 + 圆头凸起 */
@@ -359,11 +322,11 @@
     appearance: none;
     height: 10px;
     border-radius: 9999px;
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     box-shadow:
-      inset 4px 4px 8px #b8bcc2,
-      inset -4px -4px 8px #ffffff;
+      inset 4px 4px 8px var(--neu-shadow-d),
+      inset -4px -4px 8px var(--neu-shadow-l);
     outline: none;
     cursor: pointer;
   }
@@ -374,11 +337,11 @@
     height: 22px;
     width: 22px;
     border-radius: 9999px;
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     box-shadow:
-      3px 3px 6px #b8bcc2,
-      -3px -3px 6px #ffffff;
+      3px 3px 6px var(--neu-shadow-d),
+      -3px -3px 6px var(--neu-shadow-l);
     cursor: pointer;
   }
 
@@ -386,33 +349,12 @@
     height: 22px;
     width: 22px;
     border-radius: 9999px;
-    background-color: #e0e5ec;
+    background-color: var(--neu-surface);
     border: 0;
     box-shadow:
-      3px 3px 6px #b8bcc2,
-      -3px -3px 6px #ffffff;
+      3px 3px 6px var(--neu-shadow-d),
+      -3px -3px 6px var(--neu-shadow-l);
     cursor: pointer;
-  }
-
-  .dark .range-glass {
-    background-color: #2a2d32;
-    box-shadow:
-      inset 4px 4px 8px #1f2125,
-      inset -4px -4px 8px #353940;
-  }
-
-  .dark .range-glass::-webkit-slider-thumb {
-    background-color: #2a2d32;
-    box-shadow:
-      3px 3px 6px #1f2125,
-      -3px -3px 6px #353940;
-  }
-
-  .dark .range-glass::-moz-range-thumb {
-    background-color: #2a2d32;
-    box-shadow:
-      3px 3px 6px #1f2125,
-      -3px -3px 6px #353940;
   }
 }
 
@@ -421,19 +363,9 @@
  * 目的：在不逐文件改刀的前提下，让全站（侧栏 / 市集 / 评估 等）风格统一。
  * 新代码请直接用 .tech-bg / .glass / .neu-btn / .neu-inset。
  * 说明：本段为无 layer 的纯 CSS，优先级高于 @layer utilities，故可覆盖 Tailwind 原子类。
+ * 全部引用「模式感知变量」（:root = 浅米色 / .dark = 浅灰底），无需按模式重复书写。
  * ============================================================ */
-:root {
-  --neu-surface: #e0e5ec;
-  --neu-shadow-d: #b8bcc2;
-  --neu-shadow-l: #ffffff;
-  --neu-surface-dark: #2a2d32;
-  --neu-shadow-d-dark: #1f2125;
-  --neu-shadow-l-dark: #353940;
-  --neu-ink: #1a1c1e;
-  --neu-ink-dark: #e8eaf0;
-}
-
-/* 1) 白色表面 → 统一浅灰底 */
+/* 1) 白色表面 → 统一模式表面色 */
 .bg-white,
 .bg-white\/5,
 .bg-white\/10,
@@ -447,20 +379,7 @@
   background-color: var(--neu-surface) !important;
 }
 
-.dark .bg-white,
-.dark .bg-white\/5,
-.dark .bg-white\/10,
-.dark .bg-white\/35,
-.dark .bg-white\/40,
-.dark .bg-white\/45,
-.dark .bg-white\/50,
-.dark .bg-white\/55,
-.dark .bg-white\/60,
-.dark .bg-white\/70 {
-  background-color: var(--neu-surface-dark) !important;
-}
-
-/* 米色 / 灰底杂色 → 统一浅灰底 */
+/* 米色 / 灰底杂色 → 统一模式表面色 */
 .bg-\[\#F2F0E9\],
 .bg-gray-50,
 .bg-gray-100,
@@ -468,15 +387,6 @@
 .bg-gray-200\/70,
 .bg-gray-200\/40 {
   background-color: var(--neu-surface) !important;
-}
-
-.dark .bg-\[\#F2F0E9\],
-.dark .bg-gray-50,
-.dark .bg-gray-100,
-.dark .bg-gray-200,
-.dark .bg-gray-200\/70,
-.dark .bg-gray-200\/40 {
-  background-color: var(--neu-surface-dark) !important;
 }
 
 /* 2) 标准阴影 → 柔光双阴影（凸起） */
@@ -494,22 +404,6 @@
 }
 .shadow-2xl {
   box-shadow: 12px 12px 24px var(--neu-shadow-d), -12px -12px 24px var(--neu-shadow-l) !important;
-}
-
-.dark .shadow-sm {
-  box-shadow: 4px 4px 8px var(--neu-shadow-d-dark), -4px -4px 8px var(--neu-shadow-l-dark) !important;
-}
-.dark .shadow-md {
-  box-shadow: 6px 6px 12px var(--neu-shadow-d-dark), -6px -6px 12px var(--neu-shadow-l-dark) !important;
-}
-.dark .shadow-lg {
-  box-shadow: 8px 8px 16px var(--neu-shadow-d-dark), -8px -8px 16px var(--neu-shadow-l-dark) !important;
-}
-.dark .shadow-xl {
-  box-shadow: 10px 10px 20px var(--neu-shadow-d-dark), -10px -10px 20px var(--neu-shadow-l-dark) !important;
-}
-.dark .shadow-2xl {
-  box-shadow: 12px 12px 24px var(--neu-shadow-d-dark), -12px -12px 24px var(--neu-shadow-l-dark) !important;
 }
 
 /* 3) 玻璃模糊 / 白·灰细边 → 去掉（新拟物靠阴影分层，不靠边框/模糊） */
@@ -535,17 +429,9 @@
   background-color: var(--neu-surface) !important;
   box-shadow: 6px 6px 12px var(--neu-shadow-d), -6px -6px 12px var(--neu-shadow-l) !important;
 }
-.dark .bg-\[\#1A1C1E\] {
-  background-color: var(--neu-surface-dark) !important;
-  box-shadow: 6px 6px 12px var(--neu-shadow-d-dark), -6px -6px 12px var(--neu-shadow-l-dark) !important;
-}
 .bg-\[\#1A1C1E\].text-white,
 .bg-\[\#1A1C1E\] .text-white {
   color: var(--neu-ink) !important;
-}
-.dark .bg-\[\#1A1C1E\].text-white,
-.dark .bg-\[\#1A1C1E\] .text-white {
-  color: var(--neu-ink-dark) !important;
 }
 
 /* 5) 输入框 / 文本域 → 凹陷（内阴影），排除滑块/复选/单选 */
@@ -557,15 +443,6 @@ select {
   box-shadow:
     inset 4px 4px 8px var(--neu-shadow-d),
     inset -4px -4px 8px var(--neu-shadow-l) !important;
-}
-.dark input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
-.dark textarea,
-.dark select {
-  background-color: var(--neu-surface-dark) !important;
-  border-color: transparent !important;
-  box-shadow:
-    inset 4px 4px 8px var(--neu-shadow-d-dark),
-    inset -4px -4px 8px var(--neu-shadow-l-dark) !important;
 }
 
 /* 6) 新拟物禁用"浮起"位移：仅中和历史代码里的 scale 微交互（按钮/头像 hover 放大）

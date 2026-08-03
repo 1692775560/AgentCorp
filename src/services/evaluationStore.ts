@@ -12,14 +12,27 @@
 
 import type { EvaluationProfile } from '@/types/evaluation';
 
+// 浏览器预览（web 预览版）没有 electron-store / 真实文件系统；该标志由
+// vite.web.config.ts 注入的 shim 设置。浏览器里惰性加载直接短路返回 null，
+// 避免任何路径在预览中触碰 node:fs（前端与后端能力解耦）。
+const IS_BROWSER_PREVIEW =
+  typeof window !== 'undefined' &&
+  (
+    window as unknown as {
+      electron?: { __agentcorpBrowserPreviewShim?: boolean };
+    }
+  ).electron?.__agentcorpBrowserPreviewShim === true;
+
 // Lazy-load electron-store（ESM module），与 electron/utils/store.ts 保持一致。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let evaluationStoreInstance: any = null;
 
 /**
  * 获取（惰性初始化）评估档案 store 实例。
+ * 浏览器预览环境无 electron-store，返回 null（调用方据此降级为内存/空数据）。
  */
 async function getEvaluationStore() {
+  if (IS_BROWSER_PREVIEW) return null;
   if (!evaluationStoreInstance) {
     const Store = (await import('electron-store')).default;
     evaluationStoreInstance = new Store<EvaluationProfile>({
@@ -35,6 +48,7 @@ async function getEvaluationStore() {
  */
 export async function save(profile: EvaluationProfile): Promise<void> {
   const store = await getEvaluationStore();
+  if (!store) return;
   store.set(profile.agentId, profile);
 }
 
@@ -44,6 +58,7 @@ export async function save(profile: EvaluationProfile): Promise<void> {
  */
 export async function load(agentId: string): Promise<EvaluationProfile | undefined> {
   const store = await getEvaluationStore();
+  if (!store) return undefined;
   return store.get(agentId) as EvaluationProfile | undefined;
 }
 
@@ -53,6 +68,7 @@ export async function load(agentId: string): Promise<EvaluationProfile | undefin
  */
 export async function list(): Promise<EvaluationProfile[]> {
   const store = await getEvaluationStore();
+  if (!store) return [];
   const all = store.store as Record<string, EvaluationProfile>;
   return Object.values(all).filter(
     (value): value is EvaluationProfile =>
