@@ -242,8 +242,8 @@ export function Chat() {
 
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
-            <div ref={scrollRef} className="flex-1 overflow-y-auto bg-[#fafafc] px-8 py-5 dark:bg-background">
-              <div ref={contentRef} className="mx-auto flex w-full max-w-[1000px] flex-col">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-5">
+              <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[1000px] flex-col">
                 {isEmpty ? (
                   <WorkbenchEmptyState />
                 ) : (
