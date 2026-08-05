@@ -272,6 +272,7 @@ export interface RoiSnapshot {
   roi: number; // (V−C)/C，可为负
   ipr: number; // V/C 投入产出比
   srpc: number; // 单位成本成功率 = n_success / C
+  cps: number; // 归一化投入产出分（IPR → 0–5，见 roiEngine.normCps）
   cost_perf_score: number; // 0–5 性价比分（CPS 与雷达 cost 维融合）
   roi_index: number; // 相对基线 ROI_baseline
   roi_norm?: number; // 群体 z-score（有对照群时填充）

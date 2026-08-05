@@ -416,6 +416,7 @@ function emptyRoi(agentId: string): RoiSnapshot {
     roi: 0,
     ipr: 0,
     srpc: 0,
+    cps: 0,
     cost_perf_score: 0,
     roi_index: 0,
     roi_norm: 0,

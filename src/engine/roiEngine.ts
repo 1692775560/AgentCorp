@@ -123,6 +123,7 @@ export function computeRoi(
     roi,
     ipr,
     srpc,
+    cps,
     cost_perf_score,
     roi_index,
     roi_norm,
