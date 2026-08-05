@@ -23,11 +23,16 @@ import { dimLabel } from '@/engine/interview/dimTracker';
 import { useInterviewStore } from '@/stores/interview';
 import type { InterviewPhase } from '@/types/interview';
 
-/** 阶段徽章配色（越往后压力越大） */
+/** 阶段徽章配色（越往后压力越大）。
+ * 背景用纯色 tint（不用 /15 /20 半透明），文字统一用项目墨色，
+ * 保证在浅米/浅灰玻璃底上始终可读。 */
 const PHASE_TONE: Record<InterviewPhase, string> = {
-  P1_understanding: 'bg-sky-500/15 text-sky-600 dark:text-sky-300 border-sky-500/40',
-  P2_craft_probe: 'bg-[#FFD233]/20 text-amber-700 dark:text-[#FFD233] border-[#FFD233]/50',
-  P3_pressure: 'bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/40',
+  P1_understanding:
+    'bg-sky-100 text-[var(--neu-ink)] border-sky-300 dark:bg-sky-200 dark:text-[#1a1c1e]',
+  P2_craft_probe:
+    'bg-[#FFF3CD] text-[var(--neu-ink)] border-[#FFD233] dark:bg-[#FFE066] dark:text-[#1a1c1e]',
+  P3_pressure:
+    'bg-rose-100 text-[var(--neu-ink)] border-rose-300 dark:bg-rose-200 dark:text-[#1a1c1e]',
 };
 
 export function InterviewThread() {
@@ -71,9 +76,9 @@ export function InterviewThread() {
             return (
               <div
                 key={phase}
-                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-opacity ${
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-shadow ${
                   PHASE_TONE[phase]
-                } ${active ? 'opacity-100 ring-1 ring-current' : 'opacity-60'}`}
+                } ${active ? 'ring-1 ring-[var(--neu-ink)]/30 shadow-sm' : ''}`}
                 title={PHASE_HINTS[phase]}
               >
                 <span className="font-medium">{PHASE_LABELS[phase]}</span>

@@ -936,6 +936,22 @@ export async function sanitizeOpenClawConfig(): Promise<void> {
       logger.info('[sanitize] Migrated AgentCorp-only metadata out of openclaw.json');
     }
 
+    // ── gateway section ─────────────────────────────────────────────
+    // OpenClaw 2026.3.22's Zod schema does not recognize `gateway.toolPolicy`;
+    // if it is present the Gateway exits with code 1. Strip any stale key so
+    // the app can start while we wait for an OpenClaw release that supports it.
+    const gatewaySection = (
+      config.gateway && typeof config.gateway === 'object' && !Array.isArray(config.gateway)
+        ? (config.gateway as Record<string, unknown>)
+        : undefined
+    );
+    if (gatewaySection && 'toolPolicy' in gatewaySection) {
+      delete gatewaySection.toolPolicy;
+      config.gateway = gatewaySection;
+      modified = true;
+      logger.info('[sanitize] Removing unrecognized key "gateway.toolPolicy" from openclaw.json');
+    }
+
     // ── skills section ──────────────────────────────────────────────
     // OpenClaw's Zod schema uses .strict() on the skills object, accepting
     // only: allowBundled, load, install, limits, entries.

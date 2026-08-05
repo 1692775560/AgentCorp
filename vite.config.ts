@@ -71,7 +71,19 @@ export default defineConfig(({ command }) => {
     },
   },
   server: {
+    // Bind dev server to IPv4 localhost explicitly. The default "localhost"
+    // can resolve to ::1 on Windows, leaving Electron's renderer fetching from
+    // 127.0.0.1 unable to reach the server and causing a permanent "loading..."
+    // state.
+    host: '127.0.0.1',
     port: 5173,
+  },
+  optimizeDeps: {
+    // Only scan the main entry HTML. The default scanner walks every *.html in
+    // the project root, including the stale dist-web/index.html, whose bundled
+    // chunks import deps (e.g. @emotion/is-prop-valid) that are not resolvable
+    // from the project root and deadlock Vite's dependency scanner.
+    entries: ['index.html'],
   },
   build: {
     outDir: 'dist',

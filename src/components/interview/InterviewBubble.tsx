@@ -110,14 +110,14 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
 
         {/* 候选回答 */}
         <div className="flex items-end justify-end gap-2">
-          <div className="max-w-[82%] rounded-2xl rounded-br-md border border-[#FFD233]/50 bg-[#FFD233]/12 px-3.5 py-2.5 shadow-sm backdrop-blur">
-            <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-[#FFD233]">
+          <div className="max-w-[82%] rounded-2xl rounded-br-md border border-[#FFD233]/60 bg-[#FFF3CD] px-3.5 py-2.5 shadow-sm backdrop-blur">
+            <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-[var(--neu-ink)]">
               <User2 className="h-3 w-3" />
               候选回答
             </p>
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{turn.replyText}</p>
           </div>
-          <span className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FFD233]/25 text-amber-700 shadow-sm ring-1 ring-[#FFD233]/40 dark:text-[#FFD233]">
+          <span className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FFD233]/40 text-[var(--neu-ink)] shadow-sm ring-1 ring-[#FFD233]/50">
             <User2 className="h-4 w-4" />
           </span>
         </div>
