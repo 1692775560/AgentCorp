@@ -1,5 +1,6 @@
 {
     "sidebar": {
+        "home": "首页",
         "chat": "聊天",
         "newChat": "新对话",
         "cronTasks": "定时任务",
@@ -290,6 +291,9 @@
     },
     "kanban": {
         "title": "任务看板",
+        "comingSoon": "即将上线",
+        "placeholderDesc": "任务看板正在打磨中，拖拽式协作看板很快与你见面。",
+        "taskLinkedHint": "你刚创建的任务 {{taskId}} 将在任务看板上线后在此显示。",
         "subtitle": "{{count}} 个进行中的任务",
         "newTask": "创建任务",
         "allTasks": "全部任务",
