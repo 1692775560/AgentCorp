@@ -136,8 +136,9 @@ describe('roiEngine.computeRoi', () => {
     expect(r.roi).toBeCloseTo((U_task - 2.001) / 2.001);
     expect(r.ipr).toBeCloseTo(U_task / 2.001);
     expect(r.srpc).toBeCloseTo(10 / 2.001);
-    expect(r.cps).toBeGreaterThanOrEqual(0);
-    expect(r.cps).toBeLessThanOrEqual(5);
+    // CPS 已并入 cost_perf_score（无 radarCost 时即纯客观 CPS，见 RoiSnapshot 契约）
+    expect(r.cost_perf_score).toBeGreaterThanOrEqual(0);
+    expect(r.cost_perf_score).toBeLessThanOrEqual(5);
   });
 
   it('roi_index = roi / baseline', () => {

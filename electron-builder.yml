@@ -1,6 +1,6 @@
-﻿appId: app.agentcorp.desktop
+appId: app.agentcorp.desktop
 productName: AgentCorp
-copyright: Copyright 漏 2026 AgentCorp
+copyright: Copyright © 2026 AgentCorp
 compression: maximum
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
@@ -42,9 +42,9 @@ asarUnpack:
 
 # Disable native module rebuilding.
 # The Electron renderer/main process has no native (.node) dependencies.
-# All native modules (opus, sharp, koffi 鈥? belong to openclaw, which is
-# bundled separately (bundle-openclaw.mjs 鈫?extraResources) and runs in its
-# own process 鈥?@electron/rebuild must NOT touch them.
+# All native modules (opus, sharp, koffi) belong to openclaw, which is
+# bundled separately (bundle-openclaw.mjs -> extraResources) and runs in its
+# own process -- @electron/rebuild must NOT touch them.
 npmRebuild: false
 
 # Auto-update configuration
@@ -78,9 +78,13 @@ mac:
   darkModeSupport: true
   hardenedRuntime: true
   gatekeeperAssess: false
-  entitlements: entitlements.mac.plist
-  entitlementsInherit: entitlements.mac.plist
-  notarize: true
+  # entitlements.mac.plist does not exist in this repo yet; re-enable both
+  # lines (with a real plist file) when code signing / notarization is set up.
+  # entitlements: entitlements.mac.plist
+  # entitlementsInherit: entitlements.mac.plist
+  # Notarization requires Apple credentials (APPLE_ID / APPLE_TEAM_ID etc.);
+  # keep this off for local/CI builds and enable it only for signed releases.
+  notarize: false
   extendInfo:
     NSMicrophoneUsageDescription: AgentCorp requires microphone access for voice features
     NSCameraUsageDescription: AgentCorp requires camera access for video features

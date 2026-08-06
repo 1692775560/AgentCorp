@@ -8,7 +8,7 @@ import { resolve } from 'path';
 // node:path、node:os）别名重定向到渲染进程 shim（.vite-electron-renderer/*），
 // 该 shim 内部用 `require()`，在 vitest 的 ESM 运行器下会抛
 // "ReferenceError: require is not defined in ES module scope"，导致
-// telemetryCollector 的 node: 动态 import 在单测里崩。
+// 渲染层服务的 node: 动态 import 在单测里崩。
 //
 // 测试运行在 Node 进程内，本就该用原生 node: 模块，因此这里去掉 electron 插件，
 // 同时保留 @ → src、@electron → electron 的别名与 react 插件（.tsx 测试需要）。
@@ -27,14 +27,9 @@ export default defineConfig({
   test: {
     // .tsx 测试用文件级 `// @vitest-environment jsdom` 覆盖；其余 .ts 走 node
     environment: 'node',
-    pool: 'threads',
-    include: ['tests/**/*.{test,spec}.{ts,tsx}'],
-    exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/dist-electron/**',
-      '**/scripts/qa/**',
-      '**/.git/**',
-    ],
+    include: ['tests/unit/**/*.test.ts?(x)'],
+    // scripts/qa/*.test.ts are plain Node assertion scripts (no describe/it);
+    // they must not be picked up by Vitest.
+    exclude: ['scripts/qa/**', 'node_modules/**'],
   },
 });

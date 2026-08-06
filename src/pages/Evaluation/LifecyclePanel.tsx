@@ -7,7 +7,7 @@
  * （与 src/types/lifecycle.ts 的软退休约定一致）。回岗置 ACTIVE。
  */
 import type { LifecycleState } from '@/types/evaluation';
-import { LIFECYCLE_ORDER, LIFECYCLE_LABELS } from '@/types/lifecycle';
+import { LIFECYCLE_ORDER, LIFECYCLE_LABELS } from '@/engine/strategyEngine';
 
 export interface LifecyclePanelProps {
   agentId: string | null;

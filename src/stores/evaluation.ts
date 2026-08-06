@@ -4,17 +4,17 @@
  *
  * 职责：
  * - 持有全部 agent 的 EvaluationProfile 与聚合视图（radar/kpi/roi/lifecycle/leaderboard）。
- * - 编排 T05–T07 的服务，按约定模块名导入（import them by the agreed names）：
- *   - tokenUsageCollector（T05）：collectByAgent / collectBySession / buildRoiSnapshot
- *   - telemetryCollector（T05）：collect / readTranscript
+ * - 编排评估服务（采集/落库均在主进程，渲染层经 Host API 访问）：
+ *   - evaluationData（T05 重构）：collectRunData / listAgentSessions（主进程采集客户端）
+ *   - tokenUsageCollector.buildRoiSnapshot：纯函数 ROI 计算（真实 token 成本）
  *   - judgeClient（T07）：evaluate（MiniCPM-o 外部裁判，SSE 流）
  *   - evaluationRuntime（T06）：linkRunToTask（runId ↔ task 落库）
- *   - metricsEngine / roiEngine：纯函数聚合 KPI / ROI（使用真实 token 成本）
- *   - evaluationStore：本地 electron-store 落库
+ *   - metricsEngine：纯函数聚合 KPI
+ *   - evaluationStore：Host API 客户端（主进程 electron-store 落库）
  *
  * 设计约束：
  * - 所有服务均为异步、可容错；任一环节失败不应中断其余流程（judge 失败时回退 Mock）。
- * - 数据真相在 electron-store（agentcorp.evaluation），本 store 仅持内存镜像。
+ * - 数据真相在主进程 electron-store（agentcorp.evaluation），本 store 仅持内存镜像。
  */
 import { create } from 'zustand';
 
@@ -27,15 +27,15 @@ import type {
   LeaderboardEntry,
   LeaderboardTier,
   Verdict,
-  TelemetryEvent,
 } from '@/types/evaluation';
 import { verdictToLifecycleState, LIFECYCLE_TO_STATE } from '@/types/lifecycle';
 import { save as evalSave, list as evalList } from '@/services/evaluationStore';
 import { computeKpi } from '@/engine/metricsEngine';
 import { tokenUsageCollector } from '@/services/tokenUsageCollector';
-import { telemetryCollector } from '@/services/telemetryCollector';
+import { collectRunData } from '@/services/evaluationData';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
 import { linkRunToTask } from '@/services/evaluationRuntime';
+import { speech } from '@/services/speech';
 // 模块 B 增量（仅加法）：
 // - interviewStore：★通道②读取端（面试报告 → EvaluationProfile.interviewBaseline）
 // - scoringStore  ：★通道③回灌端（偏好权重 → 裁判 → 绩效六维 → 市场重排）
@@ -85,6 +85,10 @@ interface EvaluationState {
   streaming: boolean;
   currentRunId: string | null;
   error: string | null;
+  /** 讲解文本（narration 事件增量累计，重新评估时清空） */
+  narrationText: string;
+  /** 语音播报开关（默认开） */
+  voiceEnabled: boolean;
 
   /** 从 electron-store 载入全部评估档案 */
   loadAll: () => Promise<void>;
@@ -100,6 +104,7 @@ interface EvaluationState {
   runEvaluation: (input: EvaluationRunInput) => Promise<EvaluationProfile | null>;
   selectAgent: (agentId: string | null) => void;
   clearError: () => void;
+  toggleVoice: () => void;
 }
 
 /**
@@ -153,6 +158,8 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   streaming: false,
   currentRunId: null,
   error: null,
+  narrationText: '',
+  voiceEnabled: true,
 
   loadAll: async () => {
     try {
@@ -229,31 +236,17 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   },
 
   runEvaluation: async (input) => {
+    speech.cancel(); // 打断上一次播报
     set({
       streaming: true,
       error: null,
       currentRunId: input.runId ?? null,
       selectedAgentId: input.agentId,
+      narrationText: '',
     });
     try {
-      // 1) 真实 token 用量（按 session 优先，回退 agent）
-      const entries = await tokenUsageCollector.collectBySession(input.sessionId);
-      if (entries.length === 0) {
-        const byAgent = await tokenUsageCollector.collectByAgent(input.agentId);
-        entries.push(...byAgent);
-      }
-
-      // 2) 遥测（从 transcript 派生 TelemetryEvent）
-      const events: TelemetryEvent[] = await telemetryCollector.collect(
-        input.sessionKey,
-        input.sessionId,
-        input.agentId,
-      );
-      const transcript = await telemetryCollector.readTranscript(
-        input.sessionKey,
-        input.sessionId,
-        input.agentId,
-      );
+      // 1+2) 一次采集：token 用量 + 遥测事件 + 转录（主进程完成，sessionId 为空时仅按 agent 兜底）
+      const { events, transcript, entries } = await collectRunData(input.agentId, input.sessionId);
 
       // 3) 客观 KPI（来自真实遥测）
       const window = currentWindow();
@@ -279,13 +272,31 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
 
       const radar: Partial<RadarScore> = {};
       let verdict: Verdict | null = null;
+      let verdictUserFit = 0;
+      let sawAudio = false; // 本流出现过 audio 事件 → narration 只上屏（防双播）
       for await (const ev of judgeClient.evaluate(judgeInput)) {
         if (ev.type === 'radar_update') {
           radar[ev.dim] = ev.score;
           set({ radarLatest: { ...ZERO_RADAR, ...radar } });
+        } else if (ev.type === 'narration') {
+          if (ev.delta) {
+            set((state) => ({ narrationText: state.narrationText + ev.delta }));
+            if (!sawAudio) speech.speak(ev.delta);
+          }
+        } else if (ev.type === 'audio') {
+          sawAudio = true;
+          void speech.playAudioChunk(ev.chunk, ev.format, ev.sample_rate);
         } else if (ev.type === 'verdict') {
           verdict = ev.verdict;
+          verdictUserFit = ev.user_fit;
         }
+      }
+
+      // 语音宣判：流中无 audio 宣判块时（fallbackMock / tts 不可用）合成文本兜底
+      if (verdict && !sawAudio) {
+        const label =
+          verdict === 'MVP' ? 'MVP' : verdict === 'OBSERVE' ? '待观察' : 'You are fired';
+        speech.speak(`综合判定：${label}。用户契合度 ${Math.round(verdictUserFit)}%。`);
       }
 
       const radarScore: RadarScore = { ...ZERO_RADAR, ...radar };
@@ -347,12 +358,21 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   selectAgent: (agentId) => {
     set({ selectedAgentId: agentId });
     const p = agentId ? get().profiles[agentId] : null;
-    if (p) {
-      set({ radarLatest: p.radarLatest, kpiLatest: p.kpiLatest, roiLatest: p.roiLatest });
-    }
+    // 无画像时清空右栏镜像，避免残留上一个 agent 的雷达/KPI/ROI。
+    set({
+      radarLatest: p?.radarLatest ?? null,
+      kpiLatest: p?.kpiLatest ?? null,
+      roiLatest: p?.roiLatest ?? null,
+    });
   },
 
   clearError: () => set({ error: null }),
+
+  toggleVoice: () => {
+    const next = !get().voiceEnabled;
+    speech.setEnabled(next);
+    set({ voiceEnabled: next });
+  },
 }));
 
 /**

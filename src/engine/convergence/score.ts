@@ -85,9 +85,9 @@ export function computeConvergenceScore(
     anchored = eAnchor !== null;
   }
 
-  let r = 0;
-  let st = 0;
-  let cq = 0;
+  let r: number;
+  let st: number;
+  let cq: number;
   let score: number;
 
   if (anchored && eAnchor) {

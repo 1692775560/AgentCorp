@@ -9,7 +9,7 @@ import {
   startTaskExecution,
   updateTask,
 } from '../../utils/task-config';
-import type { CreateTaskRequest, KanbanTask, StartTaskExecutionRequest, TaskExecutionEventInput } from '../../src/types/task';
+import type { CreateTaskRequest, KanbanTask, StartTaskExecutionRequest, TaskExecutionEventInput } from '../../../src/types/task';
 import { logger } from '../../utils/logger';
 
 const TASKS_PREFIX = '/api/tasks/';
@@ -26,7 +26,7 @@ export async function handleTaskRoutes(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
-  ctx: HostApiContext,
+  _ctx: HostApiContext,
 ): Promise<boolean> {
   if (url.pathname === '/api/tasks' && req.method === 'GET') {
     try {

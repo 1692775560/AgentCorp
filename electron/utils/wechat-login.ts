@@ -138,12 +138,12 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
     if (error instanceof Error && error.name === 'AbortError') {
       const msg = `请求超时 (${timeoutMs}ms)，请检查网络连接`;
       logger.error(`[WeChatLoginManager] Timeout after ${elapsed}ms`);
-      throw new Error(msg);
+      throw new Error(msg, { cause: error });
     }
     if (error instanceof TypeError && error.message.includes('fetch')) {
       const msg = `网络请求失败：${error.message}。请检查网络连接或代理设置。`;
       logger.error(`[WeChatLoginManager] Network error:`, error);
-      throw new Error(msg);
+      throw new Error(msg, { cause: error });
     }
     logger.error(`[WeChatLoginManager] Fetch error after ${elapsed}ms:`, error);
     throw error;

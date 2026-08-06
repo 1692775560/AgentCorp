@@ -24,8 +24,16 @@
     /* Paths */
     "baseUrl": ".",
     "paths": {
-      "@electron/*": ["electron/*"]
+      "@electron/*": ["electron/*"],
+      "@/*": ["src/*"]
     }
   },
-  "include": ["electron", "shared/language.ts", "vite.config.ts"]
+  "include": [
+    "electron",
+    "shared/language.ts",
+    "vite.config.ts",
+    "src/types",
+    "src/engine",
+    "src/lib/task-summary-read-model.ts"
+  ]
 }

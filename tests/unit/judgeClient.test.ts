@@ -51,12 +51,16 @@ function makeInput(usageCost: number): JudgeRunInput {
 const DIMS = ['task', 'quality', 'comm', 'creativity', 'reliability', 'cost'];
 
 describe('judgeClient.fallbackMock', () => {
-  it('事件序列：radar_update×6 + verdict + done = 8', async () => {
+  it('事件序列：radar_update×6 + narration×4 + verdict + done', async () => {
     const events = await collect(makeInput(0.2));
-    expect(events).toHaveLength(8);
     expect(events.filter((e) => e.type === 'radar_update')).toHaveLength(6);
     expect(events.filter((e) => e.type === 'verdict')).toHaveLength(1);
     expect(events.filter((e) => e.type === 'done')).toHaveLength(1);
+    // 语音闭环：3 句讲解 + 1 条 is_final 终止帧
+    const narrations = events.filter((e) => e.type === 'narration');
+    expect(narrations).toHaveLength(4);
+    expect(narrations[narrations.length - 1].is_final).toBe(true);
+    expect(narrations[0].delta).toContain('六维评估已完成');
   });
 
   it('字段契约与 judgeClient.parseBlock 解析对齐', async () => {
@@ -81,6 +85,13 @@ describe('judgeClient.fallbackMock', () => {
 
     const d = events.find((e: any) => e.type === 'done') as any;
     expect(d.evaluation_id).toMatch(/^mock-/);
+
+    // narration 字段契约（对齐 model-service NarrationEvent）
+    for (const e of events.filter((ev) => ev.type === 'narration') as any[]) {
+      expect(Object.keys(e).sort()).toEqual(['delta', 'is_final', 'type']);
+      expect(typeof e.delta).toBe('string');
+      expect(typeof e.is_final).toBe('boolean');
+    }
   });
 
   it('完全离线：fallbackMock 不发起任何网络调用', async () => {

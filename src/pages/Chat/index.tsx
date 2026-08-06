@@ -142,7 +142,6 @@ export function Chat() {
 
   const isEmpty = messages.length === 0 && !sending;
 
-
   const handleSendMessage = (
     text: string,
     attachments?: Parameters<typeof sendMessage>[1],

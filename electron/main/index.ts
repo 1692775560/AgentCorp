@@ -179,7 +179,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webviewTag: true, // Enable <webview> for embedding OpenClaw Control UI
+      webviewTag: false,
       // Additional Linux-specific rendering fixes
       ...(process.platform === 'linux' && {
         enableRemoteModule: false,
@@ -197,18 +197,28 @@ function createWindow(): BrowserWindow {
     frame: isMac || !useCustomTitleBar,
   });
 
-  // Handle external links
+  // Handle external links (restricted to safe schemes)
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    let protocol = '';
+    try {
+      protocol = new URL(url).protocol;
+    } catch {
+      // Invalid URL — fall through to deny
+    }
+    if (protocol === 'https:' || protocol === 'http:' || protocol === 'mailto:') {
+      shell.openExternal(url);
+    } else {
+      logger.warn('Blocked window.open for disallowed URL:', url);
+    }
     return { action: 'deny' };
   });
 
   // Debug: Log rendering errors (especially for Linux)
-  win.webContents.on('render-process-gone', (event, details) => {
+  win.webContents.on('render-process-gone', (_event, details) => {
     logger.error('Render process gone:', details);
   });
 
-  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     logger.error('Failed to load:', errorCode, errorDescription, validatedURL);
   });
 
@@ -223,8 +233,8 @@ function loadWindowContents(win: BrowserWindow): void {
   }
 
   void win.loadFile(join(__dirname, '../../dist/index.html'));
-  // Auto-open DevTools on Linux for debugging white screen issues
-  if (process.platform === 'linux' && process.env.CLAWX_DEBUG !== '0') {
+  // Open DevTools on Linux only when explicitly requested
+  if (process.platform === 'linux' && process.env.CLAWX_DEBUG === '1') {
     win.webContents.openDevTools();
   }
 }

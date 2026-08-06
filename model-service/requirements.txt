@@ -16,13 +16,22 @@ pillow>=10.2
 # 测试
 pytest>=8.0
 
-# ===== 昇腾推理依赖（部署时按需安装，缺省不阻塞骨架运行）=====
-# 以下包体积大且需匹配 CANN / torch_npu 版本，默认注释，按官方 starter kit 解锁：
-# torch
-# torch_npu
-# transformers
-# opencv-python
-# decord
-# librosa
-# soundfile
-# （可选 TTS 旁路）cosyvoice 或对应 Ascend 适配 TTS
+# ===== 真实模式（MOCK=false）可选推理依赖 =====
+# 不进硬依赖：体积大且需匹配 CANN / torch_npu 版本，评委机/纯 Mock 环境装不动。
+# 代码中全部惰性 import（optional_import），未安装时自动降级为 available=False。
+#
+# 基础推理（GPU/CPU，MiniCPM-o 4.5 官方基线，Python 3.10 验证）：
+#   transformers==4.51.0
+#   accelerate
+#   torch>=2.3.0,<=2.8.0
+#   torchaudio<=2.8.0
+#   minicpmo-utils[all]>=1.0.5   # 含音频/视频处理工具链
+#   librosa                      # 语音输入重采样（16kHz mono）
+#   opencv-python                # 视频抽帧（缺省仅丢视频模态，不阻塞）
+#
+# 昇腾 NPU（部署目标，二选一，版本对齐 CANN 9.1.0，见 docs/ascend-adaptation-plan.md §3）：
+#   torch_npu                    # 官方主推路径（DEVICE=npu 时必需）
+#   flag_gems                    # FlagOS 开箱即用后端（ASCEND_BACKEND=flag_gems）
+#
+# 可选 TTS 旁路：cosyvoice 或对应 Ascend 适配 TTS；
+# 无模型 TTS 时自动尝试系统命令（macOS say / Linux espeak-ng），都不可用返回空字节。

@@ -140,7 +140,7 @@ export async function askAgent(params: AskParams): Promise<AskResult> {
     };
   }
 
-  let runId: string | null = null;
+  let runId: string | null;
   try {
     const res = (await invokeIpc(
       'gateway:rpc',

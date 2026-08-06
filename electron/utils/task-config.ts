@@ -207,7 +207,8 @@ function deriveBlocker(
     };
   }
 
-  if (status && status !== 'blocked' && status !== 'waiting_approval') {
+  // 上面的早返回已排除 'blocked' | 'waiting_approval'，此处仅需判空
+  if (status) {
     return undefined;
   }
 
@@ -226,7 +227,8 @@ function deriveApprovalState(
     };
   }
 
-  if (status && status !== 'waiting_approval') {
+  // 上面的早返回已排除 'waiting_approval'，此处仅需判空
+  if (status) {
     return existing?.state === 'waiting_leader' || existing?.state === 'waiting_user'
       ? { state: 'idle', updatedAt: createdAt }
       : existing;

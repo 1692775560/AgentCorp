@@ -635,6 +635,8 @@ function InputField({
   );
 }
 
+/* ─── Section: General (07.1) ─── */
+
 function GeneralSettingsSection() {
   return (
     <>
@@ -802,8 +804,6 @@ function GeneralSection() {
         <InputField label="副标题" value={brandSubtitle} onChange={setBrandSubtitle} />
         <InputField label="我的名字指代" value={myName} onChange={setMyName} />
       </SettingsCard>
-
-      {/* 品牌资产 ~ 退出登录：暂时注释 */}
     </>
   );
 }

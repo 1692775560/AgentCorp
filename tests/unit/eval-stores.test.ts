@@ -1,15 +1,14 @@
 /**
  * tests/unit/eval-stores.test.ts
  *
- * 本地落库单测（T03 / T06）：runLinkStore + evaluationStore。
- * 二者均 lazy import('electron-store')，在 Node 测试环境无 electron 运行时，
- * 故用 in-memory FakeStore 替身 electron-store，验证 save/load/list/getByRunId 行为。
+ * 落库单测（T03 / T06 / 真实遥测链路改造后）：
+ * - electron/services/evaluation/eval-store.ts（主进程）：lazy import('electron-store')，
+ *   用 in-memory FakeStore 替身验证 save/load/list/getByRunId 语义。
+ * - src/services/runLinkStore.ts（渲染层客户端）：mock hostApiFetch 验证请求与回包处理。
  *
- * 注意：electron-store 在真实 Electron 主进程才可用；本测试仅验证落库逻辑，
- * 真实电子环境下由 vitest（含 electron 运行时）或端到端验证。
  * 运行：pnpm test
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // In-memory 替身：实现 set/get/store 三个 store 使用到的接口
 vi.mock('electron-store', () => {
@@ -29,8 +28,35 @@ vi.mock('electron-store', () => {
   return { default: FakeStore };
 });
 
-import { save as linkSave, saveForRun, getByRunId } from '@/services/runLinkStore';
-import { save as evalSave, load, list } from '@/services/evaluationStore';
+// 渲染层客户端的 Host API 替身（内存实现，模拟主进程路由行为）
+const runLinks = new Map<string, any>();
+vi.mock('@/lib/host-api', () => ({
+  hostApiFetch: vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === '/api/eval/runlinks' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      const link = body.evaluatedAt
+        ? body
+        : { ...body, evaluatedAt: new Date().toISOString() };
+      runLinks.set(link.runId, link);
+      return { success: true, link };
+    }
+    const getMatch = path.match(/^\/api\/eval\/runlinks\/(.+)$/);
+    if (getMatch) {
+      const link = runLinks.get(decodeURIComponent(getMatch[1])) ?? null;
+      return { success: true, link };
+    }
+    return { success: false, error: `unexpected path: ${path}` };
+  }),
+}));
+
+import {
+  saveProfile,
+  loadProfile,
+  listProfiles,
+  saveRunLink,
+  getRunLink,
+} from '@electron/services/evaluation/eval-store';
+import { saveForRun, getByRunId } from '@/services/runLinkStore';
 import type { EvaluationProfile, RadarScore, KpiRecord, RoiSnapshot } from '@/types/evaluation';
 
 function radar(v = 3): RadarScore {
@@ -80,18 +106,57 @@ function profile(agentId: string): EvaluationProfile {
   };
 }
 
-describe('runLinkStore', () => {
-  it('saveForRun 补全 runId + evaluatedAt 并落库', async () => {
+describe('eval-store（主进程落库）', () => {
+  it('saveProfile/loadProfile 往返一致', async () => {
+    const p = profile('agent-eval-1');
+    await saveProfile(p);
+    expect(await loadProfile('agent-eval-1')).toEqual(p);
+  });
+
+  it('listProfiles 仅返回含 agentId 的 EvaluationProfile', async () => {
+    await saveProfile(profile('agent-eval-2'));
+    const all = await listProfiles();
+    const ids = all.map((x) => x.agentId);
+    expect(ids).toContain('agent-eval-1');
+    expect(ids).toContain('agent-eval-2');
+    for (const x of all) expect(typeof x.agentId).toBe('string');
+  });
+
+  it('loadProfile 缺失返回 undefined', async () => {
+    expect(await loadProfile('no-such-agent')).toBeUndefined();
+  });
+
+  it('saveRunLink/getRunLink 往返一致；缺失返回 undefined', async () => {
+    const link = {
+      runId: 'run-main-1',
+      taskId: 't1',
+      agentId: 'a1',
+      sessionKey: 'agent:a1:main',
+      sessionId: 'sess-1',
+      evaluatedAt: '2025-01-01T00:00:00.000Z',
+    };
+    await saveRunLink(link);
+    expect(await getRunLink('run-main-1')).toEqual(link);
+    expect(await getRunLink('does-not-exist')).toBeUndefined();
+  });
+});
+
+describe('runLinkStore（渲染层客户端）', () => {
+  beforeEach(() => {
+    runLinks.clear();
+  });
+
+  it('saveForRun POST /api/eval/runlinks，服务端补 evaluatedAt', async () => {
     const link = await saveForRun('run-1', {
       taskId: 'task-1',
       agentId: 'agent-1',
-      sessionKey: 'sk-1',
+      sessionKey: 'agent:agent-1:main',
       sessionId: 'sess-1',
     });
     expect(link.runId).toBe('run-1');
     expect(link.taskId).toBe('task-1');
     expect(link.agentId).toBe('agent-1');
-    expect(link.sessionKey).toBe('sk-1');
+    expect(link.sessionKey).toBe('agent:agent-1:main');
     expect(link.sessionId).toBe('sess-1');
     expect(typeof link.evaluatedAt).toBe('string');
   });
@@ -105,43 +170,6 @@ describe('runLinkStore', () => {
     });
     const got = await getByRunId('run-2');
     expect(got?.runId).toBe('run-2');
-    const missing = await getByRunId('does-not-exist');
-    expect(missing).toBeUndefined();
-  });
-
-  it('save（完整 RunTaskLink）后 getByRunId 一致', async () => {
-    const full = {
-      runId: 'run-3',
-      taskId: 't3',
-      agentId: 'a3',
-      sessionKey: 'sk3',
-      sessionId: 'sess3',
-      evaluatedAt: '2025-01-01T00:00:00.000Z',
-    };
-    await linkSave(full);
-    const got = await getByRunId('run-3');
-    expect(got).toEqual(full);
-  });
-});
-
-describe('evaluationStore', () => {
-  it('save/load 往返一致', async () => {
-    const p = profile('agent-eval-1');
-    await evalSave(p);
-    const loaded = await load('agent-eval-1');
-    expect(loaded).toEqual(p);
-  });
-
-  it('list 仅返回含 agentId 的 EvaluationProfile（过滤内部键）', async () => {
-    await evalSave(profile('agent-eval-2'));
-    const all = await list();
-    const ids = all.map((x) => x.agentId);
-    expect(ids).toContain('agent-eval-1');
-    expect(ids).toContain('agent-eval-2');
-    for (const x of all) expect(typeof x.agentId).toBe('string');
-  });
-
-  it('load 缺失返回 undefined', async () => {
-    expect(await load('no-such-agent')).toBeUndefined();
+    expect(await getByRunId('does-not-exist')).toBeUndefined();
   });
 });
