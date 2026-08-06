@@ -2,8 +2,10 @@
 
 > 华为昇腾挑战赛 · 赛道二（创新应用赛道）工程基础设计
 > 模型：MiniCPM-o 4.5（全模态，约 9B，OpenCompass 综合 77.6）
-> 作者：架构师 高见远 ｜ 版本：v0.1（starter kit 发布前初步方案）
+> 作者：架构师 高见远 ｜ 版本：v0.2（CANN 9.1.0-beta.1 devel 修订版）
 > 适用范围：统一昇腾环境复现验证 + 赛道二「可运行 Web Demo」交付
+>
+> **v0.2 修订（相对 v0.1）**：基于已申请的 HiDevLab 环境（CANN 9.1.0-beta.1 devel，Ubuntu 22.04 / Python 3.12）修订基础镜像与运行时叠加策略；新增 Python 3.12 兼容性风险核查（§3.2–3.3）；同步更新 §6 Dockerfile、§7 runbook、§8 任务拆分与 §9 风险/待办。
 
 ---
 
@@ -82,16 +84,58 @@ def load_minicpmo(model_path: str) -> MiniCPMModel:
 |------|------|------|
 | 1 | 注册登录 HiDevLab 平台 | 华为开发者账号 |
 | 2 | 进入「体验 IDE」 | 在线开发/调试 |
-| 3 | 创建环境 | 选择 Ascend 算力规格（建议 910B） |
+| 3 | 创建环境 | 选择 Ascend 算力规格（建议 910B/910A，权重需 910B/910A，见 §4.1） |
 | 4 | 申请权限 | **备注「参加面壁昇腾大赛」**，审核 1–3 工作日 |
-| 5 | 拉取统一环境 | 以官方公告与 starter kit 镜像为准 |
+| 5 | 拉取统一环境 | ✅ **已申请到**：基础镜像 `CANN` 9.1.0-beta.1（devel），见 §3.2 |
 
-### 3.2 CANN / 驱动版本
+> **已确认环境规格（HiDevLab 分配）**：镜像 `quay.io/ascend/cann:9.1.0-beta.1`（devel 版），包含 CANN Toolkit、Python 3.12 与 Ascend C 算子开发基础依赖；OS 为 Ubuntu 22.04；包管理 apt。该镜像提供「驱动 / 算子编译底座」，**不含 AI 推理运行时（torch / torch_npu / flag_gems / transformers）**，运行时需在其上叠加（见 §3.2–3.3）。
 
-- 官方「统一昇腾环境」会提供固定 CANN、驱动、torch_npu、昇腾版本组合。**当前版本号以官方公告/starter kit 为准**，本方案不锁定具体版本号，避免与官方冲突。
-- 任何 `torch / torch_npu / transformers` 版本组合必须匹配 CANN 与驱动；镜像锁定而非手动 pip 升级。
+### 3.2 统一基础镜像：CANN 9.1.0-beta.1（devel）
 
-### 3.3 NPU 设备透传
+**已确认**：HiDevLab 分配的基础镜像为 `quay.io/ascend/cann:9.1.0-beta.1`（devel 版）。它提供 **OS（Ubuntu 22.04）+ CANN Toolkit 9.1.0 + Python 3.12 + Ascend C 算子开发基础依赖 + apt**，即「驱动 / 算子编译底座」。**该镜像不含 AI 推理运行时**（torch / torch_npu / flag_gems / transformers），需在其上叠加运行时（§3.3）。
+
+#### 3.2.1 运行时叠加：明确推荐
+
+> **推荐：以 FlagOS「开箱即用多芯版」镜像承载推理运行时，叠加在 CANN 9.1.0 devel 之上；不推荐在 CANN devel 的 Python 3.12 上直接手装 torch_npu。**
+
+两种叠加方式对比：
+
+| 方式 | 做法 | Python 版本 | 风险 | 推荐度 |
+|------|------|------------|------|--------|
+| **(A) FlagOS 镜像作运行时层** | `FROM quay.io/ascend/cann:9.1.0-beta.1` 作底层，上层叠加 FlagOS 提供的 torch + torch_npu + flag_gems（多阶段 `COPY --from` 或官方 FlagOS 镜像直接作基础，其底层 CANN 同样为匹配版本） | FlagOS 镜像自带 **3.10/3.11**（与 wheel 匹配） | 低 | ★★★ 主推 |
+| **(B) 手装 torch_npu** | 在 CANN devel（Python 3.12）上直接 `pip install torch torch_npu`，版本对齐 CANN 9.1.0 | 系统 **3.12** → 易撞 wheel 错配（见 §3.3） | 高（3.12 wheel 风险） | ★ 兜底 |
+
+**理由**：
+1. **版本自洽**：FlagOS「开箱即用多芯版」镜像把 `torch + torch_npu + flag_gems + CANN` 按同一组合预编译并验证，`import flag_gems` 即切换 Ascend 后端，与现有 `transformers` 代码同构（§2.3），改动最小。
+2. **避开 Python 3.12 错配**：CANN devel 是 Python 3.12，而 Ascend ML wheel 多数仍 targeting 3.10/3.11（§3.3）。FlagOS 镜像内部自带匹配的 3.10/3.11 运行时，业务代码无需关心 3.12。
+3. **运维最少**：竞赛场景下省去 `pip` 版本对齐与编译，镜像一次性锁定，复现最稳。
+
+> 若 HiDevLab 强制要求以 CANN 9.1.0 devel 为**唯一**基础且不允许另起 FlagOS 镜像，则走 §3.3 的「3.12 → 3.10/3.11 venv」降级方案，仍优先 `flag_gems` 后端。
+
+### 3.3 Python 3.12 兼容性风险核查（torch_npu / MindSpore / FlagOS）
+
+**核心结论**：CANN 9.1.0-beta.1 devel 自带的 Python 3.12 **不适合直接承载 Ascend ML 运行时**；应改用 FlagOS 镜像内置的 3.10/3.11，或在 devel 镜像内新建 3.10/3.11 虚拟环境。
+
+| 组件 | Python 3.12 可用性（CANN 9.1.0-beta.1） | 版本匹配要求 | 风险 |
+|------|----------------------------------------|-------------|------|
+| **torch_npu** | 官方 wheel 历史主要面向 **3.10 / 3.11**；3.12 wheel 仅在较新 torch_npu + CANN 9.x 组合才补，且滞后 | 须与 **torch 版本 + CANN 9.1.0** 严格三角匹配 | **高**（系统 3.12 下 `pip` 易解析不到匹配 wheel，须源码编译或失败） |
+| **MindSpore** | 2.x wheel 面向 3.9/3.10/3.11；3.12 支持部分（2.4+）且滞后 | 须与 CANN 9.1.0 匹配；另需全面重写推理栈（§2.1c） | **高**（不采用） |
+| **FlagOS（flag_gems）** | 镜像**自带匹配 Python（3.10/3.11）+ torch_npu + flag_gems + CANN**，对业务代码不暴露 3.12 | 镜像内已自洽锁定 | **低**（★ 推荐） |
+| transformers / opencv / decord / librosa / soundfile | 多为纯 Python 或 manylinux wheel，3.12 基本可用 | 与 Python 版本松耦合 | 低–中（decord/opencv 偶有 3.12 构建滞后，可换替代或降 venv） |
+
+**为何 FlagOS 更稳妥（论证）**：
+- FlagOS 镜像是「torch + torch_npu + flag_gems + CANN」**同一次发布、同一工具链编译**的产物，版本三角（torch ↔ torch_npu ↔ CANN 9.1.0）已官方验证；手装则需用户自行对齐该三角，且在 3.12 系统镜像上缺失匹配 wheel。
+- 业务代码（§2.3 `model_loader`）只用 `import flag_gems` / `torch.npu`，不感知宿主 Python 版本，运行时层切换为零代码改动。
+
+**若必须手装 torch_npu（降级 / 兜底）的 Python 版本处理**：
+- 在 CANN 9.1.0 devel（系统 3.12）内**不要**用系统 Python 跑 ML 栈；新建隔离解释器：
+  - `conda create -n npu python=3.11` 或 `python3.11 -m venv .venv`（先 `apt install python3.11 python3.11-venv` 或用 miniconda）；
+  - 在该 3.11 环境内 `pip install torch==<X.Y> torch_npu==<匹配> torchvision`（版本对齐 CANN 9.1.0 官方兼容矩阵）；CANN Toolkit 的 C 侧（9.1.0）保持不变。
+- **关键点**：宿主 Python 3.12 仅用于 Ascend C 算子开发 / 工具链；ML 推理运行时统一走 3.10/3.11 虚拟环境，规避 3.12 wheel 错配。
+
+> 注：上述 3.12 wheel 可用性为基于 Ascend 生态现状的研判；CANN 9.1.0-beta.1 的 torch_npu / FlagOS 精确可用版本以官方发布说明与 starter kit 兼容矩阵为准（R9）。
+
+### 3.4 NPU 设备透传
 
 统一环境下容器需挂载 NPU 设备。`docker-compose.yml` **已预留注释段**，真实部署取消注释即可：
 
@@ -103,19 +147,19 @@ devices:
   # 多卡/管理设备按需加：/dev/davinci1、/dev/devmm_svm、/dev/hisi_hdc
 ```
 
-### 3.4 镜像与 starter kit 依赖
+### 3.5 镜像与 starter kit 依赖
 
-- 优先使用官方 FlagOS「开箱即用多芯版」镜像作基础镜像（见 §6）。
-- 模型权重、测试脚本、提交包规范**以官方 starter kit 为准**。
+- 基础镜像已定为 `quay.io/ascend/cann:9.1.0-beta.1`（devel）；推理运行时层优先 FlagOS「开箱即用多芯版」（§3.2）。
+- 模型权重、测试脚本、提交包规范**以官方 starter kit 为准**，权重拉取方式见 §4.1 与 §9.1（用户待办）。
 
-### 3.5 官方公告前应对预案（starter kit 未发布）
+### 3.6 官方公告前应对预案（starter kit 未发布）
 
 | 不确定项 | 预案 |
 |---------|------|
-| 基础镜像未定 | 先以 `python:3.10-slim` + 占位推理跑通「MOCK=false 但模型不可用→503」闭环，镜像切换为零改动（`FROM` 一行） |
-| torch_npu/FlagOS 版本未定 | `requirements.txt` 保持注释，版本在 starter kit 发布后一次性解锁 |
+| 基础镜像 | ✅ 已确认为 CANN 9.1.0-beta.1 devel；运行时层优先 FlagOS，兜底 3.11 venv + torch_npu（§3.2–3.3） |
+| torch_npu/FlagOS 版本未定 | `requirements.txt` 保持注释，版本在 starter kit 发布后一次性解锁；FlagOS 镜像优先则无需手写版本 |
 | 设备号未定 | compose 设备段保持可配置；先用 `/dev/davinci0` 默认 |
-| 权重获取方式未定 | 先按 Modelers.cn / ModelScope 两条路径准备（§4），以官方公告为准切换 |
+| 权重获取方式未定 | 先按 Modelers.cn（Ascend 专用）为主、ModelScope 兜底两条路径准备（§4），以官方公告为准切换 |
 | 提交包规范未定 | 代码结构保持「单容器 + /health 自检 + E2E 脚本」，天然适配多数提交规范 |
 
 ---
@@ -195,26 +239,32 @@ devices:
 
 ## 6. Dockerfile 增强清单
 
-在现有 `model-service/Dockerfile`（`python:3.10-slim`）基础上，增量增加：
+在现有 `model-service/Dockerfile` 基础上，增量增加。基础镜像改为 **CANN 9.1.0-beta.1 devel（底层）+ FlagOS 运行时层（上层）**；若 HiDevLab 不允许另起镜像，则走 CANN devel + 3.11 venv + torch_npu 兜底（见 §3.2–3.3）。
 
 | # | 增强项 | 实现 | 说明 |
 |---|--------|------|------|
-| 1 | 基础镜像 | `FROM <flagos-ascend-image>` 或 `python:3.10-slim` + 安装 torch_npu | starter kit 发布前可先用原 slim 镜像占位 |
-| 2 | 推理依赖 | 解锁 `requirements.txt` 中 `torch / torch_npu / transformers / opencv-python / decord / librosa / soundfile` | 版本随 CANN 锁定 |
-| 3 | NPU 透传 | 运行时由 `docker-compose.yml` 挂载 `/dev/davinci*`（无需写进 Dockerfile） | 见 §3.3 |
-| 4 | 权重挂载 | 运行时 `-v /path/weights:/models/MiniCPM-o-4.5` 或 compose `volumes` | `MODEL_PATH` 已指向该路径 |
+| 1 | 基础镜像 | `FROM quay.io/ascend/cann:9.1.0-beta.1` 作底层 + FlagOS 运行时层（多阶段 `COPY --from=runtime`）；或 CANN devel + 3.11 venv 兜底 | 业务解释器用 FlagOS 自带 / venv 的 **3.10/3.11**，避开系统 3.12（§3.3） |
+| 2 | 推理依赖 | 运行时层若已含 torch / torch_npu / flag_gems 则 `requirements.txt` 仅业务侧；兜底路径解锁 `torch / torch_npu / transformers / opencv-python / decord / librosa / soundfile` | 版本随 CANN 锁定 |
+| 3 | NPU 透传 | 运行时由 `docker-compose.yml` 挂载 `/dev/davinci*`（无需写进 Dockerfile） | 见 §3.4 |
+| 4 | 权重挂载 | 运行时 `-v /path/weights:/models/MiniCPM-o-4.5` 或 compose `volumes` | `MODEL_PATH` 已指向该路径（§4.1） |
 | 5 | 真实推理入口 | 默认 `MOCK=false`（统一环境）；本地演示保留 `MOCK=true` | `serve.py` 已按 `settings.mock` 分流 |
 | 6 | 前端静态托管 | `COPY web /app/web`；`serve.py` 增加 `StaticFiles` 挂载（§5.3） | 预构建 `dist/` → `web/` |
-| 7 | 复用已有 | `VOLUME /app/samples /app/uploads`、`EXPOSE 8000`、`CMD python -m app.serve` | 保持不变 |
+| 7 | 复用已有 | `VOLUME /app/samples /app/uploads`、`EXPOSE 8000`、`CMD python3.11 -m app.serve` | 解释器用运行时层 3.11 |
 
-**增强后 Dockerfile 骨架（示意）**：
+**增强后 Dockerfile 骨架（多阶段，推荐）**：
 
 ```dockerfile
-FROM <flagos-ascend-image>   # starter kit 发布前：python:3.10-slim
+# 阶段 1：FlagOS 开箱即用多芯版镜像（自带 python 3.10/3.11 + torch + torch_npu + flag_gems + 匹配 CANN）
+FROM <flagos-ascend-image> AS runtime
+# 阶段 2：CANN 9.1.0 devel 作底层底座（OS + CANN Toolkit 9.1.0 + 驱动），整体拷入运行时层
+FROM quay.io/ascend/cann:9.1.0-beta.1
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
+# 将 FlagOS 阶段匹配好的运行时（python + site-packages）整体拷入，规避系统 Python 3.12 wheel 错配
+COPY --from=runtime /usr/local /usr/local
+# 业务侧依赖（框架已由运行时层提供；走 venv 兜底时此处再 pip install 锁定版 torch_npu）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt   # 含 torch_npu/transformers
+RUN pip3.11 install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY tests ./tests
 COPY web ./web                # ★ 预构建前端静态资源
@@ -225,8 +275,10 @@ ENV MOCK=false \              # ★ 统一环境默认真实推理
     WEB_ROOT=/app/web \
     MODEL_PATH=/models/MiniCPM-o-4.5 \
     SAMPLES_DIR=/app/samples UPLOAD_DIR=/app/uploads
-CMD ["python", "-m", "app.serve"]
+CMD ["python3.11", "-m", "app.serve"]   # ★ 用运行时层解释器（非系统 3.12）
 ```
+
+> **备选（若 HiDevLab 禁止多阶段跨镜像）**：单阶段 `FROM quay.io/ascend/cann:9.1.0-beta.1` + `conda create -n npu python=3.11` 或 `python3.11 -m venv .venv`，在 3.11 环境内 `pip install torch==<X.Y> torch_npu==<匹配>`（对齐 CANN 9.1.0 兼容矩阵），`CMD` 用该 venv 解释器。
 
 ---
 
@@ -236,15 +288,18 @@ CMD ["python", "-m", "app.serve"]
 # ① 克隆仓库
 git clone <repo-url> agentcorp && cd agentcorp
 
-# ② 申请 HiDevLab 统一昇腾环境（备注「参加面壁昇腾大赛」，审核 1–3 工作日）—— 见 §3.1
+# ② 已申请 HiDevLab 统一昇腾环境（CANN 9.1.0-beta.1 devel，备注「参加面壁昇腾大赛」）；
+#    需等待实际 NPU 算力分配（确认 910B/910A 规格与 /dev/davinciN 设备号）—— 见 §9.1
 
-# ③ 构建镜像（统一环境）
+# ③ 构建镜像（基础 = CANN 9.1.0 devel + FlagOS 运行时层，见 §6）
 cd model-service
 docker build -t agentcorp-minicpmo:ascend -f Dockerfile .
 
-# ④ 放置权重（starter kit 发布后按官方方式；当前先准备 Modelers.cn 权重）
+# ④ 放置权重（Modelers.cn Ascend 专用版；需已确认 NPU 算力分配，见 §9.1）
 mkdir -p /models/MiniCPM-o-4.5
-# 从 Modelers.cn / ModelScope 拉取 Ascend 版权重到 /models/MiniCPM-o-4.5
+# 从 Modelers.cn 拉取 Ascend 专用权重（Apache 2.0, bf16，需 910B/910A）：
+#   FlagRelease/MiniCPM-o-4.5-ascend-FlagOS
+# 通用权重兜底：OpenBMB/MiniCPM-o-4_5（ModelScope / HuggingFace / 魔乐）
 
 # ⑤ 启动（透传 NPU，真实推理）
 #   docker-compose.yml 取消 devices 注释 + 设 MOCK=false
@@ -272,11 +327,11 @@ MOCK=true python -m pytest tests/ -q
 
 | ID | 任务 | 涉及文件 | 依赖 | 优先级 |
 |----|------|---------|------|--------|
-| T0 | 环境接入与权重获取 | HiDevLab 环境、/models 权重目录 | — | P0 |
-| T1 | `model_loader.py` 真实加载（flag_gems/torch_npu + device） | `app/model_loader.py`、`requirements.txt` | T0（编码可并行） | P0 |
+| T0 | 环境接入、NPU 算力分配与权重获取 | HiDevLab CANN 9.1.0 devel 环境、NPU 算力分配确认、/models 权重目录（Modelers.cn） | — | P0 |
+| T1 | `model_loader.py` 真实加载（flag_gems/torch_npu + device + 运行时层 3.11 约定） | `app/model_loader.py`、`requirements.txt`、`Dockerfile`(运行时层) | T0（编码可并行） | P0 |
 | T2 | `evaluator` 真实多模态推理（`load_media` + `infer` 接入 MiniCPM-o `chat`） | `app/evaluator.py`、`prompt_templates.py` | T1 | P0 |
 | T3 | `tts.py` 真实语音（MiniCPM-o 原生 TTS / CosyVoice2 旁路） | `app/tts.py` | T1 | P1 |
-| T4 | Dockerfile / compose 增强（FlagOS 基础镜像、权重挂载、MOCK=false、前端静态托管） | `Dockerfile`、`docker-compose.yml`、`serve.py`(StaticFiles) | T1–T3 | P0 |
+| T4 | Dockerfile / compose 增强（CANN devel 基础镜像 + FlagOS 运行时层 / 3.11 venv 兜底、权重挂载、MOCK=false、前端静态托管） | `Dockerfile`、`docker-compose.yml`、`serve.py`(StaticFiles) | T1–T3 | P0 |
 | T5 | 前端承载改造（预构建 `dist/`→`web/`、相对 API base、真实 wav 播放、Electron import 门控） | `vite.config.ts`、`src/**`、`web/` | T4（可并行） | P1 |
 | T6 | E2E 验证脚本与 `/health` 真实闭环 + 复现检查（temperature/seed 一致） | `tests/`、`scripts/e2e_ascend.sh` | T1–T5 | P1 |
 | T7 | 提交材料准备（开源仓库、Web Demo、PPT、项目说明、演示视频） | 仓库根、docs/ | T4–T6 | P1 |
@@ -297,7 +352,7 @@ graph TD
   T6 --> T7[T7 提交材料]
 ```
 
-> T0 环境申请可与 T1–T3 的代码编写**并行**（代码无需真 NPU 即可写，靠 MOCK 路径验证）。
+> T0 环境申请可与 T1–T3 的代码编写**并行**（代码无需真 NPU 即可写，靠 MOCK 路径验证）。T0 中「NPU 算力分配确认」与「权重拉取」依赖官方 starter kit / HiDevLab 实际分配，是 T4–T7 真机验证的门控项（见 §9.1）。
 
 ---
 
@@ -313,6 +368,20 @@ graph TD
 | R6 | MOCK 与真实路径一致性 | 提交「演示质量/复现」不符 | `evaluator` 两路径共用 `parse_output` / `compute_user_fit`；E2E 脚本双跑对比 |
 | R7 | 前端 Electron import 泄漏到 Web 构建 | 容器 Web Demo 白屏 | T5 用 `VITE_TARGET` 门控；`vite build` 后人工开 8000 冒烟 |
 | R8 | 真实模式 `audio` 事件（base64 wav）前端未播放 | 语音讲解缺失 | T5 核对 `NarrationPanel` 支持 wav 解码播放 |
+| R9 | CANN 9.1.0-beta.1 的 torch_npu / FlagOS 精确版本未锁定（beta 镜像） | 版本错配 / 构建失败 | 以官方发布说明与 starter kit 兼容矩阵为准；FlagOS 镜像优先可免手写版本 |
+| R10 | Python 3.12 系统镜像与 Ascend ML wheel（3.10/3.11）错配 | `pip` 解析不到匹配 wheel / 源码编译失败 | 运行时层用 FlagOS 自带 3.10/3.11，或 CANN devel 内建 3.11 venv（§3.3） |
+| R11 | 实际 NPU 算力分配未到位（910B/910A 规格与 /dev/davinciN 设备号） | 阻塞 T0 真机验证 / T4–T7 | 等 HiDevLab 实际分配；本地先用 MOCK 路径并行开发（§9.1） |
+
+### 9.1 用户仍需完成的事项（HiDevLab / 权重 / Starter Kit）
+
+以下事项依赖官方 / 平台侧，非工程代码可独立完成，需用户推进或拍板：
+
+| # | 待办 | 说明 / 决策点 |
+|---|------|--------------|
+| D1 | **等待官方 starter kit** | 镜像 / 版本 / 提交包规范以官方公告与 starter kit 为准；当前方案已留零改动切换点 |
+| D2 | **实际 NPU 算力分配** | 向 HiDevLab 确认 910B/910A 规格与 `/dev/davinciN` 设备号；决定权重路径与显存预算（§4.2） |
+| D3 | **权重拉取** | 从 Modelers.cn 拉取 Ascend 专用版 `FlagRelease/MiniCPM-o-4.5-ascend-FlagOS`（Apache 2.0，bf16，**需 910B/910A**）；通用权重 `OpenBMB/MiniCPM-o-4_5` 作兜底 |
+| D4 | **运行时叠加方式拍板** | 若 HiDevLab 允许另起 FlagOS 镜像 → 多阶段方案 A（§3.2.1）；若强制 CANN 9.1.0 devel 为唯一底座 → 走 3.11 venv + torch_npu 兜底（§3.2–3.3） |
 
 ---
 

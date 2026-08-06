@@ -7,7 +7,7 @@ model-service/app/schemas.py
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, ConfigDict, AliasGenerator
 from pydantic.alias_generators import to_camel
@@ -137,6 +137,11 @@ class JudgeRunRequest(BaseModel):
     transcript: str = ""
     usage: List[dict] = Field(default_factory=list)
     preference: Optional[dict] = None
+    # Layer3 收敛扩展（T16，可选）：命中则 /api/evaluate-run 记录收敛轨迹
+    # 并发 convergence_update / convergence_score SSE 事件（不破坏既有字段）。
+    convergence: Optional[dict] = None
+    # 批次2 Task-Set 扩展（T9，可选）：指定任务集调度；缺省 usage_efficiency。
+    task_set_id: Optional[str] = None
 
 
 # ===================== SSE 事件（五种） =====================
@@ -180,3 +185,181 @@ class DoneEvent(BaseModel):
 def to_event_dict(event: BaseModel) -> dict:
     """将事件模型转为可 JSON 序列化的 dict（枚举转字符串）"""
     return event.model_dump(mode="json")
+
+
+# ===================== 评估层扩展（批次2 · T4–T9） =====================
+# 仅追加模型，不修改/删除既有模型（如 JudgeRunRequest 已含 convergence 字段）。
+
+class ObjectiveScoreItem(BaseModel):
+    """单次客观维得分（含来源 + 扁平权重，供 Q7 craft 独立存库/工种雷达）。"""
+    dim: str
+    score: float = 0.0
+    source: str = "judge"  # judge / telemetry / mixed
+    weight: float = 0.0
+    evidence: Optional[str] = None
+
+
+class SubjectiveScore(BaseModel):
+    """单次主观赋分（人类 owner，PRD §5.2）。"""
+    agentId: str = ""
+    stage: str = ""
+    scores: Dict[str, float] = Field(default_factory=dict)  # sub_* 维 -> 0–5
+    notes: Optional[str] = None
+    scoredBy: str = "owner"
+    ts: str = ""
+
+
+class CraftScores(BaseModel):
+    """craft 维独立存库（Q7），不并入 objective 总分，供工种 craft 雷达对比。"""
+    jobType: str = "code"
+    dims: Dict[str, float] = Field(default_factory=dict)  # craft dim -> 0–5
+    downweighted: List[str] = Field(default_factory=list)  # Q6 降权维
+    evidence: Dict[str, str] = Field(default_factory=dict)  # dim -> 证据/标注
+
+
+class StageScore(BaseModel):
+    """三阶段评分卡（S1/S2/S3 同构）。"""
+    agentId: str = "unknown"
+    stage: str = ""
+    jobType: str = "code"
+    objective: List[ObjectiveScoreItem] = Field(default_factory=list)
+    subjective: SubjectiveScore = Field(default_factory=SubjectiveScore)
+    objectiveWeight: float = 0.5
+    subjectiveWeight: float = 0.5
+    objectiveScore: float = 0.0
+    subjectiveScore: float = 0.0
+    total: float = 0.0
+    verdict: str = "OBSERVE"
+    craftScores: CraftScores = Field(default_factory=CraftScores)
+    window: Optional[str] = None
+    ts: str = ""
+
+
+class StageScoreRequest(BaseModel):
+    """POST /api/evaluate-stage 入参。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agentId: str = "unknown"
+    stage: str
+    jobType: str = "code"
+    objective: Dict[str, float] = Field(default_factory=dict)  # dim -> 0–5
+    subjective: Dict[str, float] = Field(default_factory=dict)  # sub_* -> 0–5
+    craftEvidence: Dict[str, str] = Field(default_factory=dict)  # craft dim -> 证据文本
+    presetId: str = "default"
+    scoredBy: str = "owner"
+    window: Optional[str] = None
+
+
+class LeaderboardEntry(BaseModel):
+    """双 Leaderboard · 客观榜条目（按 objectiveScore 排序）。"""
+    agentId: str
+    name: str = ""
+    jobType: str = "code"
+    objectiveScore: float = 0.0
+    roiNorm: float = 0.0
+    rank: int = 0  # 客观名次（1=榜首）
+    state: str = "ACTIVE"
+    tier: str = "NORMAL"  # MVP / NORMAL / BOTTOM
+
+
+class SubjectiveRankEntry(BaseModel):
+    """双 Leaderboard · 主观榜条目（可拖拽）。"""
+    agentId: str
+    name: str = ""
+    jobType: str = "code"
+    subjectiveScore: float = 0.0
+    objectiveRank: int = 0  # 客观预排名次（默认序来源）
+    dragRank: int = 0  # 用户拖拽后的名次（持久化）
+
+
+class RankDivergence(BaseModel):
+    """客观序 vs 拖拽序发散。"""
+    agentId: str
+    objectiveRank: int
+    dragRank: int
+    delta: int  # dragRank - objectiveRank（负=被提升）
+
+
+class DualLeaderboard(BaseModel):
+    """双 Leaderboard（客观榜 + 可拖拽主观榜 + 复核发散）。"""
+    stage: str
+    jobType: str = "all"
+    objective: List[LeaderboardEntry] = Field(default_factory=list)
+    subjective: List[SubjectiveRankEntry] = Field(default_factory=list)
+    divergences: List[RankDivergence] = Field(default_factory=list)
+    updatedAt: str = ""
+
+
+class PreferenceSignal(BaseModel):
+    """一次拖拽 = 一个偏好信号（Q5 回灌）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    id: str = ""
+    ownerId: str = "default"
+    stage: str = ""
+    jobType: str = "code"
+    agentId: str
+    srcRank: int = 0
+    dstRank: int = 0
+    direction: str = "up"  # up / down
+    craftScores: Optional[Dict[str, float]] = None  # 可选：被提升 agent 的 craft 维得分
+    ts: str = ""
+
+
+class PreferenceProfile(BaseModel):
+    """聚合后回灌 UserPreference.weight 的偏好画像。"""
+    ownerId: str = "default"
+    signals: List[PreferenceSignal] = Field(default_factory=list)
+    pairwiseWins: Dict[str, int] = Field(default_factory=dict)
+    dimLift: Dict[str, float] = Field(default_factory=dict)
+    updatedAt: str = ""
+
+
+class PreferenceFeedbackRequest(BaseModel):
+    """POST /api/preference 入参（前端携带累计信号列表 + 当前权重）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    ownerId: str = "default"
+    signals: List[PreferenceSignal] = Field(default_factory=list)
+    currentWeight: Optional[Dict[str, float]] = None
+
+
+class ScoringRulesLoad(BaseModel):
+    """PUT /api/rules 入参。"""
+    presetId: str
+    rules: dict
+
+
+class TaskRunResult(BaseModel):
+    """TaskSet 运行结果（T9）。"""
+    agentId: str
+    taskSetId: str
+    jobType: str = "code"
+    objectiveScores: Dict[str, float] = Field(default_factory=dict)
+    telemetry: List[dict] = Field(default_factory=list)
+    usage: List[dict] = Field(default_factory=list)
+    craftEvidence: Dict[str, str] = Field(default_factory=dict)
+    meta: Dict[str, float] = Field(default_factory=dict)
+
+
+class TaskSetMeta(BaseModel):
+    """TaskSet 元数据（前端注册表镜像用）。"""
+    id: str
+    title: str = ""
+    description: str = ""
+    applicableJobs: List[str] = Field(default_factory=list)

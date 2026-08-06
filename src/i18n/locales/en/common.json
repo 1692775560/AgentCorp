@@ -1,5 +1,6 @@
 {
   "sidebar": {
+    "home": "Home",
     "chat": "Chat",
     "newChat": "New Chat",
     "cronTasks": "Cron Tasks",
@@ -31,6 +32,7 @@
     "toggleSidebar": "Toggle sidebar",
     "taskBoard": "Task board",
     "marketplace": "Marketplace",
+    "interview": "Interview",
     "taskSchedule": "Task schedule",
     "memoryKnowledge": "Memory knowledge base",
     "costUsage": "Cost usage",
@@ -289,6 +291,9 @@
   },
   "kanban": {
     "title": "Task board",
+    "comingSoon": "Coming soon",
+    "placeholderDesc": "The task board is being polished. The drag-and-drop collaboration board is coming soon.",
+    "taskLinkedHint": "The task {{taskId}} you just created will appear here once the board is live.",
     "subtitle": "{{count}} active tasks",
     "newTask": "Create task",
     "allTasks": "All tasks",

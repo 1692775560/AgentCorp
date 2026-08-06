@@ -14,6 +14,49 @@
  * 其余领域类型见 src/types/agent.ts 等。
  */
 
+/* ===================== 评估层扩展（T0 · 三阶段×三工种） ===================== */
+/**
+ * 工种类型（owner 决策 Q2：image 重 creativity / text 重 comm·quality / code 重 reliability·cost）。
+ * 严格照搬架构 §3.1，不改动既有 RadarDim / Verdict / LifecycleState。
+ */
+export type JobType = "image" | "text" | "code";
+/** 阶段键（S1/S2/S3） */
+export type StageKey = "preScreen" | "interview" | "performance";
+/** 主观维度（分阶段启用，PRD §2.4），键名 sub_* 不冲突 */
+export type SubjectiveDim =
+  | "sub_potential"
+  | "sub_aesthetic_lean"
+  | "sub_task_feel"
+  | "sub_communication"
+  | "sub_surprise"
+  | "sub_trust"
+  | "sub_rehire";
+/** 工种 craft 维度（前缀隔离，PRD §2.2） */
+export type CraftDim =
+  | "img_composition"
+  | "img_style_fit"
+  | "img_fidelity"
+  | "img_aesthetic_consistency"
+  | "img_multimodal_follow"
+  | "txt_factuality"
+  | "txt_coherence"
+  | "txt_tone_fit"
+  | "txt_info_density"
+  | "txt_instruction_follow"
+  | "code_runnability"
+  | "code_efficiency"
+  | "code_test_coverage"
+  | "code_maintainability"
+  | "code_security";
+/** craft 维元数据（架构 §3.1 CraftDimMeta） */
+export interface CraftDimMeta {
+  key: CraftDim;
+  jobType: JobType;
+  links: RadarDim[]; // 关联通用六维（回灌/加权）
+  requiresReal: boolean; // Q6：code_runnability/code_security = true
+  anchor: { 0: string; 3: string; 5: string }; // 0–5 锚点
+}
+
 /** 六维雷达维度键（顺序即展示顺序） */
 export type RadarDim =
   | "task"
@@ -229,6 +272,7 @@ export interface RoiSnapshot {
   roi: number; // (V−C)/C，可为负
   ipr: number; // V/C 投入产出比
   srpc: number; // 单位成本成功率 = n_success / C
+  cps: number; // 归一化投入产出分（IPR → 0–5，见 roiEngine.normCps）
   cost_perf_score: number; // 0–5 性价比分（CPS 与雷达 cost 维融合）
   roi_index: number; // 相对基线 ROI_baseline
   roi_norm?: number; // 群体 z-score（有对照群时填充）
@@ -306,6 +350,38 @@ export interface EvaluationProfile {
   lifecycle: LifecycleState;
   runIds: string[];
   updatedAt: string; // ISO8601 UTC
+
+  /* —— 三模块增量（v1.0-frontend-increment §5.4）——
+   * 全部 optional 仅加法，向后兼容既有落库数据；绝不删改上方既有字段。 */
+  /** 工种（S1/S2/S3 评分卡与双榜筛选用） */
+  jobType?: JobType;
+  /** S1/S2/S3 评分卡（stageScoreStore 同步回写） */
+  stageScores?: StageScore[];
+  /** 最近一次主观赋分 */
+  subjectiveLatest?: SubjectiveScore;
+  /** 主观赋分历史 */
+  subjectiveHistory?: SubjectiveScore[];
+  /** Q7 craft 维最新得分（键为 CraftDim 字符串） */
+  craftLatest?: Record<string, number>;
+  /**
+   * ② 面试 → 绩效基线（来自最新 InterviewReport）。
+   * metrics 就地内联定义（与 types/interview.ts 的 InterviewReport['metrics']
+   * 结构镜像），避免评估域 → 面试域的跨模块循环依赖。
+   */
+  interviewBaseline?: {
+    /** 面试期六维（finalRadar ?? baselineRadar，可能缺失） */
+    radar: RadarScore | null;
+    /** 面试期关键能力数据（仅展示/参考，不并入 KpiRecord 聚合） */
+    metrics: {
+      avgReplyLatencyMs: number | null; // 思考时间基线
+      totalTokens: number | null; // token 消耗基线
+      clarificationCount: number; // agent 主动澄清次数
+      followupCount: number; // 被追问次数
+      coverageRatio: number; // targetDims 覆盖比
+    };
+    reportId: string;
+    ts: string;
+  };
 }
 
 /**
@@ -319,4 +395,149 @@ export interface RunTaskLink {
   sessionKey: string;
   sessionId: string;
   evaluatedAt: string; // ISO8601 UTC
+}
+
+/* ===================== 评估层扩展·批次2（T4–T9 + T19） ===================== */
+/**
+ * 单次客观维得分（含来源 + 扁平权重，供 Q7 craft 独立存库/工种雷达）。
+ * 与后端 schemas.ObjectiveScoreItem 严格镜像。
+ */
+export interface ObjectiveScoreItem {
+  dim: string;
+  score: number;
+  source: 'judge' | 'telemetry' | 'mixed';
+  weight: number;
+  evidence?: string;
+}
+
+/** 单次主观赋分（人类 owner，PRD §5.2）。镜像后端 schemas.SubjectiveScore */
+export interface SubjectiveScore {
+  agentId: string;
+  stage: StageKey;
+  scores: Partial<Record<SubjectiveDim, number>>;
+  notes?: string;
+  scoredBy: string;
+  ts: string;
+}
+
+/** craft 维独立存库（Q7）。镜像后端 schemas.CraftScores */
+export interface CraftScores {
+  jobType: JobType;
+  dims: Partial<Record<CraftDim, number>>;
+  downweighted: CraftDim[];
+  evidence: Partial<Record<CraftDim, string>>;
+}
+
+/** 三阶段评分卡（S1/S2/S3 同构）。镜像后端 schemas.StageScore */
+export interface StageScore {
+  agentId: string;
+  stage: StageKey;
+  jobType: JobType;
+  objective: ObjectiveScoreItem[];
+  subjective: SubjectiveScore;
+  objectiveWeight: number;
+  subjectiveWeight: number;
+  objectiveScore: number;
+  subjectiveScore: number;
+  total: number;
+  verdict: 'MVP' | 'OBSERVE' | 'FIRED';
+  craftScores: CraftScores;
+  window?: string;
+  ts: string;
+}
+
+/** POST /api/evaluate-stage 入参。镜像后端 schemas.StageScoreRequest */
+export interface StageScoreRequest {
+  agentId: string;
+  stage: StageKey;
+  jobType: JobType;
+  objective: Record<string, number>;
+  subjective: Record<string, number>;
+  craftEvidence?: Record<string, string>;
+  presetId?: string;
+  scoredBy?: string;
+  window?: string;
+}
+
+/** 双 Leaderboard · 客观榜条目（按 objectiveScore 排序）。镜像后端 schemas.LeaderboardEntry */
+export interface ObjectiveBoardEntry {
+  agentId: string;
+  name: string;
+  jobType: JobType;
+  objectiveScore: number;
+  roiNorm: number;
+  rank: number;
+  state: string;
+  tier: 'MVP' | 'NORMAL' | 'BOTTOM';
+}
+
+/** 双 Leaderboard · 主观榜条目（可拖拽）。镜像后端 schemas.SubjectiveRankEntry */
+export interface SubjectiveBoardEntry {
+  agentId: string;
+  name: string;
+  jobType: JobType;
+  subjectiveScore: number;
+  objectiveRank: number;
+  dragRank: number;
+}
+
+/** 客观序 vs 拖拽序发散（自动派生）。镜像后端 schemas.RankDivergence */
+export interface RankDivergence {
+  agentId: string;
+  objectiveRank: number;
+  dragRank: number;
+  delta: number;
+}
+
+/** 双 Leaderboard 聚合（客观榜 + 可拖拽主观榜 + 复核发散）。镜像后端 schemas.DualLeaderboard */
+export interface DualLeaderboard {
+  stage: StageKey;
+  jobType: JobType | 'all';
+  objective: ObjectiveBoardEntry[];
+  subjective: SubjectiveBoardEntry[];
+  divergences: RankDivergence[];
+  updatedAt: string;
+}
+
+/** 一次拖拽 = 一个偏好信号（Q5 回灌）。镜像后端 schemas.PreferenceSignal */
+export interface PreferenceSignal {
+  id: string;
+  ownerId: string;
+  stage: StageKey;
+  jobType: JobType;
+  agentId: string;
+  srcRank: number;
+  dstRank: number;
+  direction: 'up' | 'down';
+  craftScores?: Record<string, number>;
+  ts: string;
+}
+
+/** 聚合后回灌 UserPreference.weight 的偏好画像。镜像后端 schemas.PreferenceProfile */
+export interface PreferenceProfile {
+  ownerId: string;
+  signals: PreferenceSignal[];
+  pairwiseWins: Record<string, number>;
+  dimLift: Partial<Record<RadarDim, number>>;
+  updatedAt: string;
+}
+
+/** TaskSet 运行结果（T9）。镜像后端 schemas.TaskRunResult */
+export interface TaskRunResult {
+  agentId: string;
+  taskSetId: string;
+  jobType: JobType;
+  objectiveScores: Record<string, number>;
+  telemetry: unknown[];
+  usage: unknown[];
+  craftEvidence: Record<string, string>;
+  meta: Record<string, number>;
+}
+
+/** TaskSet 元数据（前端注册表镜像用）。镜像后端 schemas.TaskSetMeta */
+export interface TaskSetMeta {
+  id: string;
+  title: string;
+  description: string;
+  applicableJobs: JobType[];
 }

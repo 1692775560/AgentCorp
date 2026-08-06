@@ -1,13 +1,24 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, Star, ShoppingCart, Plus, Building2, User, X, Bot, Users, Loader2 } from 'lucide-react';
+import { Search, Filter, Plus, Building2, User, X, Bot, Users, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { invokeIpc } from '@/lib/api-client';
+// —— 模块 A 增量：智能匹配（六维解析 + matchScore 排序 + S1 初审）——
+import {
+  useMarketplaceStore,
+  applyDimFilters,
+  type MarketCandidateSeed,
+} from '@/stores/marketplace';
+import { useScoringStore } from '@/stores/scoringStore';
+import { TaskRequirementBar } from '@/components/marketplace/TaskRequirementBar';
+import { DimFilterBar } from '@/components/marketplace/DimFilterBar';
+import { MarketCandidateCard } from '@/components/marketplace/MarketCandidateCard';
+import type { MarketCandidateView } from '@/types/marketplace';
 
 type HireType = '雇佣团队' | '雇佣员工';
 
@@ -72,6 +83,19 @@ export function Marketplace() {
   const { fetchAgents } = useAgentsStore();
   const { fetchTeams } = useTeamsStore();
 
+  // —— 模块 A：市场智能匹配 store ——
+  const candidates = useMarketplaceStore((s) => s.candidates);
+  const dimFilters = useMarketplaceStore((s) => s.dimFilters);
+  const prescreening = useMarketplaceStore((s) => s.prescreening);
+  const marketError = useMarketplaceStore((s) => s.error);
+  const hydrateCandidates = useMarketplaceStore((s) => s.hydrate);
+  const rescoreCandidates = useMarketplaceStore((s) => s.rescore);
+  const runPrescreen = useMarketplaceStore((s) => s.runPrescreen);
+  const resetDimFilters = useMarketplaceStore((s) => s.resetDimFilters);
+  const resetRequirement = useMarketplaceStore((s) => s.resetRequirement);
+  // 心智权重（绩效双榜拖拽回灌后变化）→ 市场排序即时刷新（设计 §7.3 通道 A）
+  const userWeight = useScoringStore((s) => s.userWeight);
+
   // Fetch real templates from bundled resources
   useEffect(() => {
     async function loadTemplates() {
@@ -89,23 +113,103 @@ export function Marketplace() {
     void loadTemplates();
   }, []);
 
-  const filteredAgents = useMemo(() => {
-    return templates.filter((agent) => {
+  // 模板 → 候选种子（六维解析与匹配分在 store 内完成）
+  useEffect(() => {
+    if (templates.length === 0) return;
+    const seeds: MarketCandidateSeed[] = templates.map((tpl) => ({
+      id: tpl.id,
+      name: tpl.name,
+      description: tpl.description,
+      tags: tpl.tags,
+      hireType: tpl.hireType,
+      price: tpl.price,
+      avatar: tpl.avatar,
+      rating: tpl.rating,
+      hiredCount: tpl.hiredCount,
+      capabilities: tpl.capabilities,
+    }));
+    hydrateCandidates(seeds);
+  }, [templates, hydrateCandidates]);
+
+  // 心智权重变化 → 重算匹配分并重排（绩效结果回灌市场的可见执行点）
+  useEffect(() => {
+    rescoreCandidates();
+  }, [userWeight, rescoreCandidates]);
+
+  // 初审失败等提示（网络不可用时降级启发式，不阻塞流程）
+  useEffect(() => {
+    if (marketError) toast.message(marketError);
+  }, [marketError]);
+
+  /** 关键词 / 标签 / 雇佣形态过滤（保持既有交互）+ 六维门槛硬过滤（新增） */
+  const visibleCandidates = useMemo(() => {
+    const byDim = applyDimFilters(candidates, dimFilters);
+    const q = searchQuery.trim().toLowerCase();
+    return byDim.filter((c) => {
       const matchesSearch =
-        !searchQuery ||
-        agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        agent.description.toLowerCase().includes(searchQuery.toLowerCase());
+        !q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
       const matchesFilter =
-        activeFilter === '全部' || agent.tags.some((tag) => tag.includes(activeFilter));
-      const hireType: HireType = agent.hireType === 'team' ? '雇佣团队' : '雇佣员工';
-      const matchesHireType =
-        activeHireType === '全部' || hireType === activeHireType;
+        activeFilter === '全部' || c.tags.some((tag) => tag.includes(activeFilter));
+      const hireType: HireType = c.hireType === 'team' ? '雇佣团队' : '雇佣员工';
+      const matchesHireType = activeHireType === '全部' || hireType === activeHireType;
       return matchesSearch && matchesFilter && matchesHireType;
     });
-  }, [searchQuery, activeFilter, activeHireType, templates]);
+  }, [candidates, dimFilters, searchQuery, activeFilter, activeHireType]);
+
+  /**
+   * 雇佣流程（既有 IPC 逻辑原样保留，仅从内联卡片抽取为回调）。
+   * 团队雇佣需要 capabilities，从原始模板中回查。
+   */
+  const handleHire = useCallback(
+    async (candidate: MarketCandidateView) => {
+      if (purchasingId) return;
+      const tpl = templates.find((t) => t.id === candidate.id);
+      const capabilities = tpl?.capabilities ?? [];
+      setPurchasingId(candidate.id);
+      setPurchasing(true);
+      try {
+        if (candidate.hireType === 'team') {
+          const res = await invokeIpc<HireTeamResponse>(
+            'marketplace:hireTeam',
+            candidate.id,
+            candidate.name,
+            capabilities,
+          );
+          if (!res.success) {
+            throw new Error(res.error || '雇佣团队失败');
+          }
+          await fetchTeams();
+          setPurchasedAgentName(candidate.name);
+          setPurchasedType('team');
+          setPurchasedCount(capabilities.length + 1);
+        } else {
+          const res = await invokeIpc<HireSingleResponse>(
+            'marketplace:hireSingle',
+            candidate.id,
+            candidate.name,
+          );
+          if (!res.success) {
+            throw new Error(res.error || '雇佣员工失败');
+          }
+          setPurchasedAgentName(candidate.name);
+          setPurchasedType('single');
+          setPurchasedCount(1);
+        }
+
+        await fetchAgents();
+        setShowPurchasedModal(true);
+      } catch (err) {
+        toast.error(`雇佣 ${candidate.name} 失败: ${String(err)}`);
+      } finally {
+        setPurchasing(false);
+        setPurchasingId(null);
+      }
+    },
+    [purchasingId, templates, fetchAgents, fetchTeams],
+  );
 
   return (
-    <div className="h-full overflow-y-auto bg-[#F2F0E9] p-6">
+    <div className="tech-bg h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-7xl space-y-8">
         {/* Header */}
         <motion.div
@@ -131,6 +235,12 @@ export function Marketplace() {
             {t('marketplace.listEmployee', '上架我的员工')}
           </button>
         </motion.div>
+
+        {/* 任务需求条（模块 A 新增）：自然语言需求 → 任务画像 → 智能排序 */}
+        <TaskRequirementBar />
+
+        {/* 六维能力门槛（模块 A 新增） */}
+        <DimFilterBar />
 
         {/* Search & Filters */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -214,146 +324,23 @@ export function Marketplace() {
               <p className="mt-3 text-sm font-bold text-gray-400">加载人才市集...</p>
             </div>
           )}
-          {!loadingTemplates && filteredAgents.map((agent, i) => (
-            <motion.div
-              key={agent.id}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: i * 0.1 }}
-              className="group relative flex flex-col overflow-hidden rounded-[40px] bg-white p-8 shadow-[0_20px_50px_rgba(0,0,0,0.03)] transition-shadow duration-300 hover:shadow-[0_30px_60px_rgba(0,0,0,0.06)]"
-            >
-              {/* Decorative blur */}
-              <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#FFD233]/10 blur-3xl transition-colors duration-700 group-hover:bg-[#FFD233]/20" />
-
-              {/* Avatar + Rating */}
-              <div className="relative flex items-start justify-between">
-                {agent.hireType === 'team' ? (
-                  <div className="relative h-20 w-20 shrink-0">
-                    {/* Back members */}
-                    <div className="absolute left-3 top-0 h-14 w-14 overflow-hidden rounded-[16px] shadow-sm">
-                      <img src="https://api.dicebear.com/7.x/pixel-art/svg?seed=member1&backgroundColor=F59E0B" alt="" className="h-full w-full object-cover" />
-                    </div>
-                    <div className="absolute left-7 top-3 h-14 w-14 overflow-hidden rounded-[16px] shadow-sm">
-                      <img src="https://api.dicebear.com/7.x/pixel-art/svg?seed=member2&backgroundColor=3B82F6" alt="" className="h-full w-full object-cover" />
-                    </div>
-                    {/* Front: leader */}
-                    <div className="absolute bottom-0 right-0 h-14 w-14 overflow-hidden rounded-[16px] shadow-md ring-2 ring-white transition-transform duration-700 group-hover:scale-110">
-                      <img src={agent.avatar} alt={agent.name} className="h-full w-full object-cover" />
-                    </div>
-                    {/* Team badge */}
-                    <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-sm">
-                      {agent.capabilities.length}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="h-20 w-20 overflow-hidden rounded-[24px] shadow-sm transition-transform duration-700 group-hover:scale-110">
-                    <img src={agent.avatar} alt={agent.name} className="h-full w-full object-cover" />
-                  </div>
-                )}
-                <div className="flex flex-col items-end gap-2">
-                  <div className="flex items-center gap-1 rounded-full bg-[#FFD233]/20 px-3 py-1">
-                    <Star size={14} className="fill-[#FFD233] text-[#FFD233]" />
-                    <span className="text-sm font-bold text-[#1A1C1E]">{agent.rating.toFixed(1)}</span>
-                  </div>
-                  <span className={cn(
-                    'flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider',
-                    agent.hireType === 'team'
-                      ? 'bg-emerald-50 text-emerald-600'
-                      : 'bg-blue-50 text-blue-600',
-                  )}>
-                    {agent.hireType === 'team' ? <Building2 size={10} /> : <User size={10} />}
-                    {agent.hireType === 'team' ? '雇佣团队' : '雇佣员工'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Name */}
-              <h3 className="mt-5 text-2xl font-bold text-[#1A1C1E]">{agent.name}</h3>
-
-              {/* Tags */}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {agent.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-[#F2F0E9] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-500"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              {/* Description */}
-              <p className="mt-4 text-sm leading-relaxed text-gray-500 line-clamp-2">{agent.description}</p>
-
-              {/* Footer */}
-              <div className="mt-auto flex items-end justify-between border-t border-gray-100/60 pt-6">
-                {/* Left: Price + Hired */}
-                <div className="flex items-end gap-4">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">
-                      {t('marketplace.priceLabel', '部署费用')}
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-[#1A1C1E]">{agent.price}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">
-                      {t('marketplace.hiredCount', '已雇佣')}
-                    </p>
-                    <p className="mt-1 text-xl font-bold text-[#1A1C1E]">{agent.hiredCount}</p>
-                  </div>
-                </div>
-                {/* Right: Cart button */}
-                <button
-                    type="button"
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1A1C1E] text-white shadow-lg shadow-[#1A1C1E]/10 transition-colors hover:bg-[#FF6B4A] disabled:opacity-50"
-                    onClick={async () => {
-                      if (purchasingId) return;
-                      setPurchasingId(agent.id);
-                      setPurchasing(true);
-                      try {
-                        if (agent.hireType === 'team') {
-                          const res = await invokeIpc<HireTeamResponse>('marketplace:hireTeam', agent.id, agent.name, agent.capabilities);
-                          if (!res.success) {
-                            throw new Error(res.error || '雇佣团队失败');
-                          }
-                          await fetchTeams();
-                          setPurchasedAgentName(agent.name);
-                          setPurchasedType('team');
-                          setPurchasedCount(agent.capabilities.length + 1);
-                        } else {
-                          const res = await invokeIpc<HireSingleResponse>('marketplace:hireSingle', agent.id, agent.name);
-                          if (!res.success) {
-                            throw new Error(res.error || '雇佣员工失败');
-                          }
-                          setPurchasedAgentName(agent.name);
-                          setPurchasedType('single');
-                          setPurchasedCount(1);
-                        }
-
-                        await fetchAgents();
-                        setShowPurchasedModal(true);
-                      } catch (err) {
-                        toast.error(`雇佣 ${agent.name} 失败: ${String(err)}`);
-                      } finally {
-                        setPurchasing(false);
-                        setPurchasingId(null);
-                      }
-                    }}
-                    disabled={purchasing && purchasingId !== agent.id}
-                  >
-                    {purchasing && purchasingId === agent.id ? (
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    ) : (
-                      <ShoppingCart size={20} />
-                    )}
-                  </button>
-              </div>
-            </motion.div>
-          ))}
+          {!loadingTemplates &&
+            visibleCandidates.map((candidate, i) => (
+              <MarketCandidateCard
+                key={candidate.id}
+                candidate={candidate}
+                index={i}
+                hiring={purchasing && purchasingId === candidate.id}
+                hireDisabled={purchasing && purchasingId !== candidate.id}
+                prescreening={!!prescreening[candidate.id]}
+                onHire={handleHire}
+                onPrescreen={(c) => void runPrescreen(c.id)}
+              />
+            ))}
         </div>
 
         {/* Empty state */}
-        {!loadingTemplates && filteredAgents.length === 0 && (
+        {!loadingTemplates && visibleCandidates.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20">
             <p className="text-lg font-bold text-gray-400">
               {t('marketplace.empty', '没有找到匹配的 Agent')}
@@ -364,6 +351,8 @@ export function Marketplace() {
                 setSearchQuery('');
                 setActiveFilter('全部');
                 setActiveHireType('全部');
+                resetDimFilters();
+                resetRequirement();
               }}
               className="mt-4 rounded-full bg-[#1A1C1E] px-6 py-2.5 text-sm font-bold text-white shadow-xl transition-colors hover:bg-[#FF6B4A]"
             >

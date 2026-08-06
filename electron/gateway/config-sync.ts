@@ -9,7 +9,7 @@ import { getProviderEnvVar, getKeyableProviderTypes } from '../utils/provider-re
 import { getOpenClawDir, getOpenClawEntryPath, isOpenClawPresent } from '../utils/paths';
 import { getUvMirrorEnv } from '../utils/uv-env';
 import { listConfiguredChannels } from '../utils/channel-config';
-import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, syncToolPolicyToConfig, sanitizeOpenClawConfig } from '../utils/openclaw-auth';
+import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, sanitizeOpenClawConfig } from '../utils/openclaw-auth';
 import { buildProxyEnv, resolveProxySettings } from '../utils/proxy';
 import { syncProxyConfigToOpenClaw } from '../utils/openclaw-proxy';
 import { logger } from '../utils/logger';
@@ -286,11 +286,15 @@ export async function syncGatewayConfigBeforeLaunch(
   }
 
   // T08: lock down Gateway tool execution (read-only + sandbox) in openclaw.json.
-  try {
-    await syncToolPolicyToConfig();
-  } catch (err) {
-    logger.warn('Failed to sync gateway toolPolicy to openclaw.json:', err);
-  }
+  // TEMPORARILY DISABLED: OpenClaw 2026.3.22 treats `gateway.toolPolicy` as an
+  // unrecognized key and exits with code 1, so the Gateway cannot start at all
+  // when this key is present. The sanitize step above strips any stale key.
+  // Re-enable once the bundled OpenClaw supports gateway.toolPolicy.
+  // try {
+  //   await syncToolPolicyToConfig();
+  // } catch (err) {
+  //   logger.warn('Failed to sync gateway toolPolicy to openclaw.json:', err);
+  // }
 
   try {
     await syncBrowserConfigToOpenClaw();

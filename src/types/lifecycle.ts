@@ -86,5 +86,28 @@ export function verdictToLifecycleState(verdict: Verdict): LifecycleState {
   return LIFECYCLE_TO_STATE[verdictToLifecycleStatus(verdict)];
 }
 
+/**
+ * 大写别名的展示顺序（状态机视图从左到右）。
+ * 与 AGENT_LIFECYCLE_STATUSES 的小写序列一一对应，保持单一真相。
+ */
+export const LIFECYCLE_ORDER: readonly LifecycleState[] = AGENT_LIFECYCLE_STATUSES.map(
+  (status) => LIFECYCLE_TO_STATE[status],
+);
+
+/**
+ * 大写别名 → 中文展示文案（治理面板 / 状态徽标）。
+ * 文案与 src/engine/strategyEngine.ts 中既有的同名常量逐字保持一致，
+ * 避免同一状态在不同界面出现两套说法。
+ * TODO(技术债)：strategyEngine.ts 里的同名副本目前无人消费，
+ * 建议由该文件 owner 改为从本模块 re-export，彻底消除重复定义。
+ */
+export const LIFECYCLE_LABELS: Record<LifecycleState, string> = {
+  ONBOARDING: '入职',
+  ACTIVE: '在岗',
+  TRAINING: '培训(PIP)',
+  MAINTENANCE: '替补',
+  RETIRED: '已淘汰',
+};
+
 // 便于从 lifecycle 模块直接取到大写别名（与 evaluation.ts 同源）。
 export type { LifecycleState } from './evaluation';

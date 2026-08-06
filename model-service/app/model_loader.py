@@ -19,11 +19,13 @@ class MiniCPMModel:
     """轻量包装：真实推理时持有 model + processor；不可用时 available=False。"""
 
     def __init__(
-        self, model: Any = None, processor: Any = None, available: bool = True
+        self, model: Any = None, processor: Any = None, available: bool | None = None
     ) -> None:
         self.model = model
         self.processor = processor
-        self.available = available
+        # 两种调用风格兼容：显式传 available 时以显式值为准；
+        # 否则按「是否持有真实 model」推断（无参构造 = 占位不可用）。
+        self.available = (model is not None) if available is None else available
 
 
 _model: Optional[MiniCPMModel] = None
@@ -54,10 +56,10 @@ def load_minicpmo(model_path: str) -> MiniCPMModel:
             "MiniCPM-o 权重未在当前环境加载（无 NPU / 未配置权重）。"
             "返回不可用模型；推理将报错或走 Mock。部署到昇腾环境后自动启用真实推理。"
         )
-        return MiniCPMModel(available=False)
+        return MiniCPMModel()
     except Exception as exc:  # noqa: BLE001
         logger.error("模型加载失败：%s", exc)
-        return MiniCPMModel(available=False)
+        return MiniCPMModel()
 
 
 def to_npu(model: Any) -> Any:

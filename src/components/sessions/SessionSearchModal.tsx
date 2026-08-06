@@ -39,6 +39,11 @@ type SearchResult =
       matchedText?: string;
     };
 
+// 普通会话分支（union 的 'session' 成员）。
+// 下方 allResults 目前只产出该分支，排序逻辑依赖 isPinned / data.session，
+// 因此用它作为构建期的元素类型，避免在 union 上访问分支独有字段。
+type SessionSearchEntry = Extract<SearchResult, { type: 'session' }>;
+
 export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -77,7 +82,7 @@ export function SessionSearchModal({ isOpen, onClose }: SessionSearchModalProps)
 
   // Combine and sort all results
   const allResults = useMemo((): SearchResult[] => {
-    const results: Array<Extract<SearchResult, { type: 'session' }>> = [];
+    const results: SessionSearchEntry[] = [];
 
     // Add regular sessions with search results
     for (const searchResult of sessionSearchResults) {

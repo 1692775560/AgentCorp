@@ -60,6 +60,7 @@ export function MemberDetailSheet({
 
           <div className="mt-6 min-h-0 flex-1 overflow-y-auto">
             <Tabs defaultValue="overview">
+              {/* Skills 页签随 skills 特性整体下线（见 c2c929f），此处由 4 列收敛为 3 列 */}
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="overview">{t('teamMap.drawer.profilePolicy')}</TabsTrigger>
                 <TabsTrigger value="memory">Memory</TabsTrigger>

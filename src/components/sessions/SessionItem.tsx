@@ -88,7 +88,7 @@ export function SessionItem({
           {/* Row 1: Title + Time (D-21: title must truncate) */}
           <div className="flex items-center gap-2 mb-0.5">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <span className="truncate text-sm font-medium text-[#000000]">
+              <span className="truncate text-sm font-medium text-[var(--neu-ink)]">
                 {displayName}
               </span>
               {session.isPrivateChat && session.isLeaderChat && (
@@ -107,7 +107,7 @@ export function SessionItem({
             </div>
             {/* Time - hidden on hover when action buttons appear */}
             {relativeTime && (
-              <span className="text-xs text-[#8e8e93] shrink-0 group-hover:opacity-0 transition-opacity">
+              <span className="text-xs text-[var(--neu-ink-soft)] shrink-0 group-hover:opacity-0 transition-opacity">
                 {relativeTime}
               </span>
             )}
@@ -116,7 +116,7 @@ export function SessionItem({
           {/* Row 2: Message preview + Unread badge (D-15, D-17) */}
           <div className="flex items-center gap-2">
             {messagePreview && (
-              <p className="truncate text-xs text-[#8e8e93] flex-1">
+              <p className="truncate text-xs text-[var(--neu-ink-soft)] flex-1">
                 {messagePreview}
               </p>
             )}
@@ -140,7 +140,7 @@ export function SessionItem({
         <button
           type="button"
           aria-label={isPinned ? 'Unpin' : 'Pin'}
-          className="relative z-10 rounded-md p-1.5 text-[#8e8e93] bg-white shadow-sm hover:bg-[#e5e5ea] hover:text-[#3c3c43] transition-colors"
+          className="relative z-10 rounded-md p-1.5 text-[var(--neu-ink-soft)] bg-white shadow-sm hover:bg-[#e5e5ea] hover:text-[#3c3c43] transition-colors"
           onClick={(e) => {
             e.stopPropagation();
             onPinToggle();
@@ -151,7 +151,7 @@ export function SessionItem({
         <button
           type="button"
           aria-label="Delete"
-          className="relative z-10 rounded-md p-1.5 text-[#8e8e93] bg-white shadow-sm hover:bg-[#e5e5ea] hover:text-[#ef4444] transition-colors"
+          className="relative z-10 rounded-md p-1.5 text-[var(--neu-ink-soft)] bg-white shadow-sm hover:bg-[#e5e5ea] hover:text-[#ef4444] transition-colors"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();

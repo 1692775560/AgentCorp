@@ -10,7 +10,14 @@
  * - 新增 `GithubImportMeta` 承载 ⭐/协议/html_url/分支/派生报价等 GitHub 专属展示字段。
  * - `MarketplaceAgent` 增加可选 `github_meta`，仅 `github_import` 来源填充。
  */
-import type { CandidateProfile, MediaRef, RadarScore } from "./evaluation";
+import type {
+  CandidateProfile,
+  JobType,
+  MediaRef,
+  RadarDim,
+  RadarScore,
+} from "./evaluation";
+import type { AgentRadarResolution } from "@/engine/marketplace/radarSource";
 
 /** 职能分类（市场筛选用） */
 export type AgentFunction =
@@ -74,4 +81,70 @@ export interface MarketFilters {
   style: string | "all";
   maxBudget: number | null; // 报价 ≤ X
   sort: "review" | "budget" | "costperf"; // 初审分 / 报价 / 性价比
+}
+
+/* ===================== 智能匹配增量（模块 A · 设计 §5.2，仅加法） ===================== */
+
+/**
+ * 任务需求（市场页输入，同时流向 HR 面试的考查维度与市场排序）。
+ * 这是「模糊高维状态 → 可操作目标」收敛链路的第一个显式载体。
+ */
+export interface TaskRequirement {
+  /** 自然语言需求，如「要一个稳定又便宜的后端 agent」 */
+  text: string;
+  /** 期望工种（UI 显式选择，'all' = 不限） */
+  jobType: JobType | "all";
+  /** 需求关键词标签（taskMatch 派生 + 用户手改） */
+  tags: string[];
+}
+
+/** taskMatch.ts 派生的任务画像（排序输入） */
+export interface TaskProfile {
+  /** 文本推断 / 显式选择的工种（null = 不限） */
+  jobType: JobType | null;
+  /** 维度强调系数（缺省视为 1） */
+  dimBoost: Partial<Record<RadarDim, number>>;
+  /** 需求标签（Jaccard 匹配用） */
+  tags: string[];
+}
+
+/** 匹配分分解（MatchScoreBadge tooltip 用） */
+export interface MatchScoreBreakdown {
+  /** 0–100 匹配总分 */
+  total: number;
+  /** 0–1，六维加权契合（含心智权重 × 任务强调） */
+  userFit: number;
+  /** 0–1，标签 Jaccard */
+  tagMatch: number;
+  /** 0–1，性价比归一 */
+  costPerf: number;
+  /** 0–1，S3 绩效回流（无绩效 = 0.5 中性） */
+  perfBoost: number;
+  /** 四项权重（默认 0.5 / 0.2 / 0.15 / 0.15） */
+  weights: { fit: number; tag: number; cost: number; perf: number };
+}
+
+/** 市场候选统一视图（模板卡 / 已雇佣 agent / GitHub 导入 三源归一） */
+export interface MarketCandidateView {
+  /** templateId 或 agentId */
+  id: string;
+  /** 已雇佣时存在（可读评估域档案与阶段评分卡） */
+  agentId?: string;
+  name: string;
+  description: string;
+  tags: string[];
+  hireType: "single" | "team";
+  /** 报价原文（展示用） */
+  price: string;
+  /** 报价数值（排序/性价比用） */
+  budgetNum: number;
+  avatar: string;
+  rating: number;
+  hiredCount: number;
+  /** 工种（文本推断，null = 未知） */
+  jobType: JobType | null;
+  /** 六维三源解析结果（设计 §5.1） */
+  radarResolution: AgentRadarResolution;
+  /** 匹配分解；无六维时为 undefined（排序沉底） */
+  match?: MatchScoreBreakdown;
 }

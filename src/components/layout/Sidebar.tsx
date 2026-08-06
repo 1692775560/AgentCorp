@@ -2,8 +2,10 @@ import { useEffect, useState, useMemo } from 'react';
 import {
   BarChart3,
   ChevronRight,
+  Home,
   LayoutDashboard,
   MessageSquare,
+  MessagesSquare,
   PanelLeft,
   PanelLeftClose,
   Plus,
@@ -57,7 +59,7 @@ function SessionSectionHeader({
         type="button"
         aria-label={label}
         onClick={onToggle}
-        className="flex h-12 w-full items-center justify-center rounded-2xl px-2 text-sm font-bold transition-all duration-300 text-gray-400 hover:bg-white hover:text-[#1A1C1E]"
+        className="flex h-12 w-full items-center justify-center rounded-2xl px-2 text-sm font-bold transition-all duration-300 text-[var(--neu-ink-soft)] hover:bg-white hover:text-[#1A1C1E]"
       >
         <MessageSquare className="h-5 w-5 shrink-0" />
       </button>
@@ -70,7 +72,7 @@ function SessionSectionHeader({
         type="button"
         aria-label={label}
         onClick={onToggle}
-        className="flex h-12 min-w-0 flex-1 items-center gap-4 rounded-2xl px-4 text-sm font-bold transition-all duration-300 text-gray-400 hover:bg-white hover:text-[#1A1C1E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD233]/40"
+        className="flex h-12 min-w-0 flex-1 items-center gap-4 rounded-2xl px-4 text-sm font-bold transition-all duration-300 text-[var(--neu-ink)] hover:bg-white hover:text-[#1A1C1E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD233]/40"
       >
         <MessageSquare className="h-5 w-5 shrink-0" />
         <span className="truncate text-left">{label}</span>
@@ -78,7 +80,7 @@ function SessionSectionHeader({
           data-testid="sessions-section-chevron"
           aria-hidden="true"
           className={cn(
-            'h-4 w-4 shrink-0 text-gray-300 transition-all opacity-0 group-hover/sessions-header:opacity-100 group-focus-within/sessions-header:opacity-100',
+            'h-4 w-4 shrink-0 text-[var(--neu-ink-soft)] transition-all opacity-0 group-hover/sessions-header:opacity-100 group-focus-within/sessions-header:opacity-100',
             open && 'rotate-90',
           )}
         />
@@ -89,7 +91,7 @@ function SessionSectionHeader({
         aria-label={newSessionLabel}
         title={newSessionLabel}
         onClick={onNewSession}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-gray-400 shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD233]/40"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD233]/40"
       >
         <Plus className="h-4 w-4" />
       </button>
@@ -119,7 +121,7 @@ function NavItem({
         'flex h-14 w-full items-center gap-4 rounded-2xl px-4 text-sm font-bold transition-all duration-300',
         active
           ? 'bg-[#FFD233] text-[#1A1C1E] shadow-md'
-          : 'text-gray-400 hover:bg-white hover:text-[#1A1C1E]',
+          : 'text-[var(--neu-ink)] hover:bg-white hover:text-[#1A1C1E]',
         collapsed && 'justify-center px-2',
       )}
     >
@@ -213,6 +215,12 @@ export function Sidebar() {
   }, []);
 
   const navItems: NavItemConfig[] = [
+    // 首页（空状态渲染在 Chat 页，对应路由 index = "/"，故跳转 "/"）
+    {
+      label: tSidebar('home', 'Home'),
+      path: '/',
+      icon: Home,
+    },
     {
       label: tSidebar('marketplace', 'Marketplace'),
       path: '/marketplace',
@@ -233,8 +241,14 @@ export function Sidebar() {
       path: '/kanban',
       icon: LayoutDashboard,
     },
+    // 模块 B：HR 面试（S2）—— 位于市场初审与绩效考核之间
     {
-      label: tSidebar('evaluation', 'Evaluation'),
+      label: tSidebar('interview', 'Interview'),
+      path: '/interview',
+      icon: MessagesSquare,
+    },
+    {
+      label: tSidebar('evaluation', '绩效考核'),
       path: '/evaluation',
       icon: BarChart3,
     },
@@ -298,7 +312,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex shrink-0 flex-col bg-[#F2F0E9] transition-all duration-300 dark:bg-background',
+        'relative z-30 flex shrink-0 flex-col bg-[var(--neu-surface)] transition-all duration-300',
         sidebarCollapsed ? 'w-16 px-2 py-4' : 'w-[260px] px-3 py-4',
       )}
     >
@@ -306,7 +320,7 @@ export function Sidebar() {
         <button
           type="button"
           aria-label={tSidebar('toggleSidebar', 'Toggle sidebar')}
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/50 text-gray-400 shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
         >
           {sidebarCollapsed ? (
@@ -319,7 +333,7 @@ export function Sidebar() {
           <button
             type="button"
             aria-label={tSidebar('searchSessions', 'Search sessions')}
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/50 text-gray-400 shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
             onClick={() => setSessionSearchOpen(true)}
           >
             <Search className="h-5 w-5" />
@@ -342,7 +356,7 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar">
+      <div className="session-scroll mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
 
         <div className="mt-4 space-y-1">
           <SessionSectionHeader
@@ -383,7 +397,7 @@ export function Sidebar() {
                   })}
                 </div>
               ) : (
-                <p className="px-4 py-2 text-sm text-gray-400">
+                <p className="px-4 py-2 text-sm text-[var(--neu-ink-soft)]">
                   {tSidebar('noSessions', 'No sessions')}
                 </p>
               )}
@@ -409,7 +423,7 @@ export function Sidebar() {
               <button
                 type="button"
                 aria-label={tSidebar('settingsAria', 'Settings')}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-gray-400 shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
                 onClick={() => navigate('/settings')}
                 title={tSidebar('settings', 'Settings')}
               >

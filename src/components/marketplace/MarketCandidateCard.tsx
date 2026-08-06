@@ -1,0 +1,205 @@
+/**
+ * src/components/marketplace/MarketCandidateCard.tsx
+ * 市场候选卡（模块 A · 设计 §3.1）。
+ *
+ * 在既有卡片视觉之上叠加评估层能力：
+ * - 迷你六维雷达（复用 pages/Evaluation/RadarChart，recharts）
+ * - matchScore 徽章（四项分解 tooltip）
+ * - 数据来源角标（已评估 / 初审 / 预估）
+ * - S1 初审按钮（无六维时）
+ * - 绩效徽章（有 S3 评分卡时：total + verdict 色块）
+ * - 雇佣按钮（IPC 流程由页面注入，卡片只回调）
+ */
+import { Star, Building2, User, ShoppingCart, Gauge, Loader2, Award } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+import { RadarChartView } from '@/pages/Evaluation/RadarChart';
+import { MatchScoreBadge } from '@/components/marketplace/MatchScoreBadge';
+import { RADAR_SOURCE_LABELS, type RadarSourceKind } from '@/engine/marketplace/radarSource';
+import type { MarketCandidateView } from '@/types/marketplace';
+import type { Verdict } from '@/types/evaluation';
+
+export interface MarketCandidateCardProps {
+  candidate: MarketCandidateView;
+  /** 卡片入场动画序号 */
+  index?: number;
+  /** 是否正在雇佣该候选 */
+  hiring?: boolean;
+  /** 雇佣按钮是否禁用（其他候选雇佣中） */
+  hireDisabled?: boolean;
+  /** 是否正在 S1 初审 */
+  prescreening?: boolean;
+  /** 点击雇佣 */
+  onHire: (candidate: MarketCandidateView) => void;
+  /** 点击「S1 初审」 */
+  onPrescreen: (candidate: MarketCandidateView) => void;
+}
+
+/** 来源角标配色 */
+const SOURCE_TONE: Record<RadarSourceKind, string> = {
+  evaluation: 'bg-emerald-50 text-emerald-600',
+  prescreen: 'bg-blue-50 text-blue-600',
+  heuristic: 'bg-amber-50 text-amber-600',
+  none: 'bg-gray-100 text-gray-400',
+};
+
+/** 绩效 verdict 配色 */
+const VERDICT_TONE: Record<Verdict, string> = {
+  MVP: 'bg-emerald-500 text-white',
+  OBSERVE: 'bg-amber-400 text-[#1A1C1E]',
+  FIRED: 'bg-rose-500 text-white',
+};
+
+export function MarketCandidateCard({
+  candidate,
+  index = 0,
+  hiring = false,
+  hireDisabled = false,
+  prescreening = false,
+  onHire,
+  onPrescreen,
+}: MarketCandidateCardProps) {
+  const { radarResolution: resolution } = candidate;
+  const hasRadar = !!resolution.radar;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: Math.min(index * 0.06, 0.5) }}
+      className="group relative flex flex-col overflow-hidden rounded-[40px] glass p-7 shadow-[0_20px_50px_rgba(0,0,0,0.04)] transition-shadow duration-300 hover:shadow-[0_30px_60px_rgba(0,0,0,0.06)]"
+    >
+      {/* 装饰光晕 */}
+      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#FFD233]/10 blur-3xl transition-colors duration-700 group-hover:bg-[#FFD233]/20" />
+
+      {/* 头像 + 评分 / 类型 */}
+      <div className="relative flex items-start justify-between">
+        <div className="h-16 w-16 overflow-hidden rounded-[20px] shadow-sm transition-transform duration-700 group-hover:scale-110">
+          <img src={candidate.avatar} alt={candidate.name} className="h-full w-full object-cover" />
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-1 rounded-full bg-[#FFD233]/20 px-3 py-1">
+            <Star size={14} className="fill-[#FFD233] text-[#FFD233]" />
+            <span className="text-sm font-bold text-[#1A1C1E]">{candidate.rating.toFixed(1)}</span>
+          </div>
+          <span
+            className={cn(
+              'flex items-center gap-1 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider',
+              candidate.hireType === 'team'
+                ? 'bg-emerald-50 text-emerald-600'
+                : 'bg-blue-50 text-blue-600',
+            )}
+          >
+            {candidate.hireType === 'team' ? <Building2 size={10} /> : <User size={10} />}
+            {candidate.hireType === 'team' ? '雇佣团队' : '雇佣员工'}
+          </span>
+        </div>
+      </div>
+
+      {/* 名称 + 匹配分 */}
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <h3 className="text-xl font-bold text-[#1A1C1E]">{candidate.name}</h3>
+        <MatchScoreBadge match={candidate.match} />
+      </div>
+
+      {/* 标签 */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {candidate.tags.map((tag) => (
+          <span
+            key={tag}
+            className="rounded-full bg-[#F2F0E9] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-500"
+          >
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      {/* 简介 */}
+      <p className="mt-3 text-sm leading-relaxed text-gray-500 line-clamp-2">
+        {candidate.description}
+      </p>
+
+      {/* 能力面板：迷你雷达 / S1 初审入口 */}
+      <div className="mt-4 rounded-3xl bg-[#F8F7F3] p-2">
+        <div className="flex items-center justify-between px-2 pt-1">
+          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">
+            六维能力
+          </span>
+          <div className="flex items-center gap-1.5">
+            {resolution.stageScoreTotal != null && (
+              <span
+                className={cn(
+                  'flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
+                  resolution.verdict ? VERDICT_TONE[resolution.verdict] : 'bg-gray-200 text-gray-600',
+                )}
+                title="S3 绩效评分卡 total"
+              >
+                <Award size={10} />
+                绩效 {resolution.stageScoreTotal.toFixed(0)}
+              </span>
+            )}
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-[10px] font-bold',
+                SOURCE_TONE[resolution.source],
+              )}
+            >
+              {RADAR_SOURCE_LABELS[resolution.source]}
+            </span>
+          </div>
+        </div>
+
+        {hasRadar ? (
+          <RadarChartView score={resolution.radar} height={150} />
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-2 px-3 py-6">
+            <p className="text-center text-[11px] leading-relaxed text-gray-400">
+              该候选暂无六维能力数据，先跑一次 S1 初审再参与智能匹配
+            </p>
+            <button
+              type="button"
+              onClick={() => onPrescreen(candidate)}
+              disabled={prescreening}
+              className="flex items-center gap-1.5 rounded-full bg-[#1A1C1E] px-4 py-2 text-xs font-bold text-white shadow-md transition-colors hover:bg-[#FF6B4A] disabled:opacity-50"
+            >
+              {prescreening ? <Loader2 size={14} className="animate-spin" /> : <Gauge size={14} />}
+              {prescreening ? '初审中...' : 'S1 初审'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 底部：报价 / 已雇佣 / 雇佣按钮 */}
+      <div className="mt-auto flex items-end justify-between border-t border-gray-100/60 pt-5">
+        <div className="flex items-end gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">
+              部署费用
+            </p>
+            <p className="mt-1 text-lg font-bold text-[#1A1C1E]">{candidate.price}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">
+              已雇佣
+            </p>
+            <p className="mt-1 text-lg font-bold text-[#1A1C1E]">{candidate.hiredCount}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onHire(candidate)}
+          disabled={hireDisabled}
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1A1C1E] text-white shadow-lg shadow-[#1A1C1E]/10 transition-colors hover:bg-[#FF6B4A] disabled:opacity-50"
+        >
+          {hiring ? (
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          ) : (
+            <ShoppingCart size={20} />
+          )}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+export default MarketCandidateCard;

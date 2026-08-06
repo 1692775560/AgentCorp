@@ -1,0 +1,39 @@
+{
+  "$schema": "agentcorp.scoring-rules/v1",
+  "version": "1.0",
+  "presetId": "cost-focused",
+  "genericRadar": ["task", "quality", "comm", "creativity", "reliability", "cost"],
+  "jobs": {
+    "image": { "craftDims": ["img_composition", "img_style_fit", "img_fidelity", "img_aesthetic_consistency", "img_multimodal_follow"] },
+    "text": { "craftDims": ["txt_factuality", "txt_coherence", "txt_tone_fit", "txt_info_density", "txt_instruction_follow"] },
+    "code": { "craftDims": ["code_runnability", "code_efficiency", "code_test_coverage", "code_maintainability", "code_security"] }
+  },
+  "stages": {
+    "preScreen": {
+      "enabledObjective": ["__generic__", "__craft__"],
+      "enabledSubjective": ["sub_potential", "sub_aesthetic_lean"],
+      "objectiveBlockWeight": { "generic": 0.7, "craft": 0.3 },
+      "objectiveWeight": 0.65, "subjectiveWeight": 0.35,
+      "genericRadarWeight": { "task":0.16, "quality":0.15, "comm":0.14, "creativity":0.14, "reliability":0.16, "cost":0.25 },
+      "thresholds": { "mvp": 78, "observe": 50 }
+    },
+    "interview": {
+      "enabledObjective": ["__generic__", "__craft__", "kpi:completion/latency/rework"],
+      "enabledSubjective": ["sub_task_feel", "sub_communication", "sub_surprise"],
+      "objectiveBlockWeight": { "generic": 0.6, "craft": 0.4 },
+      "objectiveWeight": 0.55, "subjectiveWeight": 0.45,
+      "genericRadarWeight": { "task":0.16, "quality":0.15, "comm":0.14, "creativity":0.14, "reliability":0.16, "cost":0.25 },
+      "thresholds": { "mvp": 78, "observe": 50 }
+    },
+    "performance": {
+      "enabledObjective": ["__generic__", "__craft__", "kpi:*", "roi:*"],
+      "enabledSubjective": ["sub_trust", "sub_rehire", "sub_aesthetic_lean"],
+      "objectiveBlockWeight": { "generic": 0.5, "craft": 0.2, "kpiRoi": 0.3 },
+      "objectiveWeight": 0.75, "subjectiveWeight": 0.25,
+      "genericRadarWeight": { "task":0.16, "quality":0.15, "comm":0.14, "creativity":0.14, "reliability":0.16, "cost":0.25 },
+      "thresholds": { "mvp": 78, "observe": 50 }
+    }
+  },
+  "subjective": { "capPercent": 8, "neutralBaseline": 3 },
+  "_note": "cost-focused 预设：重性价比。注：通用六维内部差异化权重由 registry.JOB_GENERIC_WEIGHT（批次1）优先消费，本预设通过 objectiveBlockWeight 提高 generic 块占比 + 抬高 cost 项以强化性价比信号。"
+}

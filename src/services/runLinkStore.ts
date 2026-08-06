@@ -62,3 +62,15 @@ export async function saveForRun(
   if (!res.success || !res.link) throw new Error(res.error ?? 'runLinkStore.saveForRun failed');
   return res.link;
 }
+
+/**
+ * 聚合命名空间导出。
+ * 调用方（如 src/services/evaluationRuntime.ts）以 `runLinkStore.saveForRun(...)`
+ * 的形式使用本模块，故在具名函数之外再暴露一个同名聚合对象，
+ * 两种引用方式共存、行为完全一致。
+ */
+export const runLinkStore = {
+  save,
+  getByRunId,
+  saveForRun,
+} as const;

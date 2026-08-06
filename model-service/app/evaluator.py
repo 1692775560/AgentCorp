@@ -71,12 +71,22 @@ def compute_user_fit(
     declared_budget: float,
     declared_tags: List[str],
     inferred_aesthetic: Optional[str] = None,
+    subjective: Optional[Dict[str, float]] = None,
+    cap_percent: float = 8.0,
+    **kwargs,
 ) -> tuple[float, List[str]]:
     """
     user_fit = Σ(radar[dim]/5 × weight[dim]) × 100%
     叠加：预算硬约束（超预算则 cost 权重清零）、
          审美硬约束（不符 -8% / 相符 +2%）、技术栈加分（命中 ×1.5%，上限 6%）。
     结果裁剪至 [0,100]。
+
+    T3 扩展（向后兼容，不传 subjective 时行为完全不变）：
+    若传入 subjective（{dim: 0-5}），按 owner 决策 Q3 叠加「owner 口味修正」：
+      delta = clamp( mean((score-3)/5 for score in subjective) , ±capPercent% )
+      user_fit = user_fit × (1 + delta)    # 乘法形式，capPercent 默认 8 → ±0.08
+    即主观分只做 ±8% 封顶的 owner 口味修正，不颠覆客观结论。
+    cap_percent 可由规则 subjective.capPercent 传入（默认 8）。
     """
     weight = dict(preference.weight.model_dump())
     evidence: List[str] = []
@@ -114,6 +124,19 @@ def compute_user_fit(
         evidence.append(
             f"技术栈命中 {len(overlap)} 项（{','.join(overlap)}），加 {bonus}%"
         )
+
+    # T3：主观叠加（owner 口味修正，封顶 ±capPercent%，向后兼容）
+    if subjective:
+        cap = cap_percent / 100.0  # 8 → 0.08（±8%）
+        vals = [float(v) for v in subjective.values()]
+        if vals:
+            # 各维偏离中性值 3 的差值归一（÷5），再取均值 → 分数（-0.6 ~ 0.4）
+            avg_dev = sum((v - 3.0) / 5.0 for v in vals) / len(vals)
+            delta = max(-cap, min(cap, avg_dev))  # clamp ±capPercent%
+            fit = fit * (1.0 + delta)
+            evidence.append(
+                f"主观叠加(sub_avg_dev={avg_dev:.3f})→{delta:+.3f}（封顶 ±{cap_percent:.0f}%）"
+            )
 
     fit = max(0.0, min(100.0, round(fit * 10) / 10))
     return fit, evidence
@@ -158,6 +181,13 @@ def parse_output(raw: str) -> Dict:
     evidence = list(data.get("evidence_trace", []))
     narration = str(data.get("narration", ""))
     audio_script = str(data.get("audio_script", narration))
+
+    # T2/T3：craft 子对象解析（工种专属维 img_*/txt_*/code_*，0–5）。
+    # 架构 R4：缺 craft 子对象时降级为空 dict + 标记，不抛异常（向后兼容）。
+    craft_raw = data.get("craft")
+    craft = craft_raw if isinstance(craft_raw, dict) else {}
+    craft_missing = "craft" not in data
+
     return {
         "radar": radar,
         "verdict": verdict,
@@ -165,6 +195,8 @@ def parse_output(raw: str) -> Dict:
         "evidence_trace": evidence,
         "narration": narration,
         "audio_script": audio_script,
+        "craft": craft,
+        "craft_missing": craft_missing,
     }
 
 

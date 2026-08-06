@@ -641,10 +641,6 @@ function GeneralSettingsSection() {
   return (
     <>
       <GeneralSection />
-      {/* <TeamRoleSection /> */}
-      {/* <ChannelAdvancedSection /> */}
-      {/* <AutomationDefaultsSection /> */}
-      {/* <AgentAvatarsSection /> */}
     </>
   );
 }
@@ -652,8 +648,7 @@ function GeneralSettingsSection() {
 function GeneralSection() {
   const {
     theme, setTheme, accentColor, setAccentColor, language, setLanguage, launchAtStartup, setLaunchAtStartup,
-    brandName, setBrandName, brandSubtitle, setBrandSubtitle,
-    myName, setMyName,
+    brandName, setBrandName, brandSubtitle, setBrandSubtitle, myName, setMyName,
     showToolCalls, setShowToolCalls, emojiAvatar, setEmojiAvatar,
     hideAvatarBg, setHideAvatarBg, minimizeToTray, setMinimizeToTray,
   } = useSettingsStore();
@@ -809,39 +804,6 @@ function GeneralSection() {
         <InputField label="副标题" value={brandSubtitle} onChange={setBrandSubtitle} />
         <InputField label="我的名字指代" value={myName} onChange={setMyName} />
       </SettingsCard>
-
-      {/* 品牌资产 ~ 退出登录：暂时注释 */}
-      {/*
-      <SettingsCard title="品牌资产">
-        <BrandImageUploadField
-          label="品牌 Logo"
-          dataUrl={brandLogoDataUrl}
-          previewAlt="品牌 Logo 预览"
-          inputLabel="上传品牌 Logo"
-          clearLabel="清除品牌 Logo"
-          onUpload={(event) => handleBrandImageUpload(event, setBrandLogoDataUrl, 'logo')}
-          onClear={() => setBrandLogoDataUrl(null)}
-        />
-        <BrandImageUploadField
-          label="品牌图标"
-          dataUrl={brandIconDataUrl}
-          previewAlt="品牌图标预览"
-          inputLabel="上传品牌图标"
-          clearLabel="清除品牌图标"
-          onUpload={(event) => handleBrandImageUpload(event, setBrandIconDataUrl, 'icon')}
-          onClear={() => setBrandIconDataUrl(null)}
-        />
-      </SettingsCard>
-
-      <div className="py-2 text-center">
-        <button
-          type="button"
-          className="text-[13px] text-[#8e8e93] underline-offset-2 transition-colors hover:text-[#000000] hover:underline"
-        >
-          退出登录
-        </button>
-      </div>
-      */}
     </>
   );
 }

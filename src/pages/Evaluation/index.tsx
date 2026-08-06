@@ -18,13 +18,27 @@ import { useEvaluationStore } from '@/stores/evaluation';
 import { useAgentsStore } from '@/stores/agents';
 import { listAgentSessions, type AgentSessionOption } from '@/services/evaluationData';
 import { speech } from '@/services/speech';
+import { useConvergenceStore } from '@/stores/convergenceStore';
 import type { AgentSummary } from '@/types/agent';
 import RadarChartView from './RadarChart';
 import { RoiPanel } from './RoiPanel';
 import { LifecyclePanel } from './LifecyclePanel';
 import { Leaderboard } from './Leaderboard';
+import { DualTrackScoreCard } from '@/components/evaluation/DualTrackScoreCard';
+import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
+import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
+import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
 
-type PanelKey = 'radar' | 'narration' | 'roi' | 'lifecycle' | 'leaderboard';
+type PanelKey =
+  | 'radar'
+  | 'narration'
+  | 'roi'
+  | 'lifecycle'
+  | 'leaderboard'
+  | 'dual'
+  | 'dualBoard'
+  | 'convergence'
+  | 'preference';
 
 const PANELS: Array<{ key: PanelKey; label: string }> = [
   { key: 'radar', label: '雷达' },
@@ -32,6 +46,10 @@ const PANELS: Array<{ key: PanelKey; label: string }> = [
   { key: 'roi', label: 'ROI' },
   { key: 'lifecycle', label: '生命周期' },
   { key: 'leaderboard', label: '擂台' },
+  { key: 'dual', label: '双轨评分' },
+  { key: 'dualBoard', label: '双榜' },
+  { key: 'convergence', label: '收敛' },
+  { key: 'preference', label: '心智模型' },
 ];
 
 function LifecycleDot({ state }: { state: string }) {
@@ -114,10 +132,17 @@ export function Evaluation() {
     };
   }, [selectedAgentId]);
 
+  // 收敛面板数据（T18 widget 接入：按当前 trace/score 展示，无则空态）
+  const convergenceTrace = useConvergenceStore((s) => s.trace);
+  const convergenceScore = useConvergenceStore((s) => s.score);
+
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
   );
+
+  /** 当前选中 agent 的评估档案（含面试基线 interviewBaseline） */
+  const selectedProfile = selectedAgentId ? (profiles[selectedAgentId] ?? null) : null;
 
   const handleRun = async (agent: AgentSummary) => {
     // 会话下拉框属于当前选中的 agent；对未选中的 agent 点「运行评估」时
@@ -145,7 +170,7 @@ export function Evaluation() {
   const selectedState = selectedAgentId ? (lifecycle[selectedAgentId] ?? 'ONBOARDING') : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#F7F6F2] dark:bg-background">
+    <div className="tech-bg flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-white/40 px-6 py-4">
         <div>
           <h1 className="text-lg font-extrabold text-[#1A1C1E] dark:text-white">评估中心 · Evaluation</h1>
@@ -232,6 +257,14 @@ export function Evaluation() {
                       <span className="flex-1 truncate text-[13px] font-bold text-[#1A1C1E] dark:text-white">
                         {agent.name}
                       </span>
+                      {profiles[agent.id]?.interviewBaseline ? (
+                        <span
+                          className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-600"
+                          title="已有面试基线（S2 → S3 贯通）"
+                        >
+                          基线
+                        </span>
+                      ) : null}
                       {evaluated ? (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
                           已评估
@@ -284,7 +317,17 @@ export function Evaluation() {
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             {panel === 'radar' ? (
               <div className="space-y-4">
-                <RadarChartView score={radarLatest} height={320} />
+                {/* 面试基线叠加（interviewBaseline.radar，无则不传，baseline prop 已存在） */}
+                <RadarChartView
+                  score={radarLatest}
+                  baseline={selectedProfile?.interviewBaseline?.radar ?? null}
+                  height={320}
+                />
+                {selectedProfile?.interviewBaseline?.radar ? (
+                  <p className="text-[12px] text-gray-400">
+                    灰色多边形 = 面试基线（S2），黄色 = 当前绩效（S3）。
+                  </p>
+                ) : null}
                 {selectedAgent ? (
                   <p className="text-[12px] text-gray-400">
                     当前选中：<span className="font-bold text-[#1A1C1E] dark:text-white">{selectedAgent.name}</span>
@@ -356,6 +399,28 @@ export function Evaluation() {
                 onSelect={(id) => selectAgent(id)}
               />
             ) : null}
+
+            {/* S3 双轨评分卡（客观遥测 + 主观打分 + 0.7/0.3 加权 total） */}
+            {panel === 'dual' ? <DualTrackScoreCard agentId={selectedAgentId} /> : null}
+
+            {/* 双榜：客观榜 + 可拖拽主观榜（拖拽即偏好回灌，T39 重写版） */}
+            {panel === 'dualBoard' ? (
+              <DualLeaderboard
+                stage="performance"
+                jobType={selectedProfile?.jobType ?? 'all'}
+              />
+            ) : null}
+
+            {/* 收敛轨迹（Layer3 独立视图，不进客观榜） */}
+            {panel === 'convergence' ? (
+              <ConvergenceTrajectoryWidget
+                trace={convergenceTrace}
+                score={convergenceScore}
+              />
+            ) : null}
+
+            {/* 用户心智模型（userWeight vs 基准 + dimLift） */}
+            {panel === 'preference' ? <PreferenceInsightPanel /> : null}
           </div>
         </section>
       </div>

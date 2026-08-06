@@ -121,6 +121,7 @@ export function ChatInput({ onSend, onStop, disabled = false, sending = false, i
   const [targetAgentId, setTargetAgentId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
+  // 弹层开关只被写入、不再被读取（选择器 UI 已下线），故省略取值绑定，仅保留 setter。
   const [, setFolderPopoverOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);

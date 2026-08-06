@@ -33,6 +33,7 @@
     "shared/language.ts",
     "vite.config.ts",
     "src/types",
+    "src/engine",
     "src/lib/task-summary-read-model.ts"
   ]
 }

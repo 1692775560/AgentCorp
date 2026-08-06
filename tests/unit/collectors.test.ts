@@ -70,7 +70,8 @@ describe('tokenUsageCollector.buildRoiSnapshot', () => {
 
     expect(roi.agentId).toBe('agent-1');
     expect(roi.window).toBe('2025-W30');
-    expect(roi.cost_total).toBeCloseTo(0.303); // ΣcostUsd 0.3 + c_call 2×0.001 + c_ret 1×0.001（五要素成本模型，评估设计 §3）
+    // C_total = ΣcostUsd(0.2+0.1) + c_call(2×0.001) + c_ret(rework×0.001=1×0.001) = 0.303
+    expect(roi.cost_total).toBeCloseTo(0.303);
 
     // TCR = 1 success / 2 = 0.5 → U_task = 0.5 * 100 = 50；V_total = 50
     expect(roi.value_total).toBeCloseTo(50);

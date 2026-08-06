@@ -1,3 +1,49 @@
+/* ============================================================
+ * 字体引入（本地自托管 · woff2）
+ * 中文手写体 ZCOOL KuaiLe（站酷快乐体）：圆润、随性、有笔触，仅用于大字号展示。
+ * 英文/数字 Space Grotesk：现代几何无衬线，用于标签、按钮、小标题，增加设计感。
+ * 字体文件置于 public/fonts/ 下，由下方 @font-face 以相对根路径「/fonts/...」加载，
+ * 避免访问 Google Fonts 超时/被墙导致 fallback 到系统字体（主标语手写体失效）。
+ * 使用 font-display: swap 保证字体未就绪时文本先以 fallback 显示，避免空白闪烁。
+ * ============================================================ */
+@font-face {
+  font-family: 'ZCOOL KuaiLe';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/zcool-kuaile.woff2') format('woff2');
+}
+/* 中文手写体 ZCOOL XiaoWei（站酷小薇体）：优雅娟秀，仅用于大字号品牌展示（如首页主标语）。
+ * 优先级高于 ZCOOL KuaiLe，已通过 --font-display 令牌指向本字体。 */
+@font-face {
+  font-family: 'ZCOOL XiaoWei';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/zcool-xiaowei.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-700.woff2') format('woff2');
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -13,53 +59,78 @@
     --ease-out: cubic-bezier(0, 0, 0.2, 1);
     --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
-    /* #f1ede1 */
-    --background: 45 36.4% 91.4%;
-    /* accent color — overridden at runtime by settings store */
-    --ac: #007aff;
-    --ac-rgb: 0 122 255;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    /* 白天模式 = 浅米色（beige）新拟物底 */
+    --background: 39 42% 89%;
+    /* 品牌暖黄（运行时可被设置覆盖） */
+    --ac: #f5b400;
+    --ac-rgb: 245 180 0;
+    --foreground: 36 20% 24%;
+    --card: 39 42% 89%;
+    --card-foreground: 36 20% 24%;
+    --popover: 39 42% 89%;
+    --popover-foreground: 36 20% 24%;
+    --primary: 45 95% 50%;
+    --primary-foreground: 36 20% 24%;
+    --secondary: 40 30% 84%;
+    --secondary-foreground: 36 20% 24%;
+    --muted: 40 30% 84%;
+    --muted-foreground: 38 14% 44%;
+    --accent: 40 30% 84%;
+    --accent-foreground: 36 20% 24%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 39 42% 89%;
+    --input: 40 30% 84%;
+    --ring: 45 95% 50%;
+    --radius: 0.75rem;
+
+    /* 字体令牌（便于后续维护与统一替换）
+     * --font-display：中文手写体，仅用于大字号品牌展示（如首页主标语）。
+     * --font-body：中文正文，系统字体栈优先，清晰可读、零加载成本。
+     * --font-accent：英文 / 数字 / 标签，现代几何无衬线，增加设计感。 */
+    --font-display: "ZCOOL XiaoWei", "PingFang SC", "Microsoft YaHei", "STKaiti", cursive;
+    --font-body: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", -apple-system,
+      BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+    --font-accent: "Space Grotesk", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+
+    /* 新拟物变量（白天 = 浅米色） */
+    --neu-surface: #efe7d8;
+    --neu-shadow-d: #cdc3b0;
+    --neu-shadow-l: #ffffff;
+    --neu-ink: #514a39;
+    /* 次级墨色：比 --neu-ink 浅一档，但仍是「墨」而非「灰」，浅米底上 ≈4.9:1 */
+    --neu-ink-soft: #6b6250;
   }
 
-  /* Neutral deep-gray dark palette */
+  /* 夜晚模式 = 浅灰底（#e0e5ec）新拟物（即原浅灰风格） */
   .dark {
-    --background: 240 4% 11%;
-    --foreground: 210 20% 96%;
-    --card: 240 3% 14%;
-    --card-foreground: 210 20% 96%;
-    --popover: 240 3% 14%;
-    --popover-foreground: 210 20% 96%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 240 3% 18%;
-    --secondary-foreground: 210 20% 96%;
-    --muted: 240 3% 18%;
-    --muted-foreground: 220 8% 72%;
-    --accent: 240 3% 22%;
-    --accent-foreground: 210 20% 96%;
-    --destructive: 0 65% 42%;
-    --destructive-foreground: 210 20% 96%;
-    --border: 240 3% 24%;
-    --input: 240 3% 18%;
-    --ring: 217.2 91.2% 59.8%;
+    --background: 215 5% 90%;
+    --foreground: 215 6% 17%;
+    --card: 215 5% 90%;
+    --card-foreground: 215 6% 17%;
+    --popover: 215 5% 90%;
+    --popover-foreground: 215 6% 17%;
+    --primary: 45 95% 50%;
+    --primary-foreground: 215 6% 17%;
+    --secondary: 215 5% 86%;
+    --secondary-foreground: 215 6% 17%;
+    --muted: 215 5% 86%;
+    --muted-foreground: 215 7% 34%;
+    --accent: 215 5% 86%;
+    --accent-foreground: 215 6% 17%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 215 5% 90%;
+    --input: 215 5% 86%;
+    --ring: 45 95% 50%;
+
+    /* 新拟物变量（夜晚 = 浅灰底） */
+    --neu-surface: #e0e5ec;
+    --neu-shadow-d: #b8bcc2;
+    --neu-shadow-l: #ffffff;
+    --neu-ink: #1a1c1e;
+    /* 次级墨色：浅灰底上 ≈6.9:1 */
+    --neu-ink-soft: #454b54;
   }
 }
 
@@ -70,27 +141,59 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar —— 与新拟物底融合，避免浅底/灰底上出现一条突兀的灰色滚动条条带。
+ * thumb 使用 --neu-ink-soft 的低透明度混合（半透明），而非不透明的 border/浅灰，
+ * 使滚动条在浅米色与浅灰底上都只是「若隐若现」的墨色细线，不再形成视觉断裂。 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
+  scrollbar-width: thin;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-transparent;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-border rounded-full;
+  background-color: color-mix(in srgb, var(--neu-ink-soft) 14%, transparent);
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/30;
+  background-color: color-mix(in srgb, var(--neu-ink-soft) 26%, transparent);
 }
+
+/* 会话列表滚动容器：彻底隐藏滚动条视觉，消除「加号旁竖线割裂感」。
+ * 仅作用于会话区（.session-scroll），保留其它区域若隐若现的墨色细滚动条。
+ * 隐藏的是滚动条「装饰轨道」，滚轮 / 触控板滚动能力不受影响。
+ *
+ * 关键：仅 `display: none` 在部分 WebKit 版本下仍会保留 6px 滚动条占位（gutter），
+ * 并在 hover 时浮现 `::-webkit-scrollbar-thumb` 墨色细线 —— 恰好落在「加号右侧」，
+ * 表现为一条「像滚动条轨道」的竖线。因此这里用 `width/height: 0 + display: none`
+ * 双保险，并显式隐藏 track / thumb，同时用 `scrollbar-gutter: auto` 杜绝占位。 */
+.session-scroll {
+  scrollbar-width: none !important; /* Firefox：完全移除滚动条 */
+  -ms-overflow-style: none !important; /* IE / Edge（旧版） */
+  scrollbar-gutter: auto !important; /* 不预留滚动条占位，避免右侧竖线 */
+}
+
+.session-scroll::-webkit-scrollbar {
+  display: none !important; /* Chrome / Safari / 新版 Edge：隐藏整个滚动条 */
+  width: 0 !important; /* 双保险：彻底取消 WebKit 滚动条占位（gutter） */
+  height: 0 !important;
+  background: transparent !important;
+}
+
+.session-scroll::-webkit-scrollbar-track,
+.session-scroll::-webkit-scrollbar-thumb {
+  display: none !important; /* 双保险：隐藏轨道与滑块，杜绝 hover 时浮现的墨色细线 */
+}
+
 
 /* macOS traffic light spacing */
 .drag-region {
@@ -234,4 +337,213 @@
   .skeleton-motion::after {
     animation: none;
   }
+}
+
+/* ============================================================
+ * 新拟物派（Neumorphism）设计系统 · 模块 A/B/C UI 重做
+ * 统一浅灰底 #e0e5ec + 双色柔光阴影（左上亮 / 右下暗）
+ * 凸起 = 可交互；凹陷（inset）= 输入 / 已激活
+ * 禁止：渐变、边框、纯黑白、位移、hover 增大阴影（与光影物理相悖）
+ * ============================================================ */
+@layer components {
+  /* 页面基底：跟随模式（白天 = 浅米色 / 夜晚 = 浅灰底） */
+  .tech-bg {
+    background-color: var(--neu-surface);
+  }
+
+  /* 手写体品牌展示类：指向 --font-display（ZCOOL XiaoWei），
+   * 作为 Tailwind 任意值 font-[var(--font-display)] 的稳妥替代（不依赖 arbitrary value 解析）。 */
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  /* 凸起表面（卡片 / 面板）：双色柔光阴影 */
+  .glass,
+  .glass-panel,
+  .glass-strong {
+    background-color: var(--neu-surface);
+    border: 0;
+    border-radius: 1rem;
+    box-shadow:
+      8px 8px 16px var(--neu-shadow-d),
+      -8px -8px 16px var(--neu-shadow-l);
+  }
+
+  /* 中等凸起（按钮 / 小卡） */
+  .glass-sm {
+    background-color: var(--neu-surface);
+    border: 0;
+    border-radius: 0.75rem;
+    box-shadow:
+      6px 6px 12px var(--neu-shadow-d),
+      -6px -6px 12px var(--neu-shadow-l);
+  }
+
+  /* 凹陷（输入框 / 激活态）：内阴影 */
+  .neu-inset {
+    background-color: var(--neu-surface);
+    border: 0;
+    box-shadow:
+      inset 4px 4px 8px var(--neu-shadow-d),
+      inset -4px -4px 8px var(--neu-shadow-l);
+  }
+
+  /* 新拟物按钮：凸起 → hover 阴影缩小 → active 凹陷 */
+  .neu-btn {
+    background-color: var(--neu-surface);
+    border: 0;
+    border-radius: 0.75rem;
+    box-shadow:
+      6px 6px 12px var(--neu-shadow-d),
+      -6px -6px 12px var(--neu-shadow-l);
+    transition: box-shadow 0.2s ease, color 0.2s ease;
+  }
+
+  .neu-btn:hover {
+    box-shadow:
+      4px 4px 8px var(--neu-shadow-d),
+      -4px -4px 8px var(--neu-shadow-l);
+  }
+
+  .neu-btn:active,
+  .neu-btn[aria-pressed="true"],
+  .neu-btn[data-active="true"] {
+    box-shadow:
+      inset 4px 4px 8px var(--neu-shadow-d),
+      inset -4px -4px 8px var(--neu-shadow-l);
+  }
+
+  /* 新拟物滑块：轨道凹陷 + 圆头凸起 */
+  .range-glass {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 10px;
+    border-radius: 9999px;
+    background-color: var(--neu-surface);
+    border: 0;
+    box-shadow:
+      inset 4px 4px 8px var(--neu-shadow-d),
+      inset -4px -4px 8px var(--neu-shadow-l);
+    outline: none;
+    cursor: pointer;
+  }
+
+  .range-glass::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 22px;
+    width: 22px;
+    border-radius: 9999px;
+    background-color: var(--neu-surface);
+    border: 0;
+    box-shadow:
+      3px 3px 6px var(--neu-shadow-d),
+      -3px -3px 6px var(--neu-shadow-l);
+    cursor: pointer;
+  }
+
+  .range-glass::-moz-range-thumb {
+    height: 22px;
+    width: 22px;
+    border-radius: 9999px;
+    background-color: var(--neu-surface);
+    border: 0;
+    box-shadow:
+      3px 3px 6px var(--neu-shadow-d),
+      -3px -3px 6px var(--neu-shadow-l);
+    cursor: pointer;
+  }
+}
+
+/* ============================================================
+ * 新拟物派 · 全局兜底（把历史组件里的玻璃/扁平/黑底类重映射为柔光双阴影）
+ * 目的：在不逐文件改刀的前提下，让全站（侧栏 / 市集 / 评估 等）风格统一。
+ * 新代码请直接用 .tech-bg / .glass / .neu-btn / .neu-inset。
+ * 说明：本段为无 layer 的纯 CSS，优先级高于 @layer utilities，故可覆盖 Tailwind 原子类。
+ * 全部引用「模式感知变量」（:root = 浅米色 / .dark = 浅灰底），无需按模式重复书写。
+ * ============================================================ */
+/* 1) 白色表面 → 统一模式表面色 */
+.bg-white,
+.bg-white\/5,
+.bg-white\/10,
+.bg-white\/35,
+.bg-white\/40,
+.bg-white\/45,
+.bg-white\/50,
+.bg-white\/55,
+.bg-white\/60,
+.bg-white\/70 {
+  background-color: var(--neu-surface) !important;
+}
+
+/* 米色 / 灰底杂色 → 统一模式表面色 */
+.bg-\[\#F2F0E9\],
+.bg-gray-50,
+.bg-gray-100,
+.bg-gray-200,
+.bg-gray-200\/70,
+.bg-gray-200\/40 {
+  background-color: var(--neu-surface) !important;
+}
+
+/* 2) 标准阴影 → 柔光双阴影（凸起） */
+.shadow-sm {
+  box-shadow: 4px 4px 8px var(--neu-shadow-d), -4px -4px 8px var(--neu-shadow-l) !important;
+}
+.shadow-md {
+  box-shadow: 6px 6px 12px var(--neu-shadow-d), -6px -6px 12px var(--neu-shadow-l) !important;
+}
+.shadow-lg {
+  box-shadow: 8px 8px 16px var(--neu-shadow-d), -8px -8px 16px var(--neu-shadow-l) !important;
+}
+.shadow-xl {
+  box-shadow: 10px 10px 20px var(--neu-shadow-d), -10px -10px 20px var(--neu-shadow-l) !important;
+}
+.shadow-2xl {
+  box-shadow: 12px 12px 24px var(--neu-shadow-d), -12px -12px 24px var(--neu-shadow-l) !important;
+}
+
+/* 3) 玻璃模糊 / 白·灰细边 → 去掉（新拟物靠阴影分层，不靠边框/模糊） */
+.backdrop-blur,
+.backdrop-blur-sm,
+.backdrop-blur-md,
+.backdrop-blur-lg,
+.backdrop-blur-xl {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.border-white\/60,
+.border-white\/50,
+.border-white\/40,
+.border-white\/10,
+.border-gray-100,
+.border-gray-200 {
+  border-color: transparent !important;
+}
+
+/* 4) 黑底（#1A1C1E）CTA → 新拟物凸起 + 深墨字；原白字翻为深墨 */
+.bg-\[\#1A1C1E\] {
+  background-color: var(--neu-surface) !important;
+  box-shadow: 6px 6px 12px var(--neu-shadow-d), -6px -6px 12px var(--neu-shadow-l) !important;
+}
+.bg-\[\#1A1C1E\].text-white,
+.bg-\[\#1A1C1E\] .text-white {
+  color: var(--neu-ink) !important;
+}
+
+/* 5) 输入框 / 文本域 → 凹陷（内阴影），排除滑块/复选/单选 */
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  background-color: var(--neu-surface) !important;
+  border-color: transparent !important;
+  box-shadow:
+    inset 4px 4px 8px var(--neu-shadow-d),
+    inset -4px -4px 8px var(--neu-shadow-l) !important;
+}
+
+/* 6) 新拟物禁用"浮起"位移：仅中和历史代码里的 scale 微交互（按钮/头像 hover 放大）
+ *    不碰 translate-*（模态居中、开关滑块、图标居中均依赖它，属功能性定位，必须保留） */
+[class*="scale-"] {
+  transform: none !important;
 }
