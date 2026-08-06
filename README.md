@@ -119,6 +119,28 @@ MOCK=true uvicorn app.serve:app --port 8000
 # 访问 http://localhost:8000/docs 查看接口；/health 查看模型可用性
 ```
 
+### 真实模式安装（MOCK=false，可选推理依赖）
+
+真实推理依赖不进 `requirements.txt` 硬依赖（体积大、需匹配 CANN 版本），按需安装：
+
+```bash
+# GPU / CPU 环境（MiniCPM-o 4.5 官方基线，建议 Python 3.10/3.11）
+pip install "transformers==4.51.0" accelerate "torch>=2.3.0,<=2.8.0" \
+    "torchaudio<=2.8.0" "minicpmo-utils[all]>=1.0.5" librosa opencv-python
+
+# 昇腾 NPU 环境：另装与 CANN 9.1.0 匹配的 torch_npu（或 FlagOS flag_gems），
+# 版本矩阵见 docs/ascend-adaptation-plan.md §3；权重获取见 §4.1
+
+# 启动（设备选择 NPU > CUDA > CPU 自动降级；DEVICE=npu|cuda|cpu|auto 可显式指定）
+MOCK=false DEVICE=npu MODEL_PATH=/models/MiniCPM-o-4.5 uvicorn app.serve:app --port 8000
+# /health 返回 model_available=true 即真实路径就绪
+# TTS：优先模型原生（init_tts），其次系统命令（macOS say / Linux espeak-ng），
+# 都没有则只发文本不发 audio 事件；TTS_BACKEND=auto|model|system|none 可控制
+```
+
+缺依赖 / 缺权重 / 无可用设备时服务照常启动，`/health` 报 `model_available=false`，
+`/api/evaluate` 在真实模式下返回 503 明确错误，绝不 ImportError 崩溃。
+
 ---
 
 ## 5. 测试（模型服务，不依赖真模型）

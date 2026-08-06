@@ -37,6 +37,14 @@ export interface TurnState {
   belief_embedding: number[];
   /** 若该轮人类已置顶则记来源 */
   human_signal?: ConvSource;
+  /**
+   * 轨迹来源标注（08-07 加固）：MVP 阶段 /api/evaluate-run 侧信道发的是
+   * 服务端确定性投影数据（'projected' + synthetic=true），非实测。
+   * 旧版后端无此字段（undefined），消费方按实测兼容处理。
+   */
+  source?: 'projected' | 'measured';
+  /** true = 合成数据（投影演示），非实测轨迹 */
+  synthetic?: boolean;
 }
 
 /** 收敛轨迹（一次评估运行的完整记录） */
@@ -89,6 +97,12 @@ export interface ConvergenceScore {
   convergence_quality: 0 | 1;
   weights: { w1: number; w2: number; w3: number };
   ts: string;
+  /** 轨迹来源标注（08-07 加固）：'projected' = MVP 投影，非实测 */
+  source?: 'projected' | 'measured';
+  /** true = 合成数据（投影演示），非实测轨迹 */
+  synthetic?: boolean;
+  /** 服务端落盘是否成功（false = 持久化失败，显式暴露不再静默） */
+  persisted?: boolean;
 }
 
 /** Layer3 SSE 事件类型（对齐 serve.py §5.2 约定） */

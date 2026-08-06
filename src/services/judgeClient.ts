@@ -104,6 +104,9 @@ function toTurnState(json: Record<string, unknown>): TurnState {
     belief_embedding: Array.isArray(json.belief_embedding)
       ? (json.belief_embedding as unknown[]).map(Number)
       : [],
+    // 08-07：透传诚实标注（旧版后端无此字段 → undefined，向后兼容）
+    source: json.source === 'projected' || json.source === 'measured' ? json.source : undefined,
+    synthetic: typeof json.synthetic === 'boolean' ? json.synthetic : undefined,
   };
 }
 
@@ -125,6 +128,10 @@ function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
       w3: Number(weights.w3 ?? 0),
     },
     ts: String(json.ts ?? new Date().toISOString()),
+    // 08-07：透传诚实标注与落盘结果（旧版后端无此字段 → undefined）
+    source: json.source === 'projected' || json.source === 'measured' ? json.source : undefined,
+    synthetic: typeof json.synthetic === 'boolean' ? json.synthetic : undefined,
+    persisted: typeof json.persisted === 'boolean' ? json.persisted : undefined,
   };
 }
 

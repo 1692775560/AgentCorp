@@ -16,11 +16,12 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import re
 from typing import AsyncGenerator, Dict, List, Optional
 
 from .config import settings
-from .model_loader import get_model
+from .model_loader import get_model, optional_import
 from .prompt_templates import build_evaluation_messages
 from .schemas import (
     Aesthetic,
@@ -304,39 +305,195 @@ def _get_fixture(candidate: CandidateProfile) -> Dict:
 
 
 # ======================================================================
-# 4) 媒体加载与推理（真实环境实现；骨架中为占位）
+# 4) 媒体加载与推理（真实实现；缺文件/缺依赖优雅降级，不中断评估）
 # ======================================================================
+def _resolve_media_path(url: str) -> Optional[str]:
+    """
+    将媒体 URL 解析为本地文件路径：
+    - "/uploads/..."（/api/upload 落盘的静态前缀）→ settings.upload_dir 下；
+    - http(s) 远程 URL → 不抓取，返回 None（记日志跳过）；
+    - 其余按文件系统路径处理。
+    """
+    if not url:
+        return None
+    if url.startswith("http://") or url.startswith("https://"):
+        logger.info("远程媒体 URL 不抓取（按本地部署约定）：%s", url[:80])
+        return None
+    if url.startswith("/uploads/"):
+        return os.path.join(settings.upload_dir, url[len("/uploads/"):])
+    return url
+
+
+def _load_image(path: str) -> Optional[object]:
+    """PIL 加载图像（RGB，最长边 ≤1024）；失败返回 None。"""
+    pil_image = optional_import("PIL.Image")
+    if pil_image is None:
+        logger.warning("Pillow 未安装，跳过图像加载：%s", path)
+        return None
+    try:
+        img = pil_image.open(path).convert("RGB")
+        img.thumbnail((1024, 1024))
+        return img
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("图像加载失败（跳过）：%s：%s", path, exc)
+        return None
+
+
+def _load_audio(path: str) -> Optional[object]:
+    """librosa 加载音频（16kHz mono numpy 波形，与官方用法一致）；失败返回 None。"""
+    librosa = optional_import("librosa")
+    if librosa is None:
+        logger.warning("librosa 未安装，跳过音频加载：%s", path)
+        return None
+    try:
+        y, _sr = librosa.load(path, sr=16000, mono=True)
+        return y
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("音频加载失败（跳过）：%s：%s", path, exc)
+        return None
+
+
+def _sample_video_frames(path: str, n_frames: int) -> List[object]:
+    """opencv 均匀抽帧（BGR→RGB→PIL）；cv2 缺失或失败返回空列表。"""
+    cv2 = optional_import("cv2")
+    pil_image = optional_import("PIL.Image")
+    if cv2 is None or pil_image is None:
+        logger.warning("opencv-python 未安装，跳过视频抽帧：%s", path)
+        return []
+    cap = cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            logger.warning("视频无法打开（跳过）：%s", path)
+            return []
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        if total <= 0:
+            return []
+        n = max(1, min(n_frames, total))
+        # 均匀抽帧：首尾对齐，索引确定性（复现性）
+        indices = [round(i * (total - 1) / (n - 1)) if n > 1 else 0 for i in range(n)]
+        frames = []
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, bgr = cap.read()
+            if not ok:
+                continue
+            frames.append(pil_image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
+        return frames
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("视频抽帧失败（跳过）：%s：%s", path, exc)
+        return []
+    finally:
+        cap.release()
+
+
 def load_media(candidate: CandidateProfile) -> Dict:
     """
     加载并预处理多模态证据（架构 §8 多模态约定）：
-    - 视频：确定性均匀抽帧（默认 8 帧）
-    - 音频：重采样至 16kHz mono
-    - 图像：最长边 ≤1024
-    骨架中仅返回占位结构；真实环境在此调用 opencv/librosa/Pillow。
+    - 视频：确定性均匀抽帧（settings.frame_sample，默认 8 帧）
+    - 音频：重采样至 16kHz mono（librosa，numpy 波形）
+    - 图像：最长边 ≤1024（PIL）
+
+    返回真实载荷 dict：frames: List[PIL.Image]，audio: np.ndarray|None，
+    images: List[PIL.Image]，code_lang: str。
+    文件不存在 / 依赖缺失时优雅降级为空媒体 + warning 日志，不中断评估。
     """
-    frame_sample = settings.frame_sample
+    frames: List[object] = []
+    video_path = _resolve_media_path(candidate.video_demo.url)
+    if video_path:
+        if os.path.isfile(video_path):
+            frames = _sample_video_frames(video_path, settings.frame_sample)
+        else:
+            logger.warning("视频文件不存在（跳过）：%s", video_path)
+
+    audio = None
+    audio_path = _resolve_media_path(candidate.voice_intro.url)
+    if audio_path:
+        if os.path.isfile(audio_path):
+            audio = _load_audio(audio_path)
+        else:
+            logger.warning("音频文件不存在（跳过）：%s", audio_path)
+
+    images: List[object] = []
+    for ref in candidate.artwork:
+        img_path = _resolve_media_path(ref.url)
+        if not img_path:
+            continue
+        if not os.path.isfile(img_path):
+            logger.warning("作品图不存在（跳过）：%s", img_path)
+            continue
+        img = _load_image(img_path)
+        if img is not None:
+            images.append(img)
+
     logger.info(
-        "load_media 占位：候选=%s，抽帧数=%d（真实环境将解码视频/音频/图像）",
+        "load_media：候选=%s，帧=%d，音频=%s，图像=%d",
         candidate.id,
-        frame_sample,
+        len(frames),
+        "已加载" if audio is not None else "无",
+        len(images),
     )
     return {
-        "frames": frame_sample,
-        "audio_loaded": bool(candidate.voice_intro.url),
-        "images": len(candidate.artwork),
+        "frames": frames,
+        "audio": audio,
+        "images": images,
         "code_lang": candidate.code_repo.lang,
     }
 
 
 def infer(multimodal: Dict, messages: List[dict]) -> str:
     """
-    调用 MiniCPM-o 跨模态推理，返回自由文本（含 JSON）。
-    骨架中模型不可用，需由 serve.py 在真实模式下调用。
+    调用 MiniCPM-o 跨模态推理（官方 chat API），返回自由文本（含 JSON）。
+
+    将 load_media 的真实载荷（帧 / 音频波形 / 图像）并入 user 消息 content
+    列表（官方约定：PIL 图像 / numpy 音频 / str 混合），含媒体时 omni_mode=True。
+    do_sample 由 settings.temperature 决定（0 → 贪心解码，保证复现性）。
+
+    模型未加载时抛 RuntimeError，含明确指引（安装依赖 / 配置权重 / MOCK=true）。
     """
-    raise RuntimeError(
-        "infer 需要已加载的 MiniCPM-o 模型；当前为无 NPU 骨架。"
-        "请部署到昇腾环境，或在 MOCK=true 下运行。"
-    )
+    wrapper = get_model()
+    if not wrapper.available:
+        raise RuntimeError(
+            "infer 需要已加载的 MiniCPM-o 模型，但当前模型不可用"
+            "（缺推理依赖 / 权重未就位 / 无可用设备）。请任选其一："
+            "1) 安装可选推理依赖并配置 MODEL_PATH（见 requirements.txt 注释与 README）；"
+            "2) 部署到昇腾环境（DEVICE=npu）；"
+            "3) 设置 MOCK=true 走演示事件流。"
+        )
+
+    content: List[object] = []
+    content.extend(multimodal.get("frames") or [])
+    if multimodal.get("audio") is not None:
+        content.append(multimodal["audio"])
+    content.extend(multimodal.get("images") or [])
+    has_media = bool(content)
+
+    msgs: List[dict] = []
+    for msg in messages:
+        if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+            msgs.append({"role": "user", "content": content + [msg["content"]]})
+        else:
+            msgs.append(msg)
+
+    do_sample = settings.temperature > 0
+    kwargs: Dict = {
+        "msgs": msgs,
+        "do_sample": do_sample,
+        "enable_thinking": False,
+        "max_new_tokens": 2048,
+    }
+    if do_sample:
+        kwargs["temperature"] = settings.temperature
+    if has_media:
+        # 官方约定：含音视频输入的 omni 推理必须 omni_mode=True
+        kwargs["omni_mode"] = True
+
+    res = wrapper.model.chat(**kwargs)
+    if isinstance(res, str):
+        return res
+    # 防御：个别版本流式/分片返回时拼接文本
+    if isinstance(res, (list, tuple)):
+        return "".join(str(r) for r in res)
+    return str(res)
 
 
 # ======================================================================
