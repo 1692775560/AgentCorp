@@ -17,6 +17,8 @@ export default [
       'release/**',
       'scripts/**',
       'resources/**',
+      // 本地构建产物（git-ignored），含未加载插件的 eslint-disable 指令会误报
+      'build/**',
     ],
   },
   {

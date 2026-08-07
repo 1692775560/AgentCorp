@@ -4,8 +4,8 @@
  *
  * - evaluate(input)：经由 Host API 代理 POST http://127.0.0.1:3210/api/evaluate/run，
  *   解析 SSE 流为 EvaluationEvent（radar_update ×6 + verdict + done）。
- * - 非 200 / 503 / 网络错误时回退 fallbackMock：用 metricsEngine 客观 KPI
- *   归一化到 0–5，离线可用。
+ * - 非 200 / 503 / 网络错误时回退 fallbackMock：cost 维由真实 usage 折算，
+ *   其余维有真实遥测走 metricsEngine 客观 KPI、遥测退化走 agentId 哈希派生，离线可用。
  *
  * 鉴权：Host API 需要 x-clawx-host-session 头（每会话随机 token），
  * 通过 renderer→main 的 ipc 'hostapi:token' 获取。
@@ -35,6 +35,13 @@ export interface JudgeRunInput {
   transcript: string;
   /** 真实 token 用量（来自 tokenUsageCollector） */
   usage: TokenUsageHistoryEntryLike[];
+  /**
+   * 真实逐任务遥测（可选，仅加法；后端 pydantic 默认忽略未知字段，
+   * 与下方 convergence 字段同先例）。传入时 fallbackMock 的雷达由客观 KPI
+   * 归一化派生；缺失/为空（遥测退化）时改由 agentId 确定性哈希派生，
+   * 避免旧实现 usageToTelemetry 伪造全成功事件导致的六维失真。
+   */
+  telemetry?: TelemetryEvent[];
   preference?: {
     aesthetic?: string;
     budget_max?: number;
@@ -157,36 +164,23 @@ async function getHostApiToken(): Promise<string> {
   }
 }
 
-/** 将 usage 条目尽力转为 TelemetryEvent */
-function usageToTelemetry(usage: TokenUsageHistoryEntryLike[]): TelemetryEvent[] {
-  if (usage.length === 0) {
-    return [
-      {
-        agent_id: 'unknown',
-        task_id: 'unknown',
-        success: true,
-        first_try: true,
-        rework: 0,
-        latency_ms: 0,
-        human_interventions: 0,
-        escalations: 0,
-        out_of_domain: false,
-        ts: new Date().toISOString(),
-      },
-    ];
+/**
+ * agentId 确定性哈希（FNV-1a 32bit）。
+ * 对齐 model-service evaluator._derive_run_radar 的「agent_id 哈希派生」思路：
+ * 渲染层无 node:crypto，用自包含 FNV-1a 保证同 agentId 可复现、agent 间有区分度。
+ */
+function hashAgentId(agentId: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < agentId.length; i++) {
+    h ^= agentId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
   }
-  return usage.map<TelemetryEvent>((u) => ({
-    agent_id: u.agentId,
-    task_id: u.sessionId,
-    success: true,
-    first_try: true,
-    rework: 0,
-    latency_ms: 0,
-    human_interventions: 0,
-    escalations: 0,
-    out_of_domain: false,
-    ts: u.timestamp,
-  }));
+  return h >>> 0;
+}
+
+/** 哈希抖动：base + [0,2) 的确定性偏移（对齐 _derive_run_radar 的 jitter） */
+function jitter(h: number, shift: number, base: number): number {
+  return base + (((h >>> shift) % 1000) / 1000) * 2;
 }
 
 /** 从 SSE 文本块解析单条 EvaluationEvent（容忍未知事件类型） */
@@ -312,28 +306,47 @@ export async function* evaluate(input: JudgeRunInput): AsyncIterable<EvaluationE
 }
 
 /**
- * 离线回退：用 metricsEngine 的客观 KPI 归一化到 0–5，产出与真实裁判同构的事件流。
- * 不依赖网络。
+ * 离线回退：产出与真实裁判同构的事件流，不依赖网络。
+ * 雷达派生（08-07 诚实化修复）：
+ * - cost 维始终由真实 usage 成本折算（预算 1.0 USD 为基准，越低越高分）；
+ * - 有真实遥测（input.telemetry 非空）时，其余五维走 metricsEngine 客观 KPI 归一化；
+ * - 遥测退化（无真实事件）时，其余五维由 agentId 确定性哈希派生
+ *   （对齐 model-service evaluator._derive_run_radar）——不伪造完美 KPI，
+ *   保证可复现、agent 间有区分度、FIRED 可达。
  */
 export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<EvaluationEvent> {
-  const telemetry = usageToTelemetry(input.usage);
-  const kpi = computeKpi(telemetry, currentWindow());
-
   const totalCost = input.usage.reduce(
     (sum, u) => sum + (u.costUsd ?? ((u.totalTokens ?? 0) / 1000) * 0.01),
     0,
   );
-  // 成本分：预算 1.0 USD 为基准，越低越高分
   const costScore = clamp(5 - (totalCost / 1.0) * 5, 0, 5);
 
-  const radar: RadarScore = {
-    task: clamp(kpi.task_completion_rate * 5, 0, 5),
-    quality: clamp(kpi.autonomy_rate * 5, 0, 5),
-    comm: clamp((1 - kpi.escalation_rate) * 5, 0, 5),
-    creativity: clamp(kpi.cross_task_generalization * 5, 0, 5),
-    reliability: clamp(((1 - kpi.rework_rate) + kpi.stability_consistency) * 2.5, 0, 5),
-    cost: costScore,
-  };
+  const hasTelemetry = (input.telemetry?.length ?? 0) > 0;
+  const kpi = hasTelemetry ? computeKpi(input.telemetry ?? [], currentWindow()) : null;
+
+  let radar: RadarScore;
+  if (kpi) {
+    // 真实遥测路径：客观 KPI 归一化到 0–5
+    radar = {
+      task: clamp(kpi.task_completion_rate * 5, 0, 5),
+      quality: clamp(kpi.autonomy_rate * 5, 0, 5),
+      comm: clamp((1 - kpi.escalation_rate) * 5, 0, 5),
+      creativity: clamp(kpi.cross_task_generalization * 5, 0, 5),
+      reliability: clamp(((1 - kpi.rework_rate) + kpi.stability_consistency) * 2.5, 0, 5),
+      cost: costScore,
+    };
+  } else {
+    // 遥测退化路径：agentId 哈希派生（确定性，可复现）
+    const h = hashAgentId(input.agentId);
+    radar = {
+      task: clamp(jitter(h, 0, 3.0), 0, 5),
+      quality: clamp(jitter(h, 3, 3.0), 0, 5),
+      comm: clamp(jitter(h, 6, 2.5), 0, 5),
+      creativity: clamp(jitter(h, 9, 2.5), 0, 5),
+      reliability: clamp(jitter(h, 12, 3.0), 0, 5),
+      cost: costScore,
+    };
+  }
 
   const dims: Array<keyof RadarScore> = [
     'task',
@@ -343,6 +356,10 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
     'reliability',
     'cost',
   ];
+  const dimEvidence = kpi
+    ? (dim: keyof RadarScore) => `客观 KPI 归一化（${dim}）`
+    : (dim: keyof RadarScore) =>
+        dim === 'cost' ? '真实 usage 成本折算' : `${dim} 由 agentId 哈希派生（mock 回退）`;
   for (const dim of dims) {
     await sleep(120);
     yield {
@@ -350,13 +367,25 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
       dim,
       score: round1(radar[dim]),
       confidence: 0.8,
-      evidence: `客观 KPI 归一化（${dim}）`,
+      evidence: dimEvidence(dim),
     };
   }
 
   const avg = dims.reduce((s, d) => s + radar[d], 0) / dims.length;
   const verdict = avg >= 4 ? 'MVP' : avg >= 2.5 ? 'OBSERVE' : 'FIRED';
   const userFit = Math.round(avg * 20);
+  // 证据留痕：真实遥测路径给客观 KPI；哈希路径诚实标注派生来源（对齐 model-service mock）
+  const evidenceTrace = kpi
+    ? [
+        `task_completion_rate=${(kpi.task_completion_rate * 100).toFixed(0)}%`,
+        `autonomy_rate=${(kpi.autonomy_rate * 100).toFixed(0)}%`,
+        `total_cost≈$${totalCost.toFixed(4)}`,
+      ]
+    : [
+        `total_cost≈$${totalCost.toFixed(4)}`,
+        `avg_radar=${avg.toFixed(2)}`,
+        'source=mock（遥测退化，agentId 哈希派生）',
+      ];
 
   // 讲解文本（离线语音闭环：narration 由渲染层直接 TTS 播报）
   const DIM_LABELS: Record<keyof RadarScore, string> = {
@@ -386,11 +415,7 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
     type: 'verdict',
     verdict,
     user_fit: userFit,
-    evidence_trace: [
-      `task_completion_rate=${(kpi.task_completion_rate * 100).toFixed(0)}%`,
-      `autonomy_rate=${(kpi.autonomy_rate * 100).toFixed(0)}%`,
-      `total_cost≈$${totalCost.toFixed(4)}`,
-    ],
+    evidence_trace: evidenceTrace,
     confidence: 0.8,
   };
 

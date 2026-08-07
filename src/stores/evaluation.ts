@@ -31,6 +31,7 @@ import type {
 import { verdictToLifecycleState, LIFECYCLE_TO_STATE } from '@/types/lifecycle';
 import { save as evalSave, list as evalList } from '@/services/evaluationStore';
 import { computeKpi } from '@/engine/metricsEngine';
+import { zscore } from '@/engine/roiEngine';
 import { tokenUsageCollector } from '@/services/tokenUsageCollector';
 import { collectRunData } from '@/services/evaluationData';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
@@ -109,7 +110,10 @@ interface EvaluationState {
 
 /**
  * 由 profiles 重算擂台排名。
- * - 按 roi（缺省 roi_norm 时）降序；
+ * - roi_norm：群体 ≥2 时用当前全部 profile 的 roi 数组经 roiEngine.zscore 重算
+ *   （与 computeRoi 内 roi_norm = zscore(population, roi) 同一计算；无法重调
+ *   buildRoiSnapshot，因 entries/telemetry 不留存于画像），排序 roi_norm 优先；
+ *   单 agent 时 z-score 恒 0 无区分度，排序/展示回退裸 roi。
  * - 榜首标记 MVP；已退休标记 BOTTOM；末位（非退休）亦标记 BOTTOM 以呈现「末位淘汰」候选。
  */
 function computeLeaderboard(
@@ -119,13 +123,15 @@ function computeLeaderboard(
   const all = Object.values(profiles);
   if (all.length === 0) return [];
 
+  const population = all.map((p) => p.roiLatest?.roi ?? 0);
+  const useNorm = population.length > 1;
   const withRoi = all
-    .map((p) => ({
+    .map((p, i) => ({
       profile: p,
-      roi: p.roiLatest?.roi ?? 0,
-      roiNorm: p.roiLatest?.roi_norm ?? 0,
+      roi: population[i],
+      roiNorm: useNorm ? zscore(population, population[i]) : 0,
     }))
-    .sort((a, b) => b.roi - a.roi);
+    .sort((a, b) => (useNorm ? b.roiNorm - a.roiNorm : b.roi - a.roi));
 
   const total = withRoi.length;
   return withRoi.map((item, idx) => {
@@ -139,7 +145,10 @@ function computeLeaderboard(
       agentId: item.profile.agentId,
       name: names[item.profile.agentId] ?? item.profile.agentId,
       rank,
-      user_fit: Math.round((item.profile.radarLatest?.task ?? 0) * 20),
+      // 优先裁判 verdict 的真实 user_fit；存量数据缺省时回退 task*20（历史近似）
+      user_fit: Math.round(
+        item.profile.userFitLatest ?? (item.profile.radarLatest?.task ?? 0) * 20,
+      ),
       roi_norm: item.roiNorm,
       state,
       tier,
@@ -253,7 +262,15 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       const kpi = computeKpi(events, window, get().profiles[input.agentId]?.radarHistory ?? []);
 
       // 4) ROI（使用真实 token 成本 / 用量）
-      const roi = tokenUsageCollector.buildRoiSnapshot(entries, events, input.agentId, window);
+      // population：其余 profile 的 roi 数组 → roi_norm 为真实群体 z-score
+      // （08-07 修复：此前 population 从未传入，roi_norm 恒 undefined/0）
+      const roiPopulation = Object.values(get().profiles)
+        .filter((p) => p.agentId !== input.agentId)
+        .map((p) => p.roiLatest?.roi ?? 0);
+      const roi = tokenUsageCollector.buildRoiSnapshot(entries, events, input.agentId, window, {
+        // 单 agent（无对照群）时不传，roi_norm 保持 undefined 而非误导性的 0
+        population: roiPopulation.length > 0 ? roiPopulation : undefined,
+      });
 
       // 5) 外部裁判（MiniCPM-o），失败时 judgeClient 内部回退 Mock
       // ★ 通道③（回灌端）：把用户拖拽学出来的六维权重带进裁判，
@@ -267,12 +284,15 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         task: input.task ?? { title: 'Ad-hoc task', description: '', weight: 1 },
         transcript,
         usage: entries,
+        // 真实逐任务遥测：fallbackMock 有真实遥测时走客观 KPI 路径（08-07 诚实化）
+        telemetry: events,
         preference: { weight: { ...userWeight } },
       };
 
       const radar: Partial<RadarScore> = {};
       let verdict: Verdict | null = null;
       let verdictUserFit = 0;
+      let verdictEvidence: string[] = [];
       let sawAudio = false; // 本流出现过 audio 事件 → narration 只上屏（防双播）
       for await (const ev of judgeClient.evaluate(judgeInput)) {
         if (ev.type === 'radar_update') {
@@ -289,6 +309,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         } else if (ev.type === 'verdict') {
           verdict = ev.verdict;
           verdictUserFit = ev.user_fit;
+          verdictEvidence = ev.evidence_trace;
         }
       }
 
@@ -319,6 +340,9 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         lifecycle,
         runIds: [...(prev?.runIds ?? []), ...(input.runId ? [input.runId] : [])],
         updatedAt: new Date().toISOString(),
+        // verdict 真实落地（08-07）：无 verdict 时沿用既有值
+        userFitLatest: verdict ? verdictUserFit : prev?.userFitLatest,
+        evidenceTraceLatest: verdict ? verdictEvidence : prev?.evidenceTraceLatest,
         // 仅加法字段：无面试记录时保持既有值（可能是 undefined）
         jobType: prev?.jobType,
         stageScores: prev?.stageScores,
