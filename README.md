@@ -121,7 +121,26 @@ MOCK=true uvicorn app.serve:app --port 8000
 
 ### 真实模式安装（MOCK=false，可选推理依赖）
 
-真实推理依赖不进 `requirements.txt` 硬依赖（体积大、需匹配 CANN 版本），按需安装：
+真实推理依赖不进 `requirements.txt` 硬依赖（体积大、需匹配 CANN 版本），按需安装。
+
+**路径 A · 端侧 GGUF（推荐评委机/笔记本，CPU/Metal 即可，无需 torch/transformers）**：
+
+```bash
+pip install llama-cpp-python
+# macOS 建议启用 Metal 加速：
+# CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+
+# 下载 GGUF 权重（Q4_K_M 约 5.4GB；ModelScope 国内更快）
+mkdir -p models && curl -L -o models/MiniCPM-o-4_5-Q4_K_M.gguf \
+  "https://modelscope.cn/models/OpenBMB/MiniCPM-o-4_5-gguf/resolve/master/MiniCPM-o-4_5-Q4_K_M.gguf"
+
+# 启动（MODEL_PATH 指向 .gguf 文件即自动走 llama.cpp 后端）
+MOCK=false MODEL_PATH=models/MiniCPM-o-4_5-Q4_K_M.gguf uvicorn app.serve:app --port 8000
+# /health 返回 model_available=true 即真实裁判就绪
+# 注：GGUF 路径仅文本推理（裁判场景够用）；视觉/音频模态需路径 B
+```
+
+**路径 B · 全量权重（GPU / 昇腾 NPU）**：
 
 ```bash
 # GPU / CPU 环境（MiniCPM-o 4.5 官方基线，建议 Python 3.10/3.11）

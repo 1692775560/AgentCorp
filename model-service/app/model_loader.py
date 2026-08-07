@@ -15,7 +15,8 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-from typing import Any, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 from .config import settings
 
@@ -28,6 +29,90 @@ INSTALL_HINT = (
     "（昇腾环境另需与 CANN 版本匹配的 torch_npu 或 FlagOS flag_gems，"
     "详见 docs/ascend-adaptation-plan.md §3.2）"
 )
+
+# GGUF（llama.cpp）路径的安装指引
+GGUF_INSTALL_HINT = (
+    "pip install llama-cpp-python（macOS 可用 "
+    "CMAKE_ARGS='-DGGML_METAL=on' pip install llama-cpp-python 启用 Metal 加速）"
+)
+
+
+class _GgufChatAdapter:
+    """
+    把 llama_cpp.Llama 适配为官方 model.chat(msgs=...) 形态（仅文本推理）。
+    evaluator.infer() 的多模态 content 列表在 GGUF 路径下只保留文本段；
+    视觉/音频输入需要 transformers 全量权重路径。
+    """
+
+    def __init__(self, llm: Any) -> None:
+        self._llm = llm
+
+    def chat(
+        self,
+        msgs: List[dict],
+        do_sample: bool = False,
+        temperature: float = 0.0,
+        max_new_tokens: int = 2048,
+        **kwargs: Any,
+    ) -> str:
+        messages: List[dict] = []
+        for m in msgs:
+            content = m.get("content")
+            if isinstance(content, list):
+                # 多模态 content 列表：GGUF 文本路径只取文本段
+                content = "".join(seg for seg in content if isinstance(seg, str))
+            messages.append({"role": m.get("role", "user"), "content": content})
+        kwargs2: Dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": max_new_tokens,
+            "temperature": float(temperature) if do_sample else 0.0,
+        }
+        # Qwen3 系模板的思考开关（官方 model.chat 的 enable_thinking=False 对应物）；
+        # llama-cpp 版本不支持该参数时静默忽略（输出里的 <think> 段由下方剥除兜底）
+        enable_thinking = kwargs.get("enable_thinking")
+        if enable_thinking is not None:
+            kwargs2["chat_template_kwargs"] = {"enable_thinking": bool(enable_thinking)}
+        try:
+            res = self._llm.create_chat_completion(**kwargs2)
+        except TypeError:
+            kwargs2.pop("chat_template_kwargs", None)
+            res = self._llm.create_chat_completion(**kwargs2)
+        text = str(res["choices"][0]["message"]["content"])
+        # 剥除 <think>...</think> 推理段（Qwen3 系默认开启，污染下游 JSON 解析）
+        if "<think>" in text:
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        return text
+
+
+def _load_gguf(model_path: str) -> MiniCPMModel:
+    """GGUF 权重（llama.cpp 后端，文本推理；端侧/CPU 友好的真实推理路径）。"""
+    if not os.path.isfile(model_path):
+        logger.warning(
+            "GGUF 权重文件不存在：%s（经 MODEL_PATH 环境变量配置）。返回不可用模型。",
+            model_path,
+        )
+        return MiniCPMModel()
+    llama_cpp = optional_import("llama_cpp")
+    if llama_cpp is None:
+        logger.warning(
+            "llama-cpp-python 未安装，GGUF 后端不可用。返回不可用模型；安装：%s",
+            GGUF_INSTALL_HINT,
+        )
+        return MiniCPMModel()
+    try:
+        llm = llama_cpp.Llama(
+            model_path=model_path,
+            n_ctx=int(os.getenv("GGUF_N_CTX", "8192")),
+            # -1 = 全部层上 GPU（Metal/CUDA 可用时）；纯 CPU 构建自动忽略
+            n_gpu_layers=int(os.getenv("GGUF_N_GPU_LAYERS", "-1")),
+            verbose=False,
+        )
+        logger.info("MiniCPM-o 4.5 GGUF 加载完成（llama.cpp）：%s", model_path)
+        return MiniCPMModel(model=_GgufChatAdapter(llm), processor=None, device="gguf")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("GGUF 模型加载失败（%s）：%s", model_path, exc)
+        return MiniCPMModel()
+
 
 
 def optional_import(name: str) -> Any:
@@ -139,6 +224,10 @@ def load_minicpmo(model_path: Optional[str] = None) -> MiniCPMModel:
     available=False 并记日志，不崩溃——与 /health、evaluator 的 503 逻辑衔接。
     """
     model_path = model_path or settings.model_path
+
+    # GGUF 权重走 llama.cpp 后端（端侧真实推理，无需 transformers/torch）
+    if model_path.lower().endswith(".gguf"):
+        return _load_gguf(model_path)
 
     torch = optional_import("torch")
     transformers = optional_import("transformers")
