@@ -22,13 +22,9 @@ let audioCtx: AudioContext | null = null;
  *  declared by testHooks.ts). Records BEFORE the soundEnabled gate so tests
  *  verify dispatch independent of user audio prefs. Gated on the e2e harness
  *  flag so this unbounded log never grows in a real session. */
-function recordSoundForTests(kind: 'done' | 'permission'): void {
-  if (!isE2E || typeof window === 'undefined') return;
-  if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
-  if (!window.__pixelAgentsTestHooks.playedSounds) {
-    window.__pixelAgentsTestHooks.playedSounds = [];
-  }
-  window.__pixelAgentsTestHooks.playedSounds.push({ kind, at: Date.now() });
+function recordSoundForTests(_kind: 'done' | 'permission'): void {
+  // AgentCorp 移植版：无 E2E 测试钩子（isE2E 恒为 false），此函数为 no-op。
+  return;
 }
 
 export function setSoundEnabled(enabled: boolean): void {
