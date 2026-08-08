@@ -31,6 +31,17 @@ function defaultRecord(agentId: string): LikeRecord {
   return { agentId, count: 0, likedByMe: false, users: [], updatedAt: new Date().toISOString() };
 }
 
+/**
+ * 点赞落库 key：优先 id（templateId），退回 agentId。
+ *
+ * id 在候选整个生命周期内稳定，agentId 只在雇佣后出现。若优先 agentId，
+ * 同一候选会在雇佣前后拿到两个 key，点赞数被拆成两份。
+ * 两者皆空时返回空串，调用方据此禁用交互（store 层也会拒绝空 key）。
+ */
+export function resolveLikeKey(candidate: { id?: string; agentId?: string }): string {
+  return candidate.id || candidate.agentId || '';
+}
+
 export const useLikesStore = create<LikesState>((set, get) => ({
   likes: {},
   toggling: {},
@@ -51,7 +62,8 @@ export const useLikesStore = create<LikesState>((set, get) => ({
   },
 
   toggle: async (agentId) => {
-    if (!agentId) throw new Error('agentId 不能为空');
+    // 空 key 静默返回：调用方多为 void toggle(...)，抛错会变成未捕获的 rejection
+    if (!agentId) return defaultRecord(agentId);
     if (get().toggling[agentId]) return get().likes[agentId] ?? defaultRecord(agentId);
 
     const prev = get().likes[agentId] ?? defaultRecord(agentId);

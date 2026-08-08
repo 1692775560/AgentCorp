@@ -33,7 +33,28 @@ vi.mock('@/services/reactionStore', () => ({
   }),
 }));
 
-import { useLikesStore } from '@/stores/likesStore';
+import { useLikesStore, resolveLikeKey } from '@/stores/likesStore';
+
+describe('resolveLikeKey', () => {
+  it('优先用 id，保证雇佣前后 key 不漂移', () => {
+    // 雇佣前只有 templateId，雇佣后多出 agentId，两者必须解析到同一个 key
+    expect(resolveLikeKey({ id: 'tpl-01' })).toBe('tpl-01');
+    expect(resolveLikeKey({ id: 'tpl-01', agentId: 'agent-99' })).toBe('tpl-01');
+  });
+
+  it('id 缺失时退回 agentId', () => {
+    expect(resolveLikeKey({ agentId: 'agent-99' })).toBe('agent-99');
+  });
+
+  it('id 为空串时不产生空 key', () => {
+    expect(resolveLikeKey({ id: '', agentId: 'agent-99' })).toBe('agent-99');
+  });
+
+  it('两者皆空返回空串，交由调用方禁用交互', () => {
+    expect(resolveLikeKey({})).toBe('');
+    expect(resolveLikeKey({ id: '', agentId: '' })).toBe('');
+  });
+});
 
 describe('likesStore', () => {
   beforeEach(() => {
@@ -82,6 +103,13 @@ describe('likesStore', () => {
     const during = await s.toggle('agent-03');
     expect(during.likedByMe).toBe(false); // 未变化
     useLikesStore.setState({ toggling: {} });
+  });
+
+  it('空 key 静默返回而不抛错（调用方为 void toggle）', async () => {
+    await expect(useLikesStore.getState().toggle('')).resolves.toMatchObject({
+      count: 0,
+      likedByMe: false,
+    });
   });
 
   it('clearError 清空错误', () => {

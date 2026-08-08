@@ -9,12 +9,25 @@
  *   POST /api/favorites/vote        → FavoriteVoteResult（幂等：同 agent+stage+sourceId 409）
  *
  * 存储：electron-store 命名空间 `agentcorp.reactions`（主进程直接读写，
- * 与渲染层 reactionStore 共用同一命名空间）。users/voters/votedBy 为
- * 后端聚合预留字段，当前本地实现恒空 / 'default'。
+ * 与渲染层 reactionStore 共用同一命名空间）。
+ *
+ * 跨用户聚合：配置 AGENTCORP_REACTIONS_API 后，count 以远端聚合值为准
+ * （read-through），likedByMe 始终取本地态。远端不可用则纯本地降级，
+ * 交互不受影响。详见 electron/api/reactions-remote.ts。
  */
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseJsonBody, sendJson } from '../route-utils';
 import type { HostApiContext } from '../context';
+import {
+  deriveVoterId,
+  fetchRemoteFavorites,
+  fetchRemoteLike,
+  isRemoteEnabled,
+  mergeLikeCount,
+  pushRemoteFavorite,
+  pushRemoteLike,
+} from '../reactions-remote';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let reactionStoreInstance: any = null;
@@ -58,6 +71,22 @@ function favKey(jobType: string, agentId: string): string {
   return `${jobType}:${agentId}`;
 }
 
+/**
+ * 本机稳定的匿名投票者标识，落在 reactions store 的 `voterSeed` 键。
+ *
+ * 用随机 UUID 而非设备指纹：远端只需要「同一台机器是同一个人」，
+ * 不需要能反查设备。首次生成后持久化，重启保持一致，否则会重复计数。
+ */
+async function getVoterId(): Promise<string> {
+  const store = await getReactionStore();
+  let seed = store.get('voterSeed') as string | undefined;
+  if (!seed) {
+    seed = randomUUID();
+    store.set('voterSeed', seed);
+  }
+  return deriveVoterId(seed);
+}
+
 async function readShape() {
   const store = await getReactionStore();
   const raw = (store.store ?? {}) as Record<string, unknown>;
@@ -86,14 +115,20 @@ async function handleGetLike(agentId: string, res: ServerResponse): Promise<void
     return;
   }
   const shape = await readShape();
-  const record = shape.likes[agentId] ?? {
+  const local = shape.likes[agentId] ?? {
     agentId,
     count: 0,
     likedByMe: false,
     users: [],
     updatedAt: nowIso(),
   };
-  sendJson(res, 200, record);
+  // 远端为跨用户 count 的权威来源；likedByMe 只有本地知道
+  const remote = isRemoteEnabled() ? await fetchRemoteLike(agentId) : null;
+  sendJson(res, 200, {
+    ...local,
+    count: mergeLikeCount(local.count, remote),
+    remote: remote !== null,
+  });
 }
 
 /** POST /api/likes/:agentId/toggle */
@@ -119,7 +154,19 @@ async function handleToggleLike(agentId: string, res: ServerResponse): Promise<v
   };
   shape.likes[agentId] = next;
   await writeShape(shape);
-  sendJson(res, 200, next);
+
+  // 本地写入已完成，远端上报失败不回滚：宁可远端少一票，也不让用户的点赞失效
+  if (isRemoteEnabled()) {
+    const voterId = await getVoterId();
+    const remote = await pushRemoteLike(agentId, next.likedByMe ? 1 : -1, voterId);
+    sendJson(res, 200, {
+      ...next,
+      count: mergeLikeCount(next.count, remote),
+      remote: remote !== null,
+    });
+    return;
+  }
+  sendJson(res, 200, { ...next, remote: false });
 }
 
 /** GET /api/favorites?jobType= */
@@ -138,7 +185,20 @@ async function handleGetFavorites(jobType: string | null, res: ServerResponse): 
       voters: agg.voters ?? [],
     }))
     .sort((a, b) => b.count - a.count);
-  sendJson(res, 200, { jobType, ranking });
+
+  // 远端可用时以远端榜为准（本地榜只反映本机投票，跨用户无意义）
+  const remote = isRemoteEnabled() ? await fetchRemoteFavorites(jobType) : null;
+  if (remote) {
+    sendJson(res, 200, {
+      jobType,
+      ranking: remote
+        .map((e) => ({ agentId: e.agentId, count: e.count, voters: [] as string[] }))
+        .sort((a, b) => b.count - a.count),
+      remote: true,
+    });
+    return;
+  }
+  sendJson(res, 200, { jobType, ranking, remote: false });
 }
 
 /** POST /api/favorites/vote */
@@ -196,11 +256,29 @@ async function handleVoteFavorite(req: IncomingMessage, res: ServerResponse): Pr
     ts: nowIso(),
   });
   await writeShape(shape);
+
+  let count = agg.count;
+  let remoteOk = false;
+  if (isRemoteEnabled()) {
+    const voterId = await getVoterId();
+    const remote = await pushRemoteFavorite({
+      agentId: body.agentId,
+      jobType: body.jobType,
+      stage,
+      sourceId,
+      voterId,
+    });
+    if (remote && typeof remote.count === 'number') {
+      count = remote.count;
+      remoteOk = true;
+    }
+  }
   sendJson(res, 200, {
     agentId: body.agentId,
     jobType: body.jobType,
-    count: agg.count,
+    count,
     voted: true,
+    remote: remoteOk,
   });
 }
 

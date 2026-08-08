@@ -35,6 +35,7 @@ import { budgetRefOf, matchScore, sortByMatch } from '@/engine/marketplace/match
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useScoringStore } from '@/stores/scoringStore';
 import { getFavorites, getLike } from '@/services/reactionStore';
+import { resolveLikeKey } from '@/stores/likesStore';
 
 /** 排序方式：智能匹配 / 初审分 / 报价 / 性价比 */
 export type MarketSortKey = 'match' | 'review' | 'budget' | 'costperf';
@@ -333,7 +334,7 @@ export const useMarketplaceStore = create<MarketplaceState>((set, get) => ({
     const [rankings, likes] = await Promise.all([
       Promise.all([...jobs].map((j) => getFavorites(j).catch(() => null))),
       Promise.all(
-        candidates.map((c) => getLike(c.agentId ?? c.id).catch(() => null)),
+        candidates.map((c) => getLike(resolveLikeKey(c)).catch(() => null)),
       ),
     ]);
     const rankByAgent = new Map<string, number>();
@@ -352,7 +353,7 @@ export const useMarketplaceStore = create<MarketplaceState>((set, get) => ({
     });
 
     const enriched: MarketCandidateView[] = candidates.map((c) => {
-      const key = c.agentId ?? c.id;
+      const key = resolveLikeKey(c);
       const like = likeByAgent.get(key);
       return {
         ...c,

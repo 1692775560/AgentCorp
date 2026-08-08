@@ -18,7 +18,7 @@ import { RadarChartView } from '@/pages/Evaluation/RadarChart';
 import { MatchScoreBadge } from '@/components/marketplace/MatchScoreBadge';
 import { BossFavoriteBadge } from '@/components/marketplace/BossFavoriteBadge';
 import { RADAR_SOURCE_LABELS, type RadarSourceKind } from '@/engine/marketplace/radarSource';
-import { useLikesStore } from '@/stores/likesStore';
+import { useLikesStore, resolveLikeKey } from '@/stores/likesStore';
 import type { MarketCandidateView } from '@/types/marketplace';
 import type { Verdict } from '@/types/evaluation';
 import type { JobType } from '@/types/evaluation';
@@ -67,7 +67,7 @@ export function MarketCandidateCard({
   const hasRadar = !!resolution.radar;
 
   // 小红心：B 站式点赞（类 B 站点赞），本地持久化经 reactionStore
-  const likeKey = candidate.agentId ?? candidate.id;
+  const likeKey = resolveLikeKey(candidate);
   const like = useLikesStore((s) => s.likes[likeKey]);
   const toggling = useLikesStore((s) => s.toggling[likeKey]);
   const hydrateLike = useLikesStore((s) => s.hydrate);
@@ -207,7 +207,7 @@ export function MarketCandidateCard({
           <button
             type="button"
             onClick={() => void toggleLike(likeKey)}
-            disabled={!!toggling}
+            disabled={!!toggling || !likeKey}
             aria-label={likedByMe ? '取消点赞' : '点赞'}
             className={cn(
               'flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-transform',
