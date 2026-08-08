@@ -204,6 +204,11 @@ export async function getFavorites(jobType: JobType): Promise<FavoriteRanking> {
       `/api/favorites?jobType=${encodeURIComponent(jobType)}`,
     );
   } catch {
+    // Web 预览无 Electron / electron-store：直接返回空排名，避免 getFavoritesLocal
+    // 初始化 electron-store 抛错导致市集赛道卡「加载失败」。
+    if (isBrowserPreviewMode()) {
+      return { jobType, ranking: [] };
+    }
     return getFavoritesLocal(jobType);
   }
 }
