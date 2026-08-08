@@ -47,6 +47,39 @@ export function PixelOffice({ roster, onSelectAgent }: PixelOfficeProps) {
   const [zoom, setZoom] = useState(1);
   const [ready, setReady] = useState(false);
   const dispatchedRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // 用户是否手动缩放过；一旦手动缩放，就不再自动 fit（尊重用户操作）
+  const userZoomedRef = useRef(false);
+
+  const TILE = 16;
+
+  /**
+   * 计算「铺满容器」的缩放：让整张办公室地图在当前容器里尽量大且完整可见
+   * （contain 策略，不裁剪）。渲染工作在设备像素下进行，故按 dpr 换算。
+   */
+  const fitZoom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const layout = officeState.getLayout();
+    if (!layout || !layout.cols || !layout.rows) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = container.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const deviceW = rect.width * dpr;
+    const deviceH = rect.height * dpr;
+    const mapW = layout.cols * TILE;
+    const mapH = layout.rows * TILE;
+    // contain：整图可见；留极小边距(0.98)避免贴边裁切
+    const next = Math.min(deviceW / mapW, deviceH / mapH) * 0.98;
+    if (!Number.isFinite(next) || next <= 0) return;
+    panRef.current = { x: 0, y: 0 }; // renderFrame 会据此居中
+    setZoom(next);
+  }, [officeState]);
+
+  const handleZoomChange = useCallback((z: number) => {
+    userZoomedRef.current = true;
+    setZoom(z);
+  }, []);
 
   const candidates: PixelCandidate[] = useMemo(
     () => rosterToPixelCandidates(roster),
@@ -125,8 +158,25 @@ export function PixelOffice({ roster, onSelectAgent }: PixelOfficeProps) {
     [onSelectAgent],
   );
 
+  // 就绪后自动 fit 一次；容器尺寸变化时（若用户未手动缩放）重新 fit 铺满
+  useEffect(() => {
+    if (!ready) return;
+    const container = containerRef.current;
+    if (!container) return;
+    // 首次 fit（下一帧，确保布局已就绪并完成首帧渲染）
+    const raf = requestAnimationFrame(() => fitZoom());
+    const observer = new ResizeObserver(() => {
+      if (!userZoomedRef.current) fitZoom();
+    });
+    observer.observe(container);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [ready, fitZoom]);
+
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
       <OfficeCanvas
         officeState={officeState}
         onClick={handleClick}
@@ -140,7 +190,7 @@ export function PixelOffice({ roster, onSelectAgent }: PixelOfficeProps) {
         onDragMove={noop}
         editorTick={0}
         zoom={zoom}
-        onZoomChange={setZoom}
+        onZoomChange={handleZoomChange}
         panRef={panRef}
         showAreas
         activeAreaLabel={null}
