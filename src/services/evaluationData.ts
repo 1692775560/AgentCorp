@@ -7,7 +7,7 @@
  * 本模块只做 HTTP 调用与类型收窄。
  */
 import { hostApiFetch } from '@/lib/host-api';
-import type { TelemetryEvent } from '@/types/evaluation';
+import type { A2aTraceRecord, TelemetryEvent } from '@/types/evaluation';
 import type { TokenUsageHistoryEntry } from '@electron/utils/token-usage-core';
 
 /** 会话下拉框选项（与主进程 AgentSessionOption 对应） */
@@ -22,6 +22,8 @@ export interface RunData {
   events: TelemetryEvent[];
   transcript: string;
   entries: TokenUsageHistoryEntry[];
+  /** 本次运行关联到的 A2A 委派 trace（仅加法；供 judge 证据引用 trace_id） */
+  traces: A2aTraceRecord[];
 }
 
 interface HostResponse {
@@ -50,5 +52,6 @@ export async function collectRunData(agentId: string, sessionId: string): Promis
     events: res.events ?? [],
     transcript: res.transcript ?? '',
     entries: res.entries ?? [],
+    traces: res.traces ?? [],
   };
 }
