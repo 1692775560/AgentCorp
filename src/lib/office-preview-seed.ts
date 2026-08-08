@@ -181,6 +181,80 @@ function toProfile(spec: SeedSpec): EvaluationProfile {
 
 let seeded = false;
 
+/** 市集模板视图（与 pages/Marketplace 的 MarketplaceTemplate 结构一致，供预览回退）。 */
+export interface PreviewMarketplaceTemplate {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+  vibe: string;
+  role: string;
+  hireType: 'single' | 'team';
+  capabilities: string[];
+  tags: string[];
+  price: string;
+  avatar: string;
+  rating: number;
+  hiredCount: number;
+}
+
+/** 工种 → 市集标签/角色。 */
+const JOB_TAG: Record<JobType, { role: string; tags: string[]; emoji: string; vibe: string }> = {
+  code: { role: '工程师', tags: ['代码审查', '数据分析'], emoji: '⚙️', vibe: '严谨高效' },
+  text: { role: '产品/文案', tags: ['内容创作', 'SOP', '增长'], emoji: '📝', vibe: '条理清晰' },
+  image: { role: '设计师', tags: ['内容创作', '营销'], emoji: '🎨', vibe: '富有创意' },
+};
+
+/**
+ * Web 预览用市集模板（由同一批种子 agent 生成，使人才市集与 Office 数据一致）。
+ * 单个 agent → 雇佣员工(single)；另附三条团队(team)模板填充「雇佣团队」。
+ */
+export function getPreviewMarketplaceTemplates(): PreviewMarketplaceTemplate[] {
+  const singles: PreviewMarketplaceTemplate[] = SEEDS.filter((s) => s.verdict !== 'FIRED').map(
+    (s) => {
+      const meta = JOB_TAG[s.jobType];
+      return {
+        id: s.id,
+        name: s.name,
+        description: s.responsibility,
+        emoji: meta.emoji,
+        vibe: meta.vibe,
+        role: meta.role,
+        hireType: 'single' as const,
+        capabilities: [s.responsibility],
+        tags: meta.tags,
+        price: s.verdict === 'MVP' ? '¥399/月' : '¥199/月',
+        avatar: meta.emoji,
+        rating: Math.round((s.base / 5) * 50) / 10,
+        hiredCount: Math.round(s.base * 120),
+      };
+    },
+  );
+
+  const teams: PreviewMarketplaceTemplate[] = [
+    {
+      id: 'team-eng', name: '工程铁三角', description: '后端 + 全栈 + 基础设施，端到端交付产品',
+      emoji: '⚙️', vibe: '稳定可靠', role: '工程团队', hireType: 'team',
+      capabilities: ['架构设计', 'CI/CD', '可观测性'], tags: ['代码审查', 'SOP'],
+      price: '¥1299/月', avatar: '⚙️', rating: 4.8, hiredCount: 320,
+    },
+    {
+      id: 'team-growth', name: '增长突击队', description: '产品规划 + 文案 + 营销，一条龙做增长',
+      emoji: '🚀', vibe: '敏捷进取', role: '增长团队', hireType: 'team',
+      capabilities: ['路线图', '增长叙事', '投放'], tags: ['增长', '营销', '内容创作'],
+      price: '¥999/月', avatar: '🚀', rating: 4.6, hiredCount: 210,
+    },
+    {
+      id: 'team-design', name: '设计梦之队', description: '视觉 + 交互 + 动效，打造完整体验',
+      emoji: '🎨', vibe: '审美在线', role: '设计团队', hireType: 'team',
+      capabilities: ['品牌系统', '交互设计', '动效'], tags: ['内容创作', '营销'],
+      price: '¥1099/月', avatar: '🎨', rating: 4.7, hiredCount: 180,
+    },
+  ];
+
+  return [...singles, ...teams];
+}
+
 /** 注入种子数据（幂等；仅在 web 预览模式下调用）。 */
 export function seedOfficePreviewData(): void {
   if (seeded) return;

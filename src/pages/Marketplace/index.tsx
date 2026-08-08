@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { invokeIpc } from '@/lib/api-client';
+import { isBrowserPreviewMode } from '@/lib/browser-preview';
+import { getPreviewMarketplaceTemplates } from '@/lib/office-preview-seed';
 // —— 模块 A 增量：智能匹配（六维解析 + matchScore 排序 + S1 初审）——
 import {
   useMarketplaceStore,
