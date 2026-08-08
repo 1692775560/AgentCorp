@@ -34,6 +34,13 @@ os.environ.setdefault("MOCK", "true")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.config import settings  # noqa: E402
+
+# serve.py 在 import 时 makedirs(settings.upload_dir)（默认 /app/uploads，本机只读）；
+# settings 可能已被先前测试模块实例化，直接覆写属性（与 test_http.py 同法）
+import tempfile  # noqa: E402
+
+settings.upload_dir = tempfile.mkdtemp(prefix="agentcorp-test-uploads-")
+
 from app.routes import leaderboard as lb_routes  # noqa: E402
 from app.serve import app  # noqa: E402
 

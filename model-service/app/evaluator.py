@@ -167,18 +167,57 @@ def parse_output(raw: str) -> Dict:
     except json.JSONDecodeError as exc:
         raise ValueError(f"无法解析模型输出为 JSON：{exc}") from exc
 
-    # 规整 radar
+    def _safe_float(value: object, default: float = 0.0) -> float:
+        """
+        真实模型输出的分数可能是文本/区间/嵌套对象，尽力提取数值：
+        - 数字 → 直接用；
+        - 字符串含数字（"4分" / "4/5" / "约3.5"）→ 取首个数值；
+        - dict 含 score/value 键 → 取该键再递归；
+        - 其余回退默认值。
+        """
+        if isinstance(value, dict):
+            for key in ("score", "value"):
+                if key in value:
+                    return _safe_float(value[key], default)
+            return default
+        try:
+            return float(value)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            pass
+        if isinstance(value, str):
+            m = re.search(r"-?\d+(?:\.\d+)?", value)
+            if m:
+                return float(m.group(0))
+        return default
+
+    # 规整 radar（逐维安全转换 + 裁剪到 0–5，容忍量化模型的输出噪声）
     radar_raw = data.get("radar", {})
+    if not isinstance(radar_raw, dict):
+        radar_raw = {}
     radar = RadarScore(
-        task=float(radar_raw.get("task", 0.0)),
-        quality=float(radar_raw.get("quality", 0.0)),
-        comm=float(radar_raw.get("comm", 0.0)),
-        creativity=float(radar_raw.get("creativity", 0.0)),
-        reliability=float(radar_raw.get("reliability", 0.0)),
-        cost=float(radar_raw.get("cost", 0.0)),
+        task=_clamp(_safe_float(radar_raw.get("task"))),
+        quality=_clamp(_safe_float(radar_raw.get("quality"))),
+        comm=_clamp(_safe_float(radar_raw.get("comm"))),
+        creativity=_clamp(_safe_float(radar_raw.get("creativity"))),
+        reliability=_clamp(_safe_float(radar_raw.get("reliability"))),
+        cost=_clamp(_safe_float(radar_raw.get("cost"))),
     )
-    verdict = Verdict(data.get("verdict", "OBSERVE"))
-    confidence = float(data.get("confidence", 0.0))
+    # 量纲救援：小型量化模型常把 0-5 分输出成 0-1 小数——
+    # 六维全部落在 (0,1] 时按比例 ×5（至少一维 >1 则认为量纲正确，不动）
+    _vals = [float(getattr(radar, d)) for d in ("task", "quality", "comm", "creativity", "reliability", "cost")]
+    if any(v > 0 for v in _vals) and all(v <= 1.0 for v in _vals):
+        radar = RadarScore(
+            task=_clamp(_vals[0] * 5),
+            quality=_clamp(_vals[1] * 5),
+            comm=_clamp(_vals[2] * 5),
+            creativity=_clamp(_vals[3] * 5),
+            reliability=_clamp(_vals[4] * 5),
+            cost=_clamp(_vals[5] * 5),
+        )
+    # verdict 只接受合法枚举，其余回退 OBSERVE（真实模型可能输出意外文本）
+    verdict_raw = str(data.get("verdict", "OBSERVE")).upper()
+    verdict = Verdict(verdict_raw) if verdict_raw in {v.value for v in Verdict} else Verdict.OBSERVE
+    confidence = max(0.0, min(1.0, _safe_float(data.get("confidence"), 0.5)))
     evidence = list(data.get("evidence_trace", []))
     narration = str(data.get("narration", ""))
     audio_script = str(data.get("audio_script", narration))
@@ -761,10 +800,13 @@ def _build_run_prompt(req: JudgeRunRequest) -> str:
         f"任务：{req.task.title}（{req.task.description}）\n"
         f"真实用量：tokens={total_tokens}，cost=${total_cost:.4f}，样本数={len(usage)}\n"
         f"转录片段：\n{snippet}\n\n"
-        "请基于上述真实运行数据，输出 JSON："
-        "{\"radar\":{task,quality,comm,creativity,reliability,cost},"
-        "\"verdict\":\"MVP|OBSERVE|FIRED\",\"confidence\":0-1,"
-        "\"evidence_trace\":[...],\"narration\":\"...\"}"
+        "请基于上述真实运行数据，输出 JSON（注意：radar 每个维度打 0 到 5 分，"
+        "0 最差、5 最好，可保留一位小数，禁止使用 0 到 1 的小数；"
+        "verdict 只能从 MVP、OBSERVE、FIRED 中选一个填入）："
+        "{\"radar\":{\"task\":0-5,\"quality\":0-5,\"comm\":0-5,"
+        "\"creativity\":0-5,\"reliability\":0-5,\"cost\":0-5},"
+        "\"verdict\":\"MVP\",\"confidence\":0-1,"
+        "\"evidence_trace\":[\"...\"],\"narration\":\"...\"}"
     )
 
 
@@ -855,6 +897,16 @@ async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
     media = {"transcript": req.transcript, "usage": req.usage}
     raw = infer(media, messages)
     parsed = parse_output(raw)
+
+    # 一致性护栏：量化小模型的 verdict 可能与自身雷达矛盾
+    # （如五维满分却判 FIRED）——以雷达推导的判定为准并留痕
+    derived_verdict = _verdict_from_radar(parsed["radar"])
+    if parsed["verdict"] != derived_verdict:
+        parsed["evidence_trace"].append(
+            f"一致性护栏：模型判定 {parsed['verdict'].value} 与雷达均值矛盾，"
+            f"以雷达推导 {derived_verdict.value} 为准"
+        )
+        parsed["verdict"] = derived_verdict
 
     for dim in RADAR_DIMS:
         yield {

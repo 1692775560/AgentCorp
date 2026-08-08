@@ -10,9 +10,12 @@
  *   · 本地预览 = 0.7×客观合成 + 0.3×主观均值×20（S3 preset obj/sub=0.7/0.3），
  *     其中客观合成按 scoringStore.userWeight（用户心智权重）对六维加权 →
  *     「绩效 → 市场权重回灌」链路（§7.3）在双轨卡上的可见化。
+ *
+ * i18n：用户可见文案走 common:evaluation.dual.*。
  */
 import { useMemo } from 'react';
 import { Scale } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { SubjectiveScorePanel } from '@/components/evaluation/SubjectiveScorePanel';
 import { useEvaluationStore } from '@/stores/evaluation';
@@ -63,6 +66,7 @@ function MetricBar({
 }
 
 export function DualTrackScoreCard({ agentId }: Props) {
+  const { t } = useTranslation('common');
   const profile = useEvaluationStore((s) => (agentId ? s.profiles[agentId] : undefined));
   const stageScore = useScoringStore((s) =>
     agentId ? (s.stageScores[agentId] as StageScore | undefined) : undefined,
@@ -117,7 +121,7 @@ export function DualTrackScoreCard({ agentId }: Props) {
   if (!agentId) {
     return (
       <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">
-        从左侧选择一个 agent 查看 S3 双轨评分。
+        {t('evaluation.dual.selectHint', '从左侧选择一个 agent 查看 S3 双轨评分。')}
       </div>
     );
   }
@@ -130,12 +134,17 @@ export function DualTrackScoreCard({ agentId }: Props) {
           <Scale className="h-4 w-4 text-[#FFD233]" />
           <div>
             <p className="text-[13px] font-bold text-[#1A1C1E] dark:text-white">
-              S3 加权综合分
+              {t('evaluation.dual.weightedTotal', 'S3 加权综合分')}
             </p>
             <p className="text-[11px] text-gray-400">
-              客观 {Math.round(S3_OBJECTIVE_WEIGHT * 100)}% + 主观{' '}
-              {Math.round(S3_SUBJECTIVE_WEIGHT * 100)}%（rules preset）·{' '}
-              {authoritative ? '来源：/api/evaluate-stage 评分卡' : '本地预览（未装配评分卡）'}
+              {t('evaluation.dual.weightNote', {
+                obj: Math.round(S3_OBJECTIVE_WEIGHT * 100),
+                sub: Math.round(S3_SUBJECTIVE_WEIGHT * 100),
+                source: authoritative
+                  ? t('evaluation.dual.sourceCard', '来源：/api/evaluate-stage 评分卡')
+                  : t('evaluation.dual.sourcePreview', '本地预览（未装配评分卡）'),
+                defaultValue: '客观 {{obj}}% + 主观 {{sub}}%（rules preset）· {{source}}',
+              })}
             </p>
           </div>
         </div>
@@ -164,43 +173,43 @@ export function DualTrackScoreCard({ agentId }: Props) {
         <section className="min-w-[280px] flex-1 space-y-3 rounded-2xl border border-white/40 bg-white/60 p-4 dark:bg-white/5">
           <div>
             <h3 className="text-[13px] font-bold text-[#1A1C1E] dark:text-white">
-              客观轨 · 真实遥测
+              {t('evaluation.dual.objectiveTrack', '客观轨 · 真实遥测')}
             </h3>
             <p className="text-[11px] text-gray-400">
-              来自 KPI/ROI 聚合（不掺主观）· 客观合成{' '}
+              {t('evaluation.dual.objNotePre', '来自 KPI/ROI 聚合（不掺主观）· 客观合成')}{' '}
               <span className="font-bold text-[#1A1C1E] dark:text-white">
                 {objectiveComposite == null ? '—' : objectiveComposite.toFixed(1)}
               </span>
-              （六维 × 用户心智权重）
+              {t('evaluation.dual.objNotePost', '（六维 × 用户心智权重）')}
             </p>
           </div>
           {kpi || roi ? (
             <div className="space-y-2.5">
               <MetricBar
-                label="任务完成度 TCR"
+                label={t('evaluation.dual.metricTcr', '任务完成度 TCR')}
                 display={kpi ? `${(kpi.task_completion_rate * 100).toFixed(0)}%` : '—'}
                 ratio={kpi ? kpi.task_completion_rate : null}
               />
               <MetricBar
-                label="一次成功率 FSR"
+                label={t('evaluation.dual.metricFsr', '一次成功率 FSR')}
                 display={kpi ? `${(kpi.first_success_rate * 100).toFixed(0)}%` : '—'}
                 ratio={kpi ? kpi.first_success_rate : null}
               />
               <MetricBar
-                label="返工率 RR（越低越好）"
+                label={t('evaluation.dual.metricRr', '返工率 RR（越低越好）')}
                 display={kpi ? `${(kpi.rework_rate * 100).toFixed(0)}%` : '—'}
                 ratio={kpi ? kpi.rework_rate : null}
                 invert
               />
               <MetricBar
-                label="思考/交付时延 ADL"
+                label={t('evaluation.dual.metricAdl', '思考/交付时延 ADL')}
                 display={kpi ? `${(kpi.avg_delivery_latency_ms / 1000).toFixed(1)}s` : '—'}
                 // 归一：60s 记满格（越长越差）
                 ratio={kpi ? Math.min(1, kpi.avg_delivery_latency_ms / 60_000) : null}
                 invert
               />
               <MetricBar
-                label="token 成本当量 C_total"
+                label={t('evaluation.dual.metricCost', 'token 成本当量 C_total')}
                 display={roi ? roi.cost_total.toFixed(1) : '—'}
                 // 归一：以价值当量为参照，成本占比越高越差
                 ratio={
@@ -211,14 +220,14 @@ export function DualTrackScoreCard({ agentId }: Props) {
                 invert
               />
               <MetricBar
-                label="ROI（性价比 0–5 归一）"
+                label={t('evaluation.dual.metricRoi', 'ROI（性价比 0–5 归一）')}
                 display={roi ? roi.roi.toFixed(2) : '—'}
                 ratio={roi ? roi.cost_perf_score / 5 : null}
               />
             </div>
           ) : (
             <p className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-center text-[12px] text-gray-400">
-              暂无客观遥测。请先在左侧「运行评估」。
+              {t('evaluation.dual.noTelemetry', '暂无客观遥测。请先在左侧「运行评估」。')}
             </p>
           )}
         </section>
@@ -227,11 +236,11 @@ export function DualTrackScoreCard({ agentId }: Props) {
         <section className="min-w-[280px] flex-1">
           <SubjectiveScorePanel agentId={agentId} stage="performance" />
           <p className="mt-2 px-1 text-[11px] text-gray-400">
-            主观合成{' '}
+            {t('evaluation.dual.subNotePre', '主观合成')}{' '}
             <span className="font-bold text-[#1A1C1E] dark:text-white">
               {subjectiveComposite == null ? '—' : subjectiveComposite.toFixed(1)}
             </span>
-            （sub_* 均值 × 20）· 打分即产生偏好信号，回灌用户心智权重。
+            {t('evaluation.dual.subNotePost', '（sub_* 均值 × 20）· 打分即产生偏好信号，回灌用户心智权重。')}
           </p>
         </section>
       </div>

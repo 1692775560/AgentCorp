@@ -2,6 +2,8 @@
  * src/pages/Evaluation/RadarChart.tsx
  * 六维雷达图（task/quality/comm/creativity/reliability/cost）。
  * 使用 recharts 的 RadarChart，分值范围 0–5。
+ *
+ * i18n：维度名与序列名走 common:evaluation.dims.* / seriesBaseline / seriesScore。
  */
 import {
   Radar,
@@ -11,6 +13,7 @@ import {
   PolarRadiusAxis,
   ResponsiveContainer,
 } from 'recharts';
+import { useTranslation } from 'react-i18next';
 
 import type { RadarScore } from '@/types/evaluation';
 
@@ -21,7 +24,18 @@ export interface RadarChartProps {
   height?: number;
 }
 
-const DIM_LABELS: Record<keyof RadarScore, string> = {
+/** 六维键序（渲染顺序固定，标签由 i18n 提供） */
+const DIM_KEYS: Array<keyof RadarScore> = [
+  'task',
+  'quality',
+  'comm',
+  'creativity',
+  'reliability',
+  'cost',
+];
+
+/** 六维 zh 默认标签（i18n defaultValue，与 common.json evaluation.dims 一致） */
+const DIM_DEFAULTS: Record<keyof RadarScore, string> = {
   task: '任务',
   quality: '质量',
   comm: '沟通',
@@ -55,17 +69,22 @@ interface RadarDatum {
  * 多序列叠加的正确做法是把所有序列合并进 <RadarChart data>，
  * 再由各 <Radar> 用不同 dataKey 取值。
  */
-function toSeries(score: RadarScore | null, baseline?: RadarScore | null): RadarDatum[] {
+function toSeries(
+  score: RadarScore | null,
+  baseline: RadarScore | null | undefined,
+  dimLabel: (dim: keyof RadarScore) => string,
+): RadarDatum[] {
   const s: RadarScore = score ?? EMPTY_SCORE;
-  return (Object.keys(DIM_LABELS) as Array<keyof RadarScore>).map((dim) => ({
-    dim: DIM_LABELS[dim],
+  return DIM_KEYS.map((dim) => ({
+    dim: dimLabel(dim),
     score: s[dim],
     ...(baseline ? { baseline: baseline[dim] } : {}),
   }));
 }
 
 export function RadarChartView({ score, baseline, height = 280 }: RadarChartProps) {
-  const data = toSeries(score, baseline);
+  const { t } = useTranslation('common');
+  const data = toSeries(score, baseline, (dim) => t(`evaluation.dims.${dim}`, DIM_DEFAULTS[dim]));
   const hasBaseline = Boolean(baseline);
 
   return (
@@ -82,7 +101,7 @@ export function RadarChartView({ score, baseline, height = 280 }: RadarChartProp
           />
           {hasBaseline ? (
             <Radar
-              name="基线"
+              name={t('evaluation.seriesBaseline', '基线')}
               dataKey="baseline"
               stroke="#94a3b8"
               fill="#94a3b8"
@@ -91,7 +110,7 @@ export function RadarChartView({ score, baseline, height = 280 }: RadarChartProp
             />
           ) : null}
           <Radar
-            name="评分"
+            name={t('evaluation.seriesScore', '评分')}
             dataKey="score"
             stroke="#FFD233"
             fill="#FFD233"

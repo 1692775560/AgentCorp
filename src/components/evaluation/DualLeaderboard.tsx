@@ -19,6 +19,8 @@
  * - Divider          → ui/separator（Radix）。
  * @dnd-kit 拖拽逻辑、onReorder（T8 回灌）与 setAnchor（T19 锚点回填）**原样保留**；
  * props 契约不变（stage / jobType），调用方零适配。
+ *
+ * i18n：用户可见文案走 common:evaluation.dual.*。
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
@@ -36,6 +38,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useTranslation } from 'react-i18next';
 
 import { Separator } from '@/components/ui/separator';
 import { useScoringStore } from '@/stores/scoringStore';
@@ -61,6 +64,7 @@ function SortableRow({
   divergent: boolean;
   rank: number;
 }) {
+  const { t } = useTranslation('common');
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: entry.agentId,
   });
@@ -85,7 +89,11 @@ function SortableRow({
           #{rank} {entry.name || entry.agentId}
         </p>
         <p className="text-[11px] text-gray-400">
-          主观分 {entry.subjectiveScore.toFixed(1)} · 客观序 #{entry.objectiveRank}
+          {t('evaluation.dual.subScoreLine', {
+            score: entry.subjectiveScore.toFixed(1),
+            rank: entry.objectiveRank,
+            defaultValue: '主观分 {{score}} · 客观序 #{{rank}}',
+          })}
         </p>
       </div>
       {divergent ? (
@@ -114,6 +122,7 @@ const TIER_CLS: Record<string, string> = {
 };
 
 export function DualLeaderboard({ stage, jobType }: Props) {
+  const { t } = useTranslation('common');
   const dualLeaderboard = useScoringStore((s) => s.dualLeaderboard);
   const loadDualLeaderboard = useScoringStore((s) => s.loadDualLeaderboard);
   const onReorder = useScoringStore((s) => s.onReorder);
@@ -168,17 +177,19 @@ export function DualLeaderboard({ stage, jobType }: Props) {
   }
 
   if (!dualLeaderboard) {
-    return <p className="text-[13px] text-gray-400">加载双 Leaderboard…</p>;
+    return (
+      <p className="text-[13px] text-gray-400">{t('evaluation.dual.loading', '加载双 Leaderboard…')}</p>
+    );
   }
 
   return (
     <div className="flex flex-wrap gap-4">
       {/* 客观榜 */}
-      <BoardCard title="客观榜（按客观分排序，不可拖拽）">
+      <BoardCard title={t('evaluation.dual.objBoardTitle', '客观榜（按客观分排序，不可拖拽）')}>
         <ul className="space-y-1.5">
           {dualLeaderboard.objective.length === 0 ? (
             <li className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-center text-[12px] text-gray-400">
-              暂无客观榜数据。
+              {t('evaluation.dual.objEmpty', '暂无客观榜数据。')}
             </li>
           ) : (
             dualLeaderboard.objective.map((e) => (
@@ -190,7 +201,9 @@ export function DualLeaderboard({ stage, jobType }: Props) {
                   <p className="truncate text-[13px] font-bold text-[#1A1C1E] dark:text-white">
                     #{e.rank} {e.name || e.agentId}
                   </p>
-                  <p className="text-[11px] text-gray-400">客观分 {e.objectiveScore.toFixed(1)}</p>
+                  <p className="text-[11px] text-gray-400">
+                    {t('evaluation.dual.objScorePre', '客观分')} {e.objectiveScore.toFixed(1)}
+                  </p>
                 </div>
                 <span
                   className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -206,13 +219,13 @@ export function DualLeaderboard({ stage, jobType }: Props) {
       </BoardCard>
 
       {/* 主观榜（可拖拽） */}
-      <BoardCard title="主观榜（拖拽重排 = 偏好 overlay）">
+      <BoardCard title={t('evaluation.dual.subBoardTitle', '主观榜（拖拽重排 = 偏好 overlay）')}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={subList.map((e) => e.agentId)} strategy={verticalListSortingStrategy}>
             <ul className="space-y-1.5">
               {subList.length === 0 ? (
                 <li className="rounded-xl border border-dashed border-gray-300 px-3 py-4 text-center text-[12px] text-gray-400">
-                  暂无主观榜数据。
+                  {t('evaluation.dual.subEmpty', '暂无主观榜数据。')}
                 </li>
               ) : (
                 subList.map((e, i) => (
@@ -229,7 +242,7 @@ export function DualLeaderboard({ stage, jobType }: Props) {
         </DndContext>
         <Separator className="my-2 bg-white/60 dark:bg-white/10" />
         <p className="px-1 text-[11px] text-gray-400">
-          拖拽仅为偏好 overlay，不改客观结论。高亮项 = 客观序与拖拽序发散（Δ 为位移）。
+          {t('evaluation.dual.dragNote', '拖拽仅为偏好 overlay，不改客观结论。高亮项 = 客观序与拖拽序发散（Δ 为位移）。')}
         </p>
       </BoardCard>
     </div>

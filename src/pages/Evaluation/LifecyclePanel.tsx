@@ -5,9 +5,14 @@
  *
  * 软退休为「逻辑淘汰」：仅将 lifecycle 置为 RETIRED，不物理删除档案
  * （与 src/types/lifecycle.ts 的软退休约定一致）。回岗置 ACTIVE。
+ *
+ * i18n：五态标签改走 common:evaluation.lifecycle.states.*（不再直接渲染
+ * engine/strategyEngine 的 LIFECYCLE_LABELS 中文常量）。
  */
+import { useTranslation } from 'react-i18next';
+
 import type { LifecycleState } from '@/types/evaluation';
-import { LIFECYCLE_ORDER, LIFECYCLE_LABELS } from '@/engine/strategyEngine';
+import { LIFECYCLE_ORDER } from '@/engine/strategyEngine';
 
 export interface LifecyclePanelProps {
   agentId: string | null;
@@ -25,22 +30,35 @@ const STATE_STYLE: Record<LifecycleState, string> = {
   RETIRED: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300',
 };
 
+/** 五态 zh 默认标签（i18n defaultValue，与 strategyEngine.LIFECYCLE_LABELS 同口径） */
+const STATE_DEFAULTS: Record<LifecycleState, string> = {
+  ONBOARDING: '入职',
+  ACTIVE: '在岗',
+  TRAINING: '培训(PIP)',
+  MAINTENANCE: '替补',
+  RETIRED: '已淘汰',
+};
+
 export function LifecyclePanel({ agentId, state, onSoftRetire, onReactivate, busy }: LifecyclePanelProps) {
+  const { t } = useTranslation('common');
+
   if (!agentId) {
     return (
       <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">
-        选择一个 agent 以查看生命周期。
+        {t('evaluation.lifecycle.empty', '选择一个 agent 以查看生命周期。')}
       </div>
     );
   }
 
   const current = state ?? 'ONBOARDING';
+  const stateLabel = (s: LifecycleState) =>
+    t(`evaluation.lifecycle.states.${s}`, STATE_DEFAULTS[s]);
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
         <span className={`rounded-full px-3 py-1 text-[12px] font-bold ${STATE_STYLE[current]}`}>
-          {LIFECYCLE_LABELS[current]}
+          {stateLabel(current)}
         </span>
         <span className="text-[12px] text-gray-400">{agentId}</span>
       </div>
@@ -56,7 +74,7 @@ export function LifecyclePanel({ agentId, state, onSoftRetire, onReactivate, bus
                 : 'rounded-full bg-white/60 px-2.5 py-1 text-[11px] text-gray-400 dark:bg-white/5'
             }
           >
-            {LIFECYCLE_LABELS[s]}
+            {stateLabel(s)}
           </span>
         ))}
       </div>
@@ -69,7 +87,7 @@ export function LifecyclePanel({ agentId, state, onSoftRetire, onReactivate, bus
           onClick={() => onSoftRetire(agentId)}
           className="flex-1 rounded-full bg-rose-500 px-4 py-2 text-[13px] font-bold text-white shadow-sm transition-all hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          You are fired
+          {t('evaluation.lifecycle.fired', 'You are fired')}
         </button>
         <button
           type="button"
@@ -77,11 +95,11 @@ export function LifecyclePanel({ agentId, state, onSoftRetire, onReactivate, bus
           onClick={() => onReactivate(agentId)}
           className="flex-1 rounded-full bg-emerald-500 px-4 py-2 text-[13px] font-bold text-white shadow-sm transition-all hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          回岗 Reactivate
+          {t('evaluation.lifecycle.reactivate', '回岗 Reactivate')}
         </button>
       </div>
       <p className="text-[11px] leading-relaxed text-gray-400">
-        软退休为逻辑淘汰：仅变更生命周期状态，档案与历史评估保留，可经「回岗」恢复。
+        {t('evaluation.lifecycle.softRetireNote', '软退休为逻辑淘汰：仅变更生命周期状态，档案与历史评估保留，可经「回岗」恢复。')}
       </p>
     </div>
   );

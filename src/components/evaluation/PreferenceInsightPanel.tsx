@@ -7,16 +7,19 @@
  * - dimLift 徽章：不同工种打分倾向经 CRAFT_LINKS 反推出的六维偏好抬升；
  * - 信号数 N 与 top 偏移维摘要（「你更看重哪几维」）。
  * 纯读 scoringStore，零副作用；市场页 matchScore 的 effWeight 用的就是同一份权重。
+ *
+ * i18n：用户可见文案走 common:evaluation.preference.*，六维标签复用 evaluation.dims.*。
  */
 import { useMemo } from 'react';
 import { Brain, TrendingDown, TrendingUp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { useScoringStore, DEFAULT_WEIGHT } from '@/stores/scoringStore';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import type { RadarDim } from '@/types/evaluation';
 
-/** 六维中文标签（与 RadarChart.DIM_LABELS 同口径） */
-const DIM_LABELS: Record<RadarDim, string> = {
+/** 六维 zh 默认标签（i18n defaultValue，与 RadarChart 同口径） */
+const DIM_DEFAULTS: Record<RadarDim, string> = {
   task: '任务',
   quality: '质量',
   comm: '沟通',
@@ -32,12 +35,15 @@ function widthPct(value: number, maxValue: number): number {
 }
 
 export function PreferenceInsightPanel() {
+  const { t } = useTranslation('common');
   const userWeight = useScoringStore((s) => s.userWeight);
   const preferenceProfile = useScoringStore((s) => s.preferenceProfile);
   const signals = useScoringStore((s) => s.preferenceSignals);
 
   const dimLift = preferenceProfile?.dimLift ?? {};
   const signalCount = signals.length;
+
+  const dimLabel = (dim: RadarDim) => t(`evaluation.dims.${dim}`, DIM_DEFAULTS[dim]);
 
   /** 每维偏移（当前 − 基准），排序取 top 偏好摘要 */
   const rows = useMemo(() => {
@@ -71,27 +77,29 @@ export function PreferenceInsightPanel() {
           <Brain className="h-4 w-4 text-[#FFD233]" />
           <div>
             <p className="text-[13px] font-bold text-[#1A1C1E] dark:text-white">
-              用户心智模型 · 六维偏好权重
+              {t('evaluation.preference.title', '用户心智模型 · 六维偏好权重')}
             </p>
             <p className="text-[11px] text-gray-400">
-              双榜拖拽 / 主观打分 → dimLift → 权重回灌（α=0.15，Σ=1 重归一）· 累计信号 N ={' '}
-              {signalCount}
+              {t('evaluation.preference.note', {
+                count: signalCount,
+                defaultValue: '双榜拖拽 / 主观打分 → dimLift → 权重回灌（α=0.15，Σ=1 重归一）· 累计信号 N = {{count}}',
+              })}
             </p>
           </div>
         </div>
         <p className="max-w-[220px] text-right text-[12px] text-gray-500 dark:text-gray-300">
           {topDims.length > 0 ? (
             <>
-              你更看重{' '}
+              {t('evaluation.preference.topPre', '你更看重')}{' '}
               {topDims.map((r, i) => (
                 <span key={r.dim} className="font-bold text-[#1A1C1E] dark:text-white">
-                  {i > 0 ? '、' : ''}
-                  {DIM_LABELS[r.dim]}
+                  {i > 0 ? t('evaluation.preference.dimSep', '、') : ''}
+                  {dimLabel(r.dim)}
                 </span>
               ))}
             </>
           ) : (
-            '暂未检测到明显偏好（去双榜拖一拖试试）'
+            t('evaluation.preference.noSignal', '暂未检测到明显偏好（去双榜拖一拖试试）')
           )}
         </p>
       </div>
@@ -102,7 +110,7 @@ export function PreferenceInsightPanel() {
           <div key={r.dim}>
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center gap-1.5 font-semibold text-gray-500 dark:text-gray-300">
-                {DIM_LABELS[r.dim]}
+                {dimLabel(r.dim)}
                 {r.delta > 0.0005 ? (
                   <TrendingUp className="h-3 w-3 text-emerald-500" />
                 ) : r.delta < -0.0005 ? (
@@ -119,7 +127,7 @@ export function PreferenceInsightPanel() {
                 <span className="font-bold text-[#1A1C1E] dark:text-white">
                   {(r.current * 100).toFixed(1)}%
                 </span>{' '}
-                / 基准 {(r.base * 100).toFixed(1)}%
+                / {t('evaluation.preference.base', '基准')} {(r.base * 100).toFixed(1)}%
                 <span
                   className={`ml-1 font-bold ${
                     r.delta > 0.0005
@@ -151,8 +159,7 @@ export function PreferenceInsightPanel() {
           </div>
         ))}
         <p className="pt-1 text-[11px] text-gray-400">
-          黄条 = 当前权重（回灌后），灰条 = 默认基准。该权重直接进入人才市场
-          matchScore 的 userFit 项——下一次市场排序即体现你的口味。
+          {t('evaluation.preference.footnote', '黄条 = 当前权重（回灌后），灰条 = 默认基准。该权重直接进入人才市场 matchScore 的 userFit 项——下一次市场排序即体现你的口味。')}
         </p>
       </div>
     </div>

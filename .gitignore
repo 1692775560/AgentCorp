@@ -100,3 +100,9 @@ docs/pr-session-notes-*.md
 
 # Layer3 可选 JSON 落盘（运行时生成，非源码）
 convergence-store.json
+
+# 模型权重（GGUF/transformers 全量，体积 GB 级，不入库）
+model-service/models/
+
+# Python 虚拟环境
+model-service/.venv/

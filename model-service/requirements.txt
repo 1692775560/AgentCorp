@@ -20,7 +20,12 @@ pytest>=8.0
 # 不进硬依赖：体积大且需匹配 CANN / torch_npu 版本，评委机/纯 Mock 环境装不动。
 # 代码中全部惰性 import（optional_import），未安装时自动降级为 available=False。
 #
-# 基础推理（GPU/CPU，MiniCPM-o 4.5 官方基线，Python 3.10 验证）：
+# 【路径 A · 端侧 GGUF（推荐评委机/笔记本）】llama.cpp 文本推理，CPU/Metal 即可：
+#   llama-cpp-python            # macOS 建议 CMAKE_ARGS='-DGGML_METAL=on' 安装启用 Metal
+#   权重：openbmb/MiniCPM-o-4_5-gguf 的 Q4_K_M（约 5.4GB），MODEL_PATH 指向 .gguf 文件即可
+#   注：GGUF 路径仅文本推理（裁判场景够用）；视觉/音频模态需路径 B 全量权重
+#
+# 【路径 B · 全量权重（GPU/NPU，MiniCPM-o 4.5 官方基线，Python 3.10 验证）】：
 #   transformers==4.51.0
 #   accelerate
 #   torch>=2.3.0,<=2.8.0

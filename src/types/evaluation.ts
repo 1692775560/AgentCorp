@@ -353,6 +353,10 @@ export interface EvaluationProfile {
 
   /* —— 三模块增量（v1.0-frontend-increment §5.4）——
    * 全部 optional 仅加法，向后兼容既有落库数据；绝不删改上方既有字段。 */
+  /** 最近一次裁判 verdict 的用户契合度（0–100）；缺失时 Leaderboard 回退 task*20 */
+  userFitLatest?: number;
+  /** 最近一次裁判 verdict 的证据留痕 */
+  evidenceTraceLatest?: string[];
   /** 工种（S1/S2/S3 评分卡与双榜筛选用） */
   jobType?: JobType;
   /** S1/S2/S3 评分卡（stageScoreStore 同步回写） */
