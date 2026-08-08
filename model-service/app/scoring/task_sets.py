@@ -78,7 +78,9 @@ class UsageEfficiencyTaskSet:
             for u in usage
         ]
 
-        craft_dims = JOB_CRAFT_DIMS.get(input.task and "code" or "code", [])
+        # UsageEfficiency 任务集不评 craft 维；占位用 code 工种维度键仅为
+        # 保持 TaskRunResult.craftEvidence 结构完整，不参与实际评分。
+        craft_dims = JOB_CRAFT_DIMS.get("code", [])
         craft_evidence: Dict[str, str] = {
             d: "UsageEfficiency 不评估 craft 维（仅客观六维）" for d in craft_dims
         }
