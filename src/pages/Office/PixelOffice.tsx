@@ -31,11 +31,13 @@ interface PixelOfficeProps {
   roster: OfficeEmployee[];
   /** 点选某个像素角色（回传其字符串 agentId），用于打开派活抽屉 */
   onSelectAgent: (agentId: string) => void;
+  /** 点击部门区域 chip（回传布局区域英文 label），用于打开部门人员面板 */
+  onOpenDepartment?: (areaLabel: string) => void;
 }
 
 const noop = () => {};
 
-export function PixelOffice({ roster, onSelectAgent }: PixelOfficeProps) {
+export function PixelOffice({ roster, onSelectAgent, onOpenDepartment }: PixelOfficeProps) {
   // OfficeState / EditorState 只在首次构造（引擎是可变对象，跨帧稳定）
   const officeStateRef = useRef<OfficeState | null>(null);
   if (!officeStateRef.current) officeStateRef.current = new OfficeState();
@@ -194,7 +196,7 @@ export function PixelOffice({ roster, onSelectAgent }: PixelOfficeProps) {
         panRef={panRef}
         showAreas
         activeAreaLabel={null}
-        onOpenDepartment={noop}
+        onOpenDepartment={onOpenDepartment ?? noop}
       />
       {!ready && (
         <div
