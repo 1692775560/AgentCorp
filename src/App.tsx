@@ -32,6 +32,7 @@ const Office = lazy(() => import('./pages/Office').then((m) => ({ default: m.Off
 import { useSettingsStore } from './stores/settings';
 import { useGatewayStore } from './stores/gateway';
 import { isBrowserPreviewMode } from './lib/browser-preview';
+import { seedOfficePreviewData } from './lib/office-preview-seed';
 
 
 /**
@@ -109,6 +110,14 @@ function App() {
   const initGateway = useGatewayStore((state) => state.init);
   const [settingsInitialized, setSettingsInitialized] = useState(false);
   const browserPreviewMode = isBrowserPreviewMode();
+
+  // Web 预览模式：注入种子 agent + 评估档案，让人才市集 / 绩效考核 /
+  // Agent Office 有可展示数据（Electron 桌面端不受影响）。
+  useEffect(() => {
+    if (browserPreviewMode) {
+      seedOfficePreviewData();
+    }
+  }, [browserPreviewMode]);
 
   useEffect(() => {
     let active = true;
