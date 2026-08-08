@@ -12,7 +12,6 @@ import {
   PERMISSION_NOTE_DURATION_SEC,
   PERMISSION_VOLUME,
 } from './constants.js';
-import { isE2E } from './runtime.js';
 
 let soundEnabled = true;
 let audioCtx: AudioContext | null = null;
