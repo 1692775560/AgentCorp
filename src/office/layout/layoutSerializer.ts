@@ -203,16 +203,29 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
 
         // Determine facing direction:
         // 1) Chair orientation takes priority
-        // 2) Adjacent desk direction
-        // 3) Default forward (DOWN)
+        // 2) Adjacent electronics (电脑/显示器) — 让员工对准电脑
+        // 3) Adjacent desk direction
+        // 4) Default forward (DOWN)
         let facingDir: Direction = Direction.DOWN;
         if (entry.orientation) {
           facingDir = orientationToFacing(entry.orientation);
         } else {
+          let matched = false;
+          // 先找电脑：员工优先面朝电子设备
           for (const d of dirs) {
-            if (deskTiles.has(`${tileCol + d.dc},${tileRow + d.dr}`)) {
+            if (electronicsTiles.has(`${tileCol + d.dc},${tileRow + d.dr}`)) {
               facingDir = d.facing;
+              matched = true;
               break;
+            }
+          }
+          // 找不到电脑再退回到桌子
+          if (!matched) {
+            for (const d of dirs) {
+              if (deskTiles.has(`${tileCol + d.dc},${tileRow + d.dr}`)) {
+                facingDir = d.facing;
+                break;
+              }
             }
           }
         }
