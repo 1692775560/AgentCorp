@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, ArrowRight, LayoutGrid, Gamepad2 } from 'lucide-react';
+import { Building2, ArrowRight, LayoutGrid, Gamepad2, KanbanSquare } from 'lucide-react';
 
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useAgentsStore } from '@/stores/agents';
@@ -20,8 +20,10 @@ import { computeOfficeRoster, groupByDept, OFFICE_DEPTS } from '@/engine/office/
 import { OfficeEmployeeCard } from './OfficeEmployeeCard';
 import { PixelOffice } from './PixelOffice';
 import { AgentDispatchDrawer } from './AgentDispatchDrawer';
+import { DepartmentPanel } from './DepartmentPanel';
+import { TaskBoard } from './TaskBoard';
 
-type View = 'pixel' | 'cards';
+type View = 'pixel' | 'board' | 'cards';
 
 export function Office() {
   const navigate = useNavigate();
