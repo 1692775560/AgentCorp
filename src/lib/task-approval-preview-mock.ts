@@ -48,9 +48,6 @@ function iso(minsAgo: number): string {
 /** 从评估/agents store 读取当前入职花名册（懒加载避免循环依赖）。 */
 function readRoster(): OfficeEmployee[] {
   try {
-    // 运行时按需引入，避免与 store 形成静态循环依赖
-    const { useEvaluationStore } = require('@/stores/evaluation') as typeof import('@/stores/evaluation');
-    const { useAgentsStore } = require('@/stores/agents') as typeof import('@/stores/agents');
     const profiles = useEvaluationStore.getState().profiles;
     const agents = useAgentsStore.getState().agents;
     return computeOfficeRoster(profiles, agents);

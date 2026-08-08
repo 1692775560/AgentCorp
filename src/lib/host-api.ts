@@ -1,6 +1,11 @@
 import { invokeIpc } from '@/lib/api-client';
 import { trackUiEvent } from './telemetry';
 import { normalizeAppError } from './error-model';
+import { isBrowserPreviewMode } from './browser-preview';
+import {
+  isTaskApprovalMockPath,
+  handleTaskApprovalMock,
+} from './task-approval-preview-mock';
 
 const HOST_API_PORT = 3210;
 const HOST_API_BASE = `http://127.0.0.1:${HOST_API_PORT}`;
