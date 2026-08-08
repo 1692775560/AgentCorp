@@ -34,6 +34,7 @@ export function Office() {
 
   const [view, setView] = useState<View>('pixel');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [deptAreaLabel, setDeptAreaLabel] = useState<string | null>(null);
 
   useEffect(() => {
     void loadAll();
@@ -67,6 +68,7 @@ export function Office() {
         {/* 视图切换 */}
         <div className="neu-inset flex items-center gap-1 rounded-xl p-1">
           <ViewTab active={view === 'pixel'} onClick={() => setView('pixel')} icon={<Gamepad2 className="h-3.5 w-3.5" />} label="像素" />
+          <ViewTab active={view === 'board'} onClick={() => setView('board')} icon={<KanbanSquare className="h-3.5 w-3.5" />} label="看板" />
           <ViewTab active={view === 'cards'} onClick={() => setView('cards')} icon={<LayoutGrid className="h-3.5 w-3.5" />} label="卡片" />
         </div>
         <div className="ml-2 hidden items-center gap-4 sm:flex">
