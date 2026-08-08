@@ -43,7 +43,6 @@ export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accen
           translate="no"
         >
           {emp.avatar ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={emp.avatar} alt="" className="h-full w-full object-cover" />
           ) : (
             initials(emp.name)
