@@ -47,12 +47,8 @@ export interface HeuristicSeed {
   description?: string;
   /** 能力标签 */
   tags?: string[];
-  /** 市场评分（0–5） */
-  rating?: number;
   /** 报价数值（元/月，0 = 免费） */
   budgetNum?: number;
-  /** 已雇佣数 */
-  hiredCount?: number;
   /** 雇佣形态（团队通常任务承载力更强） */
   hireType?: 'single' | 'team';
   /** 团队成员 / 能力条目数 */
@@ -162,55 +158,60 @@ export function latestStageScore(
   return latest;
 }
 
+/** 无证据时的中性基线（0–5 量表中位）。含义是「未知」，不是「及格」。 */
+export const NEUTRAL_BASELINE = 2.5;
+
 /**
  * persona / 模板元信息 → 启发式六维（确定性，无随机）。
  *
- * 各维推导规则（弱信号，仅用于「没有任何真实评估数据」时的种子）：
- * - task：基线 3；团队 +0.5；能力条目 ≥3 +0.3；命中「全栈/自动化/独立」+0.3
- * - quality：以市场评分 rating 为主（rating × 0.9 + 0.4）
- * - comm：简介越充分、标签越多，沟通表达信号越强
- * - creativity：命中创作类标签（创意/设计/内容/文案/视频）显著加成
- * - reliability：已雇佣数分档（社会验证）
- * - cost：报价分档（免费 5 分 → 高价 2 分）
+ * 【公平性约束】人气信号（rating / hiredCount / star 数）一律不得进入能力维。
+ * 它们衡量的是「多少人用过」，不是「做得多好」。把人气折成能力分会让
+ * 个人刚上传的 Agent 先天低分——它没有雇佣数、没有评分，却可能比头部项目更能干。
+ * 人气只在人才市场作为独立的社会证明展示（见 likeCount），不参与能力评分。
+ *
+ * 因此各维只用「自我声明」类信号，且上限压在 3.5：
+ * 声明不等于能力，真实分数必须来自 S2 面试（LLM-as-judge）或 S3 绩效。
+ * - task：基线 2.5；团队 +0.3；能力条目 ≥3 +0.3；命中「全栈/自动化」+0.2
+ * - quality：无自我声明可判 → 恒为中性基线（原实现取 rating，已移除）
+ * - comm：简介充分度 + 标签丰富度（表达意愿的弱信号）
+ * - creativity：命中创作类标签
+ * - reliability：仅取自述质量实践（原实现取 hiredCount 分档，已移除）
+ * - cost：报价分档（这是客观事实，可保留）
  */
 export function heuristicRadar(seed: HeuristicSeed): RadarScore {
   const tags = seed.tags ?? [];
   const text = `${seed.name ?? ''} ${seed.description ?? ''} ${tags.join(' ')}`;
   const descLen = (seed.description ?? '').length;
-  const rating = typeof seed.rating === 'number' ? seed.rating : 4;
-  const hired = seed.hiredCount ?? 0;
   const budget = seed.budgetNum ?? 0;
   const capCount = seed.capabilityCount ?? 0;
 
-  // task：任务承载力
-  let task = 3;
-  if (seed.hireType === 'team') task += 0.5;
+  // task：任务承载力（自述）
+  let task = NEUTRAL_BASELINE;
+  if (seed.hireType === 'team') task += 0.3;
   if (capCount >= 3) task += 0.3;
-  if (/全栈|自动化|独立|端到端|一站式/.test(text)) task += 0.3;
+  if (/全栈|自动化|独立|端到端|一站式/.test(text)) task += 0.2;
 
-  // quality：以市场评分为主信号
-  const quality = rating * 0.9 + 0.4;
+  // quality：交付质量无法由自我描述判断，保持中性而非用市场评分冒充
+  const quality = NEUTRAL_BASELINE;
 
   // comm：简介充分度 + 标签丰富度
-  let comm = 2.8;
-  if (descLen >= 30) comm += 0.5;
-  if (descLen >= 80) comm += 0.4;
-  if (tags.length >= 3) comm += 0.3;
-  if (/沟通|汇报|文档|解释|客服|翻译/.test(text)) comm += 0.5;
+  let comm = NEUTRAL_BASELINE;
+  if (descLen >= 30) comm += 0.3;
+  if (descLen >= 80) comm += 0.3;
+  if (tags.length >= 3) comm += 0.2;
+  if (/沟通|汇报|文档|解释|客服|翻译/.test(text)) comm += 0.2;
 
   // creativity：创作类信号
-  let creativity = 2.8;
-  if (/创意|设计|内容|文案|视频|海报|营销|增长/.test(text)) creativity += 1.0;
-  if (/审美|风格|品牌/.test(text)) creativity += 0.4;
+  let creativity = NEUTRAL_BASELINE;
+  if (/创意|设计|内容|文案|视频|海报|营销|增长/.test(text)) creativity += 0.6;
+  if (/审美|风格|品牌/.test(text)) creativity += 0.2;
 
-  // reliability：社会验证（已雇佣数分档）
-  let reliability = 3;
-  if (hired >= 50) reliability += 0.5;
-  if (hired >= 200) reliability += 0.5;
-  if (hired >= 1000) reliability += 0.5;
+  // reliability：仅取自述的质量实践，不再按雇佣数分档
+  let reliability = NEUTRAL_BASELINE;
   if (/稳定|生产级|可靠|审查|测试/.test(text)) reliability += 0.3;
+  if (/CI|单测|覆盖率|回归/.test(text)) reliability += 0.2;
 
-  // cost：报价分档
+  // cost：报价分档（客观事实，非人气）
   let cost: number;
   if (budget <= 0) cost = 5;
   else if (budget <= 99) cost = 4.5;

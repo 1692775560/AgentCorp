@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter
 
 from ..config import settings
+from ..evaluator import judge_available
 from ..model_loader import get_model
 
 logger = logging.getLogger("serve")
@@ -20,4 +21,6 @@ def health() -> dict:
         "status": "ok",
         "mock": settings.mock,
         "model_available": model.available,
+        "judge_available": judge_available(),
+        "judge_backend": settings.judge_backend,
     }

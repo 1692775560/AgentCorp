@@ -128,9 +128,7 @@ function toHeuristicSeed(seed: MarketCandidateSeed): HeuristicSeed {
     name: seed.name,
     description: seed.description,
     tags: seed.tags,
-    rating: seed.rating,
     budgetNum: parseBudgetNumber(seed.price),
-    hiredCount: seed.hiredCount,
     hireType: seed.hireType,
     capabilityCount: seed.capabilities?.length ?? 0,
   };

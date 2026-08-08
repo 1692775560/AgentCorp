@@ -156,45 +156,45 @@ class TestLoadMinicpmo:
 
 
 # ======================================================================
-# 3) infer：模型缺失错误信息 + 真实调用参数
+# 3) infer：LLM-as-judge 接口契约（后端不可用明确报错；可用时透传后端产出）
 # ======================================================================
 class TestInfer:
-    def test_unavailable_raises_with_guidance(self, monkeypatch):
-        monkeypatch.setattr(evaluator, "get_model", lambda: MiniCPMModel())
-        with pytest.raises(RuntimeError) as exc_info:
+    def test_unavailable_backend_raises(self):
+        """契约：后端不可用（默认 mock）→ 抛 JudgeUnavailable，绝不伪造分数。"""
+        from app.judge_backend import JudgeUnavailable
+
+        with pytest.raises(JudgeUnavailable) as exc_info:
             evaluator.infer({}, [{"role": "user", "content": "x"}])
-        msg = str(exc_info.value)
-        assert "MOCK=true" in msg
-        assert "MODEL_PATH" in msg
+        assert "JUDGE_BACKEND" in str(exc_info.value)
 
-    def test_real_chat_with_media(self, monkeypatch):
-        fake_model = _FakeModel()
-        monkeypatch.setattr(
-            evaluator, "get_model", lambda: MiniCPMModel(model=fake_model, device="cpu")
-        )
-        monkeypatch.setattr(settings, "temperature", 0.0)
-        media = {"frames": ["f1", "f2"], "audio": "wav", "images": ["img"]}
-        out = evaluator.infer(media, [{"role": "user", "content": "评估"}])
-        assert out.startswith("{")
-        kwargs = fake_model.chat_kwargs
-        assert kwargs["omni_mode"] is True
-        assert kwargs["do_sample"] is False
-        assert "temperature" not in kwargs  # 贪心解码不传 temperature
-        # content = 帧 + 音频 + 图像 + 文本
-        assert kwargs["msgs"][0]["content"] == ["f1", "f2", "wav", "img", "评估"]
+    def test_uses_backend_completion(self, monkeypatch):
+        """真实路径：infer 收敛为 judge_backend.complete(messages) 的透传。"""
+        from app.judge_backend import JudgeCompletion
 
-    def test_text_only_no_omni_mode(self, monkeypatch):
-        fake_model = _FakeModel()
-        monkeypatch.setattr(
-            evaluator, "get_model", lambda: MiniCPMModel(model=fake_model, device="cpu")
-        )
-        monkeypatch.setattr(settings, "temperature", 0.7)
-        media = {"frames": [], "audio": None, "images": []}
-        evaluator.infer(media, [{"role": "user", "content": "评估"}])
-        kwargs = fake_model.chat_kwargs
-        assert "omni_mode" not in kwargs
-        assert kwargs["do_sample"] is True
-        assert kwargs["temperature"] == 0.7
+        class _FakeBackend:
+            name = "http"
+            available = True
+
+            def complete(self, messages, **kwargs):
+                return JudgeCompletion(text='{"radar": {}}', backend="http", latency_ms=1.0)
+
+        monkeypatch.setattr(evaluator, "get_backend", lambda: _FakeBackend())
+        out = evaluator.infer({"frames": 8}, [{"role": "user", "content": "评估"}])
+        assert out == '{"radar": {}}'
+
+    def test_media_passthrough(self, monkeypatch):
+        """媒体载荷只作日志指标；推理语义完全由后端承载（多模态通道在 LocalJudgeBackend）。"""
+        from app.judge_backend import JudgeCompletion
+
+        class _FakeBackend:
+            name = "local"
+            available = True
+
+            def complete(self, messages, **kwargs):
+                return JudgeCompletion(text="ok", backend="local", latency_ms=2.0)
+
+        monkeypatch.setattr(evaluator, "get_backend", lambda: _FakeBackend())
+        assert evaluator.infer({"frames": 8, "audio": True, "images": ["img"]}, []) == "ok"
 
 
 # ======================================================================

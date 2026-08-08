@@ -411,4 +411,49 @@ function currentWindow(): string {
   return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-export const judgeClient = { evaluate, fallbackMock };
+/** 对话逐轮/整段评分结果（C：live 面试证据 → 模型评测） */
+export interface ChatJudgeResult {
+  /** judge = 模型评测；degraded = 启发式降级（前端应据此决定展示优先级） */
+  source: 'judge' | 'degraded';
+  radar: RadarScore | null;
+  verdict?: Verdict;
+  confidence: number;
+  evidence_trace: string[];
+}
+
+/**
+ * 调用模型裁判对一段面试 transcript 评分（C 挂载点）。
+ * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
+ */
+export async function judgeChat(
+  agentId: string,
+  transcript: string,
+): Promise<ChatJudgeResult | null> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ agent_id: agentId, transcript }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as Record<string, unknown>;
+    const radar = json.radar;
+    return {
+      source: json.source === 'judge' ? 'judge' : 'degraded',
+      radar: radar && typeof radar === 'object' ? (radar as RadarScore) : null,
+      verdict: json.verdict as Verdict | undefined,
+      confidence: Number(json.confidence ?? 0),
+      evidence_trace: Array.isArray(json.evidence_trace)
+        ? (json.evidence_trace as unknown[]).map(String)
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const judgeClient = { evaluate, fallbackMock, judgeChat };

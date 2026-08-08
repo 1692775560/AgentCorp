@@ -74,11 +74,13 @@ export interface ReadmeResult {
   hasHeadings: boolean;
 }
 
-/** 目录扫描结果（作品集素材） */
+/** 目录扫描结果（作品集素材 + 工程实践证据） */
 export interface ContentsResult {
   hasExamples: boolean; // examples/showcase/docs 下找到图片或视频
   hasVideo: boolean; // 找到演示视频
   hasDocs: boolean; // 找到 docs/ 目录（沟通分加成信号）
+  hasTests: boolean; // 根目录有 tests/ 或 __tests__/（可靠性证据，替代 fork 数）
+  hasCi: boolean; // 根目录有 .github/ 工作流配置（可靠性证据）
   thumbnails: MediaRef[]; // raw.githubusercontent 直链（图片/视频）
 }
 
@@ -113,6 +115,82 @@ export class GithubImportError extends Error {
  * 工具：URL 解析 / 数值分桶 / 格式化
  * ========================================================== */
 
+/* ============================================================
+ * 安全边界（不可信输入：仓库地址、仓库内文件路径、README 文本）
+ * ========================================================== */
+
+/** GitHub owner / repo 合法字符集（GitHub 自身约束：字母数字与 - _ .） */
+const GH_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** 单次网络请求超时（毫秒），避免恶意/异常仓库把导入流程挂死 */
+const FETCH_TIMEOUT_MS = 15_000;
+
+/** README 最大读取字节数，防止超大文件打爆内存 */
+const README_MAX_BYTES = 512 * 1024;
+
+/** 单仓库最多采集的素材数，防止目录膨胀拖垮渲染进程 */
+const MAX_THUMBNAILS = 24;
+
+/**
+ * 校验 owner / repo 是否为合法 GitHub 名称。
+ * 拦截 `..`、含 `/` `?` `#` 或百分号编码的值——这些会越出
+ * `/repos/{owner}/{repo}` 路径段，构成对 api.github.com 的路径穿越。
+ */
+export function isValidGithubName(name: string): boolean {
+  if (!name || name.length > 100) return false;
+  if (name === "." || name === "..") return false;
+  return GH_NAME_RE.test(name);
+}
+
+/** 素材 URL 允许的宿主，防止仓库把 <img src> 指向任意站点或 javascript: */
+const ASSET_HOST_ALLOWLIST = [
+  "raw.githubusercontent.com",
+  "github.com",
+  "user-images.githubusercontent.com",
+];
+
+/**
+ * 素材 URL 白名单校验：仅放行 https + GitHub 官方图床。
+ * 拦截 javascript:/data: 伪协议与第三方追踪像素（导入即上报用户行为）。
+ */
+export function isSafeAssetUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:") return false;
+    return ASSET_HOST_ALLOWLIST.includes(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 规范化仓库内相对路径：逐段编码，拒绝 `..`、绝对路径与反斜杠。
+ * 返回 null 表示该路径不可信，调用方应放弃这次请求。
+ */
+export function sanitizeRepoPath(path: string): string | null {
+  if (!path) return "";
+  if (path.startsWith("/") || path.includes("\\")) return null;
+  const segments = path.split("/").filter(Boolean);
+  if (segments.some((seg) => seg === "." || seg === "..")) return null;
+  if (segments.length > 8) return null;
+  return segments.map(encodeURIComponent).join("/");
+}
+
+/** 带超时的 fetch（AbortController），所有 GitHub 请求统一走这里 */
+async function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  timeoutMs: number = FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const PERMISSIVE_LICENSE = [
   "MIT",
   "APACHE-2.0",
@@ -142,7 +220,7 @@ export function parseRepoUrl(input: string): { owner: string; repo: string } | n
   if (parts.length < 2) return null;
   const owner = parts[0].trim();
   const repo = parts[1].trim();
-  if (!owner || !repo) return null;
+  if (!isValidGithubName(owner) || !isValidGithubName(repo)) return null;
   return { owner, repo };
 }
 
@@ -201,7 +279,7 @@ export async function fetchRepo(
 ): Promise<GithubRepoRaw> {
   let res: Response;
   try {
-    res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+    res = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}`, {
       headers: authHeaders(token),
     });
   } catch (e) {
@@ -241,7 +319,7 @@ export async function fetchReadme(
   token?: string,
 ): Promise<ReadmeResult> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.github.com/repos/${owner}/${repo}/readme`,
       {
         headers: { Accept: "application/vnd.github.raw+json", ...authHeaders(token) },
@@ -250,7 +328,9 @@ export async function fetchReadme(
     if (!res.ok) {
       return { text: "", len: 0, hasBadges: false, hasHeadings: false };
     }
-    const text = await res.text();
+    const raw = await res.text();
+    // README 可能是恶意的超大文件，截断后再交给下游正则，避免正则回溯放大
+    const text = raw.length > README_MAX_BYTES ? raw.slice(0, README_MAX_BYTES) : raw;
     return {
       text,
       len: text.length,
@@ -269,7 +349,7 @@ export async function fetchReleases(
   token?: string,
 ): Promise<GithubRelease | null> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.github.com/repos/${owner}/${repo}/releases?per_page=1`,
       { headers: authHeaders(token) },
     );
@@ -349,10 +429,14 @@ async function listDir(
   branch: string,
   token?: string,
 ): Promise<Array<{ name: string; path: string; type: string }>> {
+  // path / branch 来自仓库内容，属不可信输入：逐段编码并拒绝穿越段，
+  // 否则 `..` 或 `?` 会越出 contents/ 路径段，改写请求目标。
+  const safePath = sanitizeRepoPath(path);
+  if (safePath === null) return [];
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${
-    path ? path + "/" : ""
-  }?ref=${branch}`;
-  const res = await fetch(url, { headers: authHeaders(token) });
+    safePath ? safePath + "/" : ""
+  }?ref=${encodeURIComponent(branch)}`;
+  const res = await fetchWithTimeout(url, { headers: authHeaders(token) });
   if (!res.ok) return [];
   return (await res.json()) as Array<{ name: string; path: string; type: string }>;
 }
@@ -378,7 +462,14 @@ export async function fetchContents(
     }
   }
   if (!rootItems.length) {
-    return { hasExamples: false, hasVideo: false, hasDocs: false, thumbnails: [] };
+    return {
+      hasExamples: false,
+      hasVideo: false,
+      hasDocs: false,
+      hasTests: false,
+      hasCi: false,
+      thumbnails: [],
+    };
   }
 
   const rootScan = scanItems(rootItems, owner, repo, usedBranch);
@@ -386,10 +477,21 @@ export async function fetchContents(
   let hasExamples = rootScan.hasExamples;
   let hasVideo = rootScan.hasVideo;
   let hasDocs = false;
+  let hasTests = false;
+  let hasCi = false;
 
-  // 扫描 examples/showcase/docs 子目录
+  // 扫描 examples/showcase/docs 子目录，同时采集工程实践证据
   for (const it of rootItems) {
     const lower = it.name.toLowerCase();
+    if (it.type === "dir") {
+      if (lower === "tests" || lower === "test" || lower === "__tests__" || lower === "spec") {
+        hasTests = true;
+      }
+      if (lower === ".github") hasCi = true;
+    }
+    if (it.type === "file" && /^(jest|vitest|pytest)\.config\.|^tox\.ini$/.test(lower)) {
+      hasTests = true;
+    }
     if (it.type === "dir" && (lower === "examples" || lower === "showcase" || lower === "docs")) {
       if (lower === "docs") hasDocs = true;
       const sub = await listDir(owner, repo, it.path, usedBranch, token);
@@ -400,7 +502,16 @@ export async function fetchContents(
     }
   }
 
-  return { hasExamples, hasVideo, hasDocs, thumbnails: thumbs };
+  return {
+    hasExamples,
+    hasVideo,
+    hasDocs,
+    hasTests,
+    hasCi,
+    thumbnails: thumbs
+      .filter((m) => isSafeAssetUrl(m.url))
+      .slice(0, MAX_THUMBNAILS),
+  };
 }
 
 /* ============================================================
@@ -494,26 +605,46 @@ function resolveLicense(repo: GithubRepoRaw): {
  * 启发式六维（Mock 替代 MiniCPM-o，架构 §7.1 / PRD 附A）
  * ========================================================== */
 
-function starTier(s: number): number {
-  if (s >= 50000) return 5;
-  if (s >= 20000) return 4.5;
-  if (s >= 8000) return 4;
-  if (s >= 3000) return 3.5;
-  if (s >= 1000) return 3;
-  if (s >= 200) return 2.5;
-  return 2;
-}
+/**
+ * 无证据时的中性基线。与 model-service 的 NEUTRAL_SCORE、
+ * radarSource 的 NEUTRAL_BASELINE 保持同一含义：「未知」而非「及格」。
+ */
+const NEUTRAL_BASELINE = 2.5;
+
+/**
+ * 【公平性约束】star / fork 数不参与任何能力维。
+ *
+ * 原实现让 taskScore 直接等于 star 分档：5 万 star 得 5 分，个人新上传得 2 分。
+ * 但 star 衡量的是知名度，与「这个 Agent 能不能把活干好」无因果关系；
+ * 个人开发者刚上传的 Agent 天然 0 star，会被系统性压分。
+ *
+ * star 数保留为人才市场的展示信息（formatStars），并与用户点赞（likeCount）
+ * 一同作为社会证明独立呈现，但不折算进六维。
+ * 能力分只接受两类来源：可核验的工程证据（此处），以及 S2 面试试做（LLM-as-judge）。
+ */
 
 function readmeTier(len: number): number {
   if (len >= 8000) return 4.5;
   if (len >= 4000) return 4;
   if (len >= 1500) return 3.5;
   if (len >= 400) return 3;
-  return 2.5;
+  return NEUTRAL_BASELINE;
 }
 
-function taskScore(stars: number, langMatches: boolean): number {
-  let v = starTier(stars);
+/**
+ * task：任务承载力。改由「可核验的工程完备度」推导，不再用 star。
+ * 判据是仓库自己拿得出的东西：能跑的示例、发布物、语言匹配、文档。
+ */
+function taskScore(
+  langMatches: boolean,
+  hasExamples: boolean,
+  hasRelease: boolean,
+  hasDocs: boolean,
+): number {
+  let v = NEUTRAL_BASELINE;
+  if (hasExamples) v += 0.4;
+  if (hasRelease) v += 0.3;
+  if (hasDocs) v += 0.2;
   if (langMatches) v += 0.3;
   return clamp1to5(v);
 }
@@ -550,16 +681,28 @@ function creativityScore(
   return clamp1to5(v);
 }
 
-function reliabilityScore(months: number, archived: boolean, forks: number): number {
+/**
+ * reliability：可靠性。维护活跃度是真信号（近期有更新说明有人管），
+ * 但 fork 数是人气，已移除。补入可核验的工程实践：测试目录、CI 配置、许可证。
+ */
+function reliabilityScore(
+  months: number,
+  archived: boolean,
+  hasTests: boolean,
+  hasCi: boolean,
+  hasLicense: boolean,
+): number {
   let v: number;
-  if (months <= 3) v = 5;
-  else if (months <= 6) v = 4.5;
-  else if (months <= 12) v = 4;
-  else if (months <= 24) v = 3.5;
-  else if (months <= 48) v = 3;
-  else v = 2.5;
+  if (months <= 3) v = 4;
+  else if (months <= 6) v = 3.8;
+  else if (months <= 12) v = 3.5;
+  else if (months <= 24) v = 3;
+  else if (months <= 48) v = NEUTRAL_BASELINE;
+  else v = 2;
+  if (hasTests) v += 0.4;
+  if (hasCi) v += 0.3;
+  if (hasLicense) v += 0.2;
   if (archived) v *= 0.8;
-  if (forks >= 1000) v += 0.2;
   return clamp1to5(v);
 }
 
@@ -573,8 +716,8 @@ export function heuristicReview(
   contents: ContentsResult,
   hasRelease: boolean,
 ): InitialReview {
+  // stars 仅用于展示标签（tag_eval），不参与任何能力维评分
   const stars = repo.stargazers_count ?? 0;
-  const forks = repo.forks_count ?? 0;
   const topics = repo.topics ?? [];
   const lang = (repo.language ?? "").toLowerCase();
   const fn = inferFunction(repo, readme);
@@ -585,7 +728,7 @@ export function heuristicReview(
   const { spdx, cost, commercialReview } = resolveLicense(repo);
 
   const radar: RadarScore = {
-    task: taskScore(stars, langMatches),
+    task: taskScore(langMatches, contents.hasExamples, hasRelease, contents.hasDocs),
     quality: qualityScore(readme.len, hasRelease, contents.hasExamples),
     comm: commScore(
       readme.len,
@@ -595,7 +738,13 @@ export function heuristicReview(
       contents.hasDocs,
     ),
     creativity: creativityScore(contents.hasExamples, contents.hasVideo, topics.length),
-    reliability: reliabilityScore(months, !!repo.archived, forks),
+    reliability: reliabilityScore(
+      months,
+      !!repo.archived,
+      contents.hasTests,
+      contents.hasCi,
+      !!repo.license?.spdx_id,
+    ),
     cost,
   };
 

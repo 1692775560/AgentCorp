@@ -146,10 +146,14 @@ export function isFollowupTurn(turn: InterviewTurn): boolean {
  * 逐维聚合证据覆盖度。
  * @param turns 已完成的问答轮次
  * @param targetDims 本场面试要覆盖的全部维度（来自 questionBank.planTargetDims）
+ * @param judgeRadar 可选：模型裁判（chat-judge）给出的六维分（0–5）。提供时，
+ *   对应通用六维的证据强度改由模型分驱动（score/5 → coverage），
+ *   正则启发式仅作为 judge 不可用时的兜底。craft 维不受影响。
  */
 export function computeCoverage(
   turns: InterviewTurn[],
   targetDims: (RadarDim | CraftDim)[],
+  judgeRadar?: RadarScore | null,
 ): DimCoverage[] {
   // 汇总每维的 HR 评分（取最近一次非空评分）
   const ratings: Partial<Record<RadarDim, number>> = {};
@@ -171,6 +175,15 @@ export function computeCoverage(
         answered += 1;
         strength += s;
       }
+    }
+    // C：模型裁判可用时，通用六维以模型分为准（0–5 → 0–1 强度）
+    const judgeScore =
+      judgeRadar && (RADAR_DIMS as string[]).includes(dim)
+        ? judgeRadar[dim as RadarDim]
+        : undefined;
+    if (typeof judgeScore === 'number' && judgeScore > 0) {
+      strength = judgeScore / 5;
+      if (answered === 0 && asked > 0) answered = asked;
     }
     const isRadar = (RADAR_DIMS as string[]).includes(dim);
     return {
