@@ -248,7 +248,7 @@ export function Sidebar() {
       icon: MessagesSquare,
     },
     {
-      label: tSidebar('evaluation', '绩效考核'),
+      label: tSidebar('evaluation', '评估中心'),
       path: '/evaluation',
       icon: BarChart3,
     },

@@ -19,27 +19,41 @@ AgentCorp 不把大模型当「更聪明的搜索引擎」，而是把评估层�
 
 ---
 
-## 1. 快速开始（Mock 模式，评委无 NPU 也能一键演示）
+## 1. 快速开始
 
-> 默认 `.env` 已设置 `VITE_MOCK=true`，无需任何 NPU 或真实媒体即可完整演示四模态闭环。
+### 1.1 桌面端（Electron + React）
 
 ```bash
-# 1) 安装依赖
-pnpm install
+# 1) 安装依赖（pnpm 由 corepack 提供，版本锁定在 package.json 的 packageManager）
+corepack pnpm install
 
-# 2) 启动前端（默认 Mock 模式）
-pnpm dev
+# 2) 启动桌面端（vite dev server + vite-plugin-electron 自动拉起 Electron 主进程）
+corepack pnpm dev
 ```
 
-打开浏览器访问 `http://localhost:5173`：
+`pnpm dev` 会同时启动渲染层（Vite）与 Electron 主进程（`electron/main/index.ts`），
+产出桌面窗口而非纯浏览器页面。主要页面：人才市集（Marketplace，S1 初审）→
+HR 面试（Interview，S2）→ 评估中心（Evaluation，S3 绩效：雷达 / 讲解 / ROI /
+生命周期 / 擂台 / 双轨评分 / 双榜 / 收敛 / 心智模型），外加任务看板、人力资产、
+团队总览等管理页。
 
-1. 顶部「固定样本集」选择候选（琳达 / 老张 / 阿强）。
-2. 左侧查看多模态简历（无真实媒体时优雅降级为占位卡片）。
-3. 右侧「用户偏好」可用**语音**或表单录入（审美 / 预算 / 技术栈 / 六维权重）。
-4. 点击「开始评估」→ 六维雷达**逐维点亮** → 模型语音讲解（浏览器 TTS）+ 文本滚动 → 语音宣判 → 匹配度大数字 + 证据留痕。
-5. 底部候选列表按 **user_fit 降序**实时重排。
+### 1.2 模型服务（MiniCPM-o 裁判，Python + FastAPI + SSE）
 
-> 四模态闭环在 Mock 模式由内联 fixture 驱动：看/读/听在真实模式真实发生，Mock 用浏览器 `speechSynthesis` 补「说」。
+评估中心的「运行评估」需要模型服务。两种启动方式：
+
+```bash
+cd model-service
+pip install -r requirements.txt
+
+# Mock 模式：不加载真模型，内联 fixture 驱动完整 SSE 事件流（演示/联调用）
+MOCK=true uvicorn app.serve:app --port 8000
+
+# GGUF 真实模式：端侧 llama.cpp 文本推理（CPU/Metal 即可，需先按下文路径 A 装好权重）
+MOCK=false MODEL_PATH=models/MiniCPM-o-4_5-Q4_K_M.gguf uvicorn app.serve:app --port 8000
+```
+
+访问 `http://localhost:8000/docs` 查看接口；`/health` 查看模型可用性
+（真实模式下 `model_available=true` 即裁判就绪）。
 
 ---
 
@@ -48,30 +62,40 @@ pnpm dev
 ```
 agentcorp/
 ├── docs/                      # PRD / 架构 / 类图 / 时序图
-├── package.json / vite.config.ts / tailwind.config.js / tsconfig*.json
-├── index.html / .env / .env.example
+├── package.json / vite.config.ts / vitest.config.ts / tailwind.config.js / tsconfig*.json
+├── electron/                  # Electron 主进程与 preload
+│   ├── main/                  # 主进程入口（窗口、生命周期）
+│   ├── preload/               # preload 桥（contextBridge）
+│   ├── api/ gateway/ services/ shared/ utils/
+├── shared/                    # 主进程与渲染层共享代码
 ├── samples/                   # 固定候选样本集（profile.json + 占位媒体）
-├── src/
-│   ├── types/index.ts         # ★ 前后端契约单一真相源
-│   ├── config.ts              # 环境配置（API base / Mock 开关）
-│   ├── store/useAppStore.ts   # Zustand 全局状态
-│   ├── data/samples.ts        # 样本清单加载
-│   ├── mock/samples.ts        # Mock 评估 fixture（内联，无需 NPU）
-│   ├── utils/radar.ts         # user_fit 计算（与后端镜像）
-│   ├── utils/format.ts        # 格式化辅助
-│   ├── services/              # api.ts（真实 SSE）/ mockEvaluator.ts（Mock）
-│   ├── hooks/                 # useEvaluation / useUserPreference / useSpeech
-│   └── components/            # Toolbar / CandidateProfilePanel / MediaViewer /
-│                              #   RadarChart / FitScore / NarrationPanel /
-│                              #   PreferenceInput / CandidateList / UploadModal
+├── scripts/                   # 构建/打包/QA/i18n 工具脚本（含 i18n/check-parity.mjs）
+├── tests/unit/                # vitest 单元测试（jsdom + node 双环境）
+├── .trellis/                  # Trellis 任务工作流（tasks/ + scripts/task.py）
+├── src/                       # 渲染层（React 19 + TS + Tailwind）
+│   ├── pages/                 # 18 个页面：Chat / Marketplace / Interview / Evaluation /
+│   │                          #   Kanban / TeamOverview / TeamMap / Agents / Settings 等
+│   ├── components/            # layout / evaluation / marketplace / interview / ui 等
+│   ├── stores/                # Zustand 全局状态（agents / evaluation / marketplace / ...）
+│   ├── engine/                # 纯逻辑层：strategyEngine / roiEngine / metricsEngine /
+│   │                          #   scoring / marketplace / interview / convergence
+│   ├── services/              # 运行时服务：evaluationRuntime / judgeClient / speech / ...
+│   ├── i18n/                  # react-i18next（zh 基准 + en，common 等 9 个 namespace）
+│   ├── hooks/  lib/  styles/  utils/
+│   └── types/                 # 前端契约类型（按域拆分：evaluation / marketplace / ...）
 └── model-service/             # MiniCPM-o 推理服务（Python + FastAPI + SSE）
     ├── requirements.txt / Dockerfile / docker-compose.yml
-    ├── tests/test_evaluate.py # 契约 + user_fit 测试（不依赖真模型）
+    ├── models/                # GGUF 权重（如 MiniCPM-o-4_5-Q4_K_M.gguf，自行下载）
+    ├── tests/                 # pytest（契约 + 评分 + 收敛 + GGUF 后端，不依赖真模型）
     └── app/
-        ├── serve.py           # FastAPI 入口（/api/samples, /api/evaluate, /api/upload）
-        ├── schemas.py         # Pydantic 契约（与前端 types 镜像）
-        ├── config.py          # 环境变量配置
-        ├── model_loader.py    # MiniCPM-o 加载到 NPU（优雅降级）
+        ├── serve.py           # FastAPI 入口（只做装配，挂 6 个路由域）
+        ├── routes/            # 模块化路由：samples / evaluate / upload /
+        │                      #   convergence / leaderboard / health
+        ├── scoring/           # 三阶段评分：registry / rules_engine / stage_scorer /
+        │                      #   presets / convergence / preference / encoder / task_sets
+        ├── schemas.py         # Pydantic 契约（与前端 src/types/ 镜像）
+        ├── config.py          # 环境变量配置（MOCK / MODEL_PATH / DEVICE / TTS_BACKEND）
+        ├── model_loader.py    # MiniCPM-o 加载（GGUF / 全量权重，优雅降级）
         ├── evaluator.py       # 跨模态评估 pipeline + 可测试 Mock 流
         ├── prompt_templates.py# 强制六维 JSON 的系统提示
         └── tts.py             # 语音合成统一接口
@@ -81,7 +105,8 @@ agentcorp/
 
 ## 3. 前后端契约（解耦关键）
 
-前端 `src/types/index.ts` 与后端 `model-service/app/schemas.py` **严格镜像**。
+前端 `src/types/`（按域拆分，评估相关在 `evaluation.ts`）与后端
+`model-service/app/schemas.py` **严格镜像**。
 
 - 请求：`EvaluationRequest { candidate, preference, options? }`
 - SSE 事件流（`text/event-stream`）五种事件：
@@ -90,6 +115,8 @@ agentcorp/
   - `audio`：语音块（chunk 为 base64；真实=PCM16/wav 字节，Mock=UTF-8 文本）
   - `verdict`：终审判定（verdict / user_fit / evidence_trace / confidence）
   - `done`：评估完成（evaluation_id）
+- 评估运行（`/api/evaluate-run`）在同构事件流上扩展 `convergence_update` /
+  `task_run` / `convergence_score` 事件（Task-Set 调度 + Layer3 收敛）。
 
 ---
 
@@ -162,15 +189,32 @@ MOCK=false DEVICE=npu MODEL_PATH=/models/MiniCPM-o-4.5 uvicorn app.serve:app --p
 
 ---
 
-## 5. 测试（模型服务，不依赖真模型）
+## 5. 测试
+
+前端（vitest，`tests/unit/`，15 个文件 / 300 条用例，不依赖 Electron 与真模型）：
+
+```bash
+corepack pnpm test          # 全量单元测试
+corepack pnpm test:a11y     # a11y（axe）专项
+corepack pnpm typecheck     # TS 双 tsconfig 类型检查
+corepack pnpm lint:check    # eslint
+corepack pnpm i18n:check    # zh/en 语言包 key parity
+```
+
+模型服务（pytest，`model-service/tests/`，174 通过 / 6 跳过，不依赖真模型）：
 
 ```bash
 cd model-service
-pip install pytest
+pip install -r requirements.txt
 MOCK=true python -m pytest tests/ -q
 ```
 
-覆盖：user_fit 满分/超预算硬约束/审美减分、模型 JSON 解析、SSE 事件流 schema（六维逐维点亮 / verdict / done）、未知候选兜底。
+覆盖：user_fit 满分/超预算硬约束/审美减分、模型 JSON 解析、SSE 事件流 schema
+（六维逐维点亮 / verdict / done）、三阶段评分（S1/S2/S3 rules engine）、
+Layer3 收敛（encoder / preference / convergence）、GGUF 后端降级、未知候选兜底。
+
+CI（`.github/workflows/ci.yml`）：push 到 `main` / `feat/*` 与 PR 触发，
+前端 job 跑 install → typecheck → lint → test，model-service job 跑 pytest。
 
 ---
 

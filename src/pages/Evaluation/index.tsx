@@ -10,9 +10,12 @@
  * store.runEvaluation（真实 KPI/ROI + MiniCPM-o 裁判）→ 落库 EvaluationProfile
  * 并将 runId↔task 关联写入（T06）。捕获 runId 的入口即在本页（来自
  * gateway.rpc('chat.send') 返回值，可由调用方注入）。
+ *
+ * i18n：用户可见文案走 common:evaluation.*（含面板标签 / 表单 / 空态）。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play, AlertTriangle, Volume2, VolumeX } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useAgentsStore } from '@/stores/agents';
@@ -67,6 +70,7 @@ function LifecycleDot({ state }: { state: string }) {
 }
 
 export function Evaluation() {
+  const { t } = useTranslation('common');
   const agents = (useAgentsStore((s) => s.agents) ?? []) as AgentSummary[];
   const fetchAgents = useAgentsStore((s) => s.fetchAgents);
 
@@ -173,9 +177,11 @@ export function Evaluation() {
     <div className="tech-bg flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-white/40 px-6 py-4">
         <div>
-          <h1 className="text-lg font-extrabold text-[#1A1C1E] dark:text-white">评估中心 · Evaluation</h1>
+          <h1 className="text-lg font-extrabold text-[#1A1C1E] dark:text-white">
+            {t('evaluation.title', '评估中心 · Evaluation')}
+          </h1>
           <p className="text-[12px] text-gray-400">
-            真实工作 + MiniCPM-o 外部裁判 · 本地数据 · 桌面端
+            {t('evaluation.subtitle', '真实工作 + MiniCPM-o 外部裁判 · 本地数据 · 桌面端')}
           </p>
         </div>
         {error ? (
@@ -194,14 +200,14 @@ export function Evaluation() {
         <aside className="w-[300px] shrink-0 overflow-y-auto border-r border-white/40 p-4">
           <div className="mb-3 space-y-2 rounded-2xl bg-white/70 p-3 dark:bg-white/5">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">
-              评估会话（真实运行记录）
+              {t('evaluation.sessionLabel', '评估会话（真实运行记录）')}
             </label>
             <select
               value={selectedSessionId}
               onChange={(e) => setSelectedSessionId(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] outline-none focus:border-[#FFD233] dark:bg-white/10"
             >
-              <option value="">仅本地画像（不关联会话）</option>
+              <option value="">{t('evaluation.sessionLocalOnly', '仅本地画像（不关联会话）')}</option>
               {sessionOptions.map((s) => (
                 <option key={s.sessionId} value={s.sessionId}>
                   {s.sessionId.slice(0, 8)}…{s.updatedAt ? ` · ${s.updatedAt.slice(0, 10)}` : ''}
@@ -209,31 +215,35 @@ export function Evaluation() {
               ))}
             </select>
             {selectedAgentId && sessionOptions.length === 0 ? (
-              <p className="text-[11px] text-gray-400">该 agent 暂无运行记录。</p>
+              <p className="text-[11px] text-gray-400">
+                {t('evaluation.noSessions', '该 agent 暂无运行记录。')}
+              </p>
             ) : null}
             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">
-              runId（可选，来自 chat.send）
+              {t('evaluation.runIdLabel', 'runId（可选，来自 chat.send）')}
             </label>
             <input
               value={runIdInput}
               onChange={(e) => setRunIdInput(e.target.value)}
-              placeholder="run_xxx（缺省不写 runlink）"
+              placeholder={t('evaluation.runIdPlaceholder', 'run_xxx（缺省不写 runlink）')}
               className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] outline-none focus:border-[#FFD233] dark:bg-white/10"
             />
             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">
-              任务标题（可选）
+              {t('evaluation.taskTitleLabel', '任务标题（可选）')}
             </label>
             <input
               value={taskTitle}
               onChange={(e) => setTaskTitle(e.target.value)}
-              placeholder="评估关联的任务"
+              placeholder={t('evaluation.taskTitlePlaceholder', '评估关联的任务')}
               className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[12px] outline-none focus:border-[#FFD233] dark:bg-white/10"
             />
           </div>
 
           <div className="space-y-2">
             {agents.length === 0 ? (
-              <p className="px-2 py-4 text-sm text-gray-400">未加载到 agent。</p>
+              <p className="px-2 py-4 text-sm text-gray-400">
+                {t('evaluation.noAgents', '未加载到 agent。')}
+              </p>
             ) : (
               agents.map((agent) => {
                 const st = lifecycle[agent.id] ?? 'ONBOARDING';
@@ -260,18 +270,18 @@ export function Evaluation() {
                       {profiles[agent.id]?.interviewBaseline ? (
                         <span
                           className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-600"
-                          title="已有面试基线（S2 → S3 贯通）"
+                          title={t('evaluation.baselineTitle', '已有面试基线（S2 → S3 贯通）')}
                         >
-                          基线
+                          {t('evaluation.baselineBadge', '基线')}
                         </span>
                       ) : null}
                       {evaluated ? (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
-                          已评估
+                          {t('evaluation.evaluated', '已评估')}
                         </span>
                       ) : (
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-400">
-                          未评估
+                          {t('evaluation.notEvaluated', '未评估')}
                         </span>
                       )}
                     </button>
@@ -286,7 +296,7 @@ export function Evaluation() {
                       ) : (
                         <Play className="h-3.5 w-3.5" />
                       )}
-                      运行评估
+                      {t('evaluation.runEvaluation', '运行评估')}
                     </button>
                   </div>
                 );
@@ -309,7 +319,7 @@ export function Evaluation() {
                     : 'text-gray-400 hover:bg-white hover:text-[#1A1C1E] dark:hover:bg-white/10'
                 }`}
               >
-                {p.label}
+                {t(`evaluation.panels.${p.key}`, p.label)}
               </button>
             ))}
           </div>
@@ -325,16 +335,22 @@ export function Evaluation() {
                 />
                 {selectedProfile?.interviewBaseline?.radar ? (
                   <p className="text-[12px] text-gray-400">
-                    灰色多边形 = 面试基线（S2），黄色 = 当前绩效（S3）。
+                    {t('evaluation.radarBaselineHint', '灰色多边形 = 面试基线（S2），黄色 = 当前绩效（S3）。')}
                   </p>
                 ) : null}
                 {selectedAgent ? (
                   <p className="text-[12px] text-gray-400">
-                    当前选中：<span className="font-bold text-[#1A1C1E] dark:text-white">{selectedAgent.name}</span>
-                    {' '}（{selectedAgent.id}）— 点击「运行评估」以刷新六维评分。
+                    {t('evaluation.radarSelectedPre', '当前选中：')}
+                    <span className="font-bold text-[#1A1C1E] dark:text-white">{selectedAgent.name}</span>
+                    {t('evaluation.radarSelectedPost', {
+                      id: selectedAgent.id,
+                      defaultValue: '（{{id}}）— 点击「运行评估」以刷新六维评分。',
+                    })}
                   </p>
                 ) : (
-                  <p className="text-[12px] text-gray-400">从左侧选择一个 agent 查看雷达。</p>
+                  <p className="text-[12px] text-gray-400">
+                    {t('evaluation.radarSelectHint', '从左侧选择一个 agent 查看雷达。')}
+                  </p>
                 )}
               </div>
             ) : null}
@@ -343,7 +359,12 @@ export function Evaluation() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[12px] text-gray-400">
-                    模型讲解（{voiceEnabled ? '语音播报开' : '语音播报关'}）
+                    {t('evaluation.narrationStatus', {
+                      state: voiceEnabled
+                        ? t('evaluation.voiceStateOn', '语音播报开')
+                        : t('evaluation.voiceStateOff', '语音播报关'),
+                      defaultValue: '模型讲解（{{state}}）',
+                    })}
                   </p>
                   <button
                     type="button"
@@ -359,7 +380,9 @@ export function Evaluation() {
                     ) : (
                       <VolumeX className="h-3.5 w-3.5" />
                     )}
-                    {voiceEnabled ? '语音开' : '语音关'}
+                    {voiceEnabled
+                      ? t('evaluation.voiceOn', '语音开')
+                      : t('evaluation.voiceOff', '语音关')}
                   </button>
                 </div>
                 <div
@@ -370,7 +393,7 @@ export function Evaluation() {
                     narrationText
                   ) : (
                     <span className="text-gray-400">
-                      点击「运行评估」后，模型讲解将在此逐句滚动并语音播报。
+                      {t('evaluation.narrationEmpty', '点击「运行评估」后，模型讲解将在此逐句滚动并语音播报。')}
                     </span>
                   )}
                   {streaming ? (
