@@ -123,6 +123,19 @@ export function Office() {
           </div>
         )}
 
+        {/* 像素视图下点部门 chip → 部门人员安排面板 */}
+        {deptAreaLabel && view === 'pixel' && (
+          <DepartmentPanel
+            areaLabel={deptAreaLabel}
+            roster={roster}
+            onClose={() => setDeptAreaLabel(null)}
+            onSelectAgent={(id) => {
+              setDeptAreaLabel(null);
+              setSelectedAgentId(id);
+            }}
+          />
+        )}
+
         {/* 像素视图下点角色 → 派活抽屉 */}
         {selectedEmp && (
           <AgentDispatchDrawer emp={selectedEmp} onClose={() => setSelectedAgentId(null)} />
