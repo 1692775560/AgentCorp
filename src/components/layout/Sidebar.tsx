@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   BarChart3,
+  Building2,
   ChevronRight,
   Home,
   LayoutDashboard,
