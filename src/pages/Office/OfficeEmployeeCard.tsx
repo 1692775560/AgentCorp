@@ -1,11 +1,16 @@
 /**
  * src/pages/Office/OfficeEmployeeCard.tsx
  * Office 办公室 · 单个入职员工卡片（凸起 glass 卡）。
- * 展示：头像、姓名、工种、verdict 徽章、一句话简介、六维条形摘要、user_fit。
- * 纯展示组件，数据来自 assignment 引擎的 OfficeEmployee。
+ * 展示：头像、姓名、工种、verdict 徽章、简介、六维摘要、user_fit。
+ * 派活：底部工作区可对该在岗 agent 真实下发任务（走 officeWork store →
+ * gateway.rpc('chat.send')），并回填状态（工作中/完成/失败）与产出。
  */
+import { useState } from 'react';
+import { Send, Loader2, CheckCircle2, AlertTriangle, RotateCcw } from 'lucide-react';
+
 import type { OfficeEmployee } from '@/engine/office/assignment';
 import { VERDICT_META } from '@/engine/office/assignment';
+import { useOfficeWorkStore, type WorkStatus } from '@/stores/officeWork';
 import type { RadarScore } from '@/types/evaluation';
 
 const RADAR_DIMS: Array<{ key: keyof RadarScore; label: string }> = [
@@ -23,6 +28,13 @@ const JOB_LABEL: Record<string, string> = {
   text: 'text · 文案',
 };
 
+const STATUS_META: Record<WorkStatus, { label: string; color: string }> = {
+  idle: { label: '空闲', color: '#9ca3af' },
+  working: { label: '工作中', color: '#3b82f6' },
+  done: { label: '已完成', color: '#22c55e' },
+  failed: { label: '失败', color: '#ef4444' },
+};
+
 function initials(name: string): string {
   const trimmed = name.trim();
   return trimmed ? trimmed.slice(0, 2) : '？';
@@ -30,12 +42,27 @@ function initials(name: string): string {
 
 export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accent: string }) {
   const verdict = VERDICT_META[emp.verdict];
+  const record = useOfficeWorkStore((s) => s.records[emp.agentId]);
+  const dispatch = useOfficeWorkStore((s) => s.dispatch);
+  const reset = useOfficeWorkStore((s) => s.reset);
+  const [draft, setDraft] = useState('');
+
+  const status: WorkStatus = record?.status ?? 'idle';
+  const statusMeta = STATUS_META[status];
+  const working = status === 'working';
+
+  const onSend = () => {
+    if (working || draft.trim().length === 0) return;
+    void dispatch(emp.agentId, emp.sessionKey, draft);
+    setDraft('');
+  };
+
   return (
     <div
       className="glass-panel flex flex-col gap-3 rounded-2xl p-4"
       style={emp.isMvp ? { boxShadow: `0 0 0 1.5px ${accent}55, var(--neu-shadow, 0 0 0 transparent)` } : undefined}
     >
-      {/* 头部：头像 + 名字 + verdict */}
+      {/* 头部：头像 + 名字 + verdict + 工作状态点 */}
       <div className="flex items-center gap-3">
         <div
           className="neu-inset flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold"
@@ -50,11 +77,7 @@ export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accen
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span
-              className="truncate text-[15px] font-semibold"
-              style={{ color: 'var(--neu-ink)' }}
-              translate="no"
-            >
+            <span className="truncate text-[15px] font-semibold" style={{ color: 'var(--neu-ink)' }} translate="no">
               {emp.name}
             </span>
             <span
@@ -65,15 +88,21 @@ export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accen
               {verdict.glyph} {verdict.label}
             </span>
           </div>
-          {emp.jobType && (
-            <span
-              className="text-[11px]"
-              style={{ color: 'var(--neu-ink-soft)', fontFamily: 'var(--font-accent)' }}
-              translate="no"
-            >
-              {JOB_LABEL[emp.jobType] ?? emp.jobType}
+          <div className="flex items-center gap-2">
+            {emp.jobType && (
+              <span
+                className="text-[11px]"
+                style={{ color: 'var(--neu-ink-soft)', fontFamily: 'var(--font-accent)' }}
+                translate="no"
+              >
+                {JOB_LABEL[emp.jobType] ?? emp.jobType}
+              </span>
+            )}
+            <span className="flex items-center gap-1 text-[11px]" style={{ color: statusMeta.color }}>
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusMeta.color }} />
+              {statusMeta.label}
             </span>
-          )}
+          </div>
         </div>
       </div>
 
@@ -107,7 +136,10 @@ export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accen
       </div>
 
       {/* user_fit 页脚 */}
-      <div className="flex items-center justify-between border-t pt-2" style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 16%, transparent)' }}>
+      <div
+        className="flex items-center justify-between border-t pt-2"
+        style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 16%, transparent)' }}
+      >
         <span className="text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
           用户契合度
         </span>
@@ -118,6 +150,113 @@ export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accen
           </span>
         </span>
       </div>
+
+      {/* 派活工作区 */}
+      <WorkPanel
+        accent={accent}
+        status={status}
+        record={record}
+        draft={draft}
+        setDraft={setDraft}
+        working={working}
+        canDispatch={!!emp.sessionKey}
+        onSend={onSend}
+        onReset={() => reset(emp.agentId)}
+      />
+    </div>
+  );
+}
+
+function WorkPanel(props: {
+  accent: string;
+  status: WorkStatus;
+  record: ReturnType<typeof useOfficeWorkStore.getState>['records'][string] | undefined;
+  draft: string;
+  setDraft: (v: string) => void;
+  working: boolean;
+  canDispatch: boolean;
+  onSend: () => void;
+  onReset: () => void;
+}) {
+  const { accent, status, record, draft, setDraft, working, canDispatch, onSend, onReset } = props;
+
+  return (
+    <div
+      className="flex flex-col gap-2 border-t pt-3"
+      style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 16%, transparent)' }}
+    >
+      {/* 结果区（done / failed 时显示最近任务与产出） */}
+      {record && (status === 'done' || status === 'failed') && (
+        <div className="neu-inset flex flex-col gap-1.5 rounded-xl p-2.5">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+            {status === 'done' ? (
+              <CheckCircle2 className="h-3.5 w-3.5" style={{ color: '#22c55e' }} />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5" style={{ color: '#ef4444' }} />
+            )}
+            <span className="truncate" style={{ color: 'var(--neu-ink)' }}>
+              任务：{record.task}
+            </span>
+            {typeof record.latencyMs === 'number' && (
+              <span
+                className="ml-auto shrink-0 text-[10px] tabular-nums"
+                style={{ color: 'var(--neu-ink-soft)', fontFamily: 'var(--font-accent)' }}
+              >
+                {(record.latencyMs / 1000).toFixed(1)}s
+              </span>
+            )}
+          </div>
+          <p
+            className="max-h-28 overflow-y-auto whitespace-pre-wrap text-[12px] leading-relaxed"
+            style={{ color: status === 'failed' ? '#ef4444' : 'var(--neu-ink-soft)' }}
+          >
+            {status === 'done' ? record.reply : record.error ?? '执行失败'}
+          </p>
+          <button
+            type="button"
+            onClick={onReset}
+            className="neu-btn flex items-center justify-center gap-1 self-start rounded-lg px-2 py-1 text-[11px]"
+            style={{ color: 'var(--neu-ink-soft)' }}
+          >
+            <RotateCcw className="h-3 w-3" />
+            再派一个任务
+          </button>
+        </div>
+      )}
+
+      {/* 输入区（idle / working / 结果后仍可再派：结果区已提供按钮，这里在非结果态显示） */}
+      {status !== 'done' && status !== 'failed' && (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={draft}
+            disabled={working || !canDispatch}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onSend();
+            }}
+            placeholder={canDispatch ? '给 TA 派一个任务…' : '该 agent 无会话键，暂不可派活'}
+            className="neu-inset min-w-0 flex-1 rounded-xl px-3 py-1.5 text-[12px] outline-none disabled:opacity-60"
+            style={{ color: 'var(--neu-ink)', backgroundColor: 'transparent' }}
+          />
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={working || !canDispatch || draft.trim().length === 0}
+            className="neu-btn flex h-8 w-8 shrink-0 items-center justify-center rounded-xl disabled:opacity-50"
+            style={{ color: accent }}
+            aria-label="派发任务"
+          >
+            {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
+
+      {working && (
+        <span className="text-[11px]" style={{ color: 'var(--neu-ink-soft)' }}>
+          正在真实调度该 agent 执行任务…
+        </span>
+      )}
     </div>
   );
 }
