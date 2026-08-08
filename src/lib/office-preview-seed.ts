@@ -161,7 +161,7 @@ function toProfile(spec: SeedSpec): EvaluationProfile {
     stageScores: [
       {
         agentId: spec.id,
-        stage: 'S3',
+        stage: 'performance',
         jobType: spec.jobType,
         objective: [],
         subjective: {} as never,
