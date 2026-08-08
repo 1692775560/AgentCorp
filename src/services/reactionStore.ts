@@ -21,6 +21,7 @@
  * UI 一律用无后缀版本，才能看到「多少人喜欢」而非「我点过几次」。
  */
 import { hostApiFetch } from '@/lib/host-api';
+import { isBrowserPreviewMode } from '@/lib/browser-preview';
 import type { JobType } from '@/types/evaluation';
 import type {
   BossFavoriteVote,
