@@ -12,6 +12,7 @@ import {
   Search,
   Settings as SettingsIcon,
   Store,
+  Swords,
   Users,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -251,6 +252,12 @@ export function Sidebar() {
       label: tSidebar('evaluation', '绩效考核'),
       path: '/evaluation',
       icon: BarChart3,
+    },
+    // 模块 Arena：个性化对决（需求 → 同工种候选作答 → 双轨 Elo）
+    {
+      label: tSidebar('arena', 'Arena 对决'),
+      path: '/arena',
+      icon: Swords,
     },
   ];
 

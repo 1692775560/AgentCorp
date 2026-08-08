@@ -13,6 +13,7 @@
  * 避免渲染层打包期解析 Node 模块。
  */
 import type { InterviewReport } from '@/types/interview';
+import type { UserQuestionRound } from '@/types/interview';
 
 // Lazy-load electron-store（ESM module），与 evaluationStore.ts 保持一致。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,4 +66,22 @@ export async function latestByAgent(agentId: string): Promise<InterviewReport | 
   return reports[0] ?? null;
 }
 
-export const interviewStore = { save, load, list, listByAgent, latestByAgent };
+/**
+ * 追加/更新用户自定义题小节（设计 §3 / T04）。
+ * 仅加法：加载既有报告 → 合并 userQuestionRound → 覆盖写。
+ * 不进 turns[]、不进 dimTracker 证据、不进模型分（报告结构不变，仅多一个可选字段）。
+ */
+export async function saveUserQuestionRound(
+  interviewId: string,
+  round: UserQuestionRound,
+): Promise<void> {
+  const store = await getInterviewStore();
+  const existing = store.get(interviewId) as InterviewReport | undefined;
+  const report: InterviewReport = {
+    ...(existing ?? ({} as InterviewReport)),
+    userQuestionRound: round,
+  };
+  store.set(interviewId, report);
+}
+
+export const interviewStore = { save, load, list, listByAgent, latestByAgent, saveUserQuestionRound };

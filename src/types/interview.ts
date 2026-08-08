@@ -88,6 +88,26 @@ export interface InterviewMetrics {
   coverageRatio: number;
 }
 
+/**
+ * 用户自定义题（无参考答案，设计 §3 / 决策 D5）。
+ * 复用 Arena 通道（context='interview'）：用户按实际情况出题 → 同工种候选作答 →
+ * 用户主观选择。**不进 turns[]、不进 dimTracker 证据、不进模型分**（仅用户偏好）。
+ */
+export interface UserQuestionRound {
+  /** 用户按自己实际情况出的题（无参考答案） */
+  question: string;
+  /** 复用 Arena 通道（context='interview'）的 matchId */
+  matchId: string;
+  /** 候选作答快照（用于报告展示，与 ArenaMatch.candidates 同构子集） */
+  candidates: { agentId: string; agentName: string; answerText: string }[];
+  /** 用户主观判断：agent_id | 'draw' | 'none' | null */
+  pick: string | 'draw' | 'none' | null;
+  /** 可选备注（未来可回灌 PreferenceProfile / BossFavorite 触发源） */
+  note?: string;
+  /** ISO8601 UTC */
+  ts: string;
+}
+
 /** 一次完整面试的报告（落库 electron-store `agentcorp.interview`，键 = interviewId） */
 export interface InterviewReport {
   interviewId: string;
@@ -117,6 +137,8 @@ export interface InterviewReport {
   recommendation: InterviewRecommendation;
   /** HR 总评备注 */
   notes?: string;
+  /** 用户自定义题（可选独立小节，复用 Arena 通道；不进 turns/dimTracker/模型分） */
+  userQuestionRound?: UserQuestionRound;
   /** 面试官（owner id） */
   createdBy: string;
   /** ISO8601 UTC */

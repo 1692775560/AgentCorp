@@ -147,4 +147,10 @@ export interface MarketCandidateView {
   radarResolution: AgentRadarResolution;
   /** 匹配分解；无六维时为 undefined（排序沉底） */
   match?: MatchScoreBreakdown;
+  /** 小红心点赞装配字段（reactionStore 读取，视图层展示用） */
+  likeCount?: number;
+  likedByMe?: boolean;
+  /** BossFavorite 装配字段（同工种赛道内名次，1 = 最受青睐） */
+  favoriteRank?: number;
+  favoriteCount?: number;
 }

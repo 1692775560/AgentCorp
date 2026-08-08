@@ -13,6 +13,12 @@
 import { invokeIpc } from '@/lib/api-client';
 import type { EvaluationEvent, TelemetryEvent, RadarScore, RadarDim, Verdict } from '@/types/evaluation';
 import type { ConvergenceScore, TurnState } from '@/types/convergence';
+import type {
+  ArenaCompareInput,
+  ArenaMatch,
+  ArenaPickResult,
+  ArenaUserPickInput,
+} from '@/types/arena';
 import { computeKpi } from '@/engine/metricsEngine';
 
 // 与 src/lib/host-api.ts 保持一致
@@ -456,4 +462,49 @@ export async function judgeChat(
   }
 }
 
-export const judgeClient = { evaluate, fallbackMock, judgeChat };
+/**
+ * Arena 个性化对决：POST /api/arena/compare（T03）。
+ * 经 Host API 代理（127.0.0.1:3210）转发至 model-service；任何失败返回 null，
+ * 调用方（arenaStore）据此展示降级提示（后端不可用 / 网络错误）。
+ */
+export async function arenaCompare(input: ArenaCompareInput): Promise<ArenaMatch | null> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/arena/compare`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ArenaMatch;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Arena 用户主观选择：POST /api/arena/user-pick（T03）。
+ * 经 Host API 代理转发至 model-service；任何失败返回 null。
+ */
+export async function arenaUserPick(input: ArenaUserPickInput): Promise<ArenaPickResult | null> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/arena/user-pick`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ArenaPickResult;
+  } catch {
+    return null;
+  }
+}
+
+export const judgeClient = { evaluate, fallbackMock, judgeChat, arenaCompare, arenaUserPick };

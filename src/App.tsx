@@ -26,6 +26,8 @@ const Evaluation = lazy(() => import('./pages/Evaluation').then((m) => ({ defaul
 const Kanban = lazy(() => import('./pages/Kanban'));
 // 模块 B：HR 面试（S2）—— 三阶段流水线 S1 → 【S2】 → S3 的中间环节
 const Interview = lazy(() => import('./pages/Interview').then((m) => ({ default: m.Interview })));
+// 模块 Arena：个性化对决（需求 → 同工种候选作答 → 双轨 Elo）
+const ArenaPage = lazy(() => import('./pages/Arena/ArenaPage').then((m) => ({ default: m.ArenaPage })));
 import { useSettingsStore } from './stores/settings';
 import { useGatewayStore } from './stores/gateway';
 import { isBrowserPreviewMode } from './lib/browser-preview';
@@ -222,6 +224,7 @@ function App() {
             <Route path="team-map" element={<Navigate to="/team-overview" replace />} />
             <Route path="marketplace" element={<Marketplace />} />
             <Route path="interview" element={<Interview />} />
+            <Route path="arena" element={<ArenaPage />} />
             <Route path="evaluation" element={<Evaluation />} />
             {/* 任务看板：当前为占位页，全量拖拽看板实现后续接入 */}
             <Route path="kanban" element={<Kanban />} />

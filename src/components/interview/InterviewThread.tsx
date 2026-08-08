@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { ChatInput } from '@/pages/Chat/ChatInput';
 import { InterviewBubble } from '@/components/interview/InterviewBubble';
 import { FollowupSuggestChips } from '@/components/interview/FollowupSuggestChips';
+import { UserQuestionPanel } from '@/components/interview/UserQuestionPanel';
 import { PHASE_HINTS, PHASE_LABELS, PHASE_ORDER } from '@/engine/interview/questionBank';
 import { dimLabel } from '@/engine/interview/dimTracker';
 import { useInterviewStore } from '@/stores/interview';
@@ -172,6 +173,9 @@ export function InterviewThread() {
             题序已问完。可采纳下方追问建议补齐证据缺口，或在左栏结束面试生成 S2 评分卡。
           </div>
         )}
+
+        {/* 用户自定义题（P3 完成后可选环节，复用 Arena 通道；不进 turns/dimTracker/模型分） */}
+        {(finished || (running && !currentQuestion)) && <UserQuestionPanel />}
 
         {finished && (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-3 text-center text-xs text-emerald-700 backdrop-blur dark:text-emerald-300">
