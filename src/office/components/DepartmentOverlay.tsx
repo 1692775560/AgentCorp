@@ -14,7 +14,7 @@ import type { RenderContext } from './CollabOverlay.js';
 import type { OfficeState } from '../engine/officeState.js';
 import { TILE_SIZE } from '../types.js';
 import { DEPARTMENTS, getDepartment } from '../companyStructure.js';
-import { candidatesByArea } from '../../components/candidates.js';
+import { candidatesByArea } from '../officeAdapter.js';
 
 interface DepartmentOverlayProps {
   officeState: OfficeState;
