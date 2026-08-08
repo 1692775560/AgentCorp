@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routes import convergence, evaluate, health, leaderboard, samples, upload
+from .routes import arena, convergence, evaluate, health, judge, leaderboard, samples, upload
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +57,9 @@ app.include_router(evaluate.router)
 app.include_router(upload.router)
 app.include_router(convergence.router)
 app.include_router(leaderboard.router)
+app.include_router(judge.router)
 app.include_router(health.router)
+app.include_router(arena.router)
 
 
 if __name__ == "__main__":

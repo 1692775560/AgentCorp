@@ -310,18 +310,17 @@ describe('radarSource · heuristicRadar（启发式种子）', () => {
       name: '设计助手',
       description: '擅长海报与品牌视觉设计',
       tags: ['设计', '创意', '海报'],
-      rating: 4.5,
       budgetNum: 199,
-      hiredCount: 120,
     };
     expect(heuristicRadar(seed)).toEqual(heuristicRadar(seed));
   });
 
-  it('quality 由市场评分驱动：rating×0.9+0.4', () => {
-    // 4×0.9+0.4 = 4.0
-    expect(heuristicRadar({ rating: 4 }).quality).toBe(4);
-    // 2×0.9+0.4 = 2.2 → 对齐 0.5 步进 → 2.0
-    expect(heuristicRadar({ rating: 2 }).quality).toBe(2);
+  it('quality：人气信号（rating）不得进入能力维，恒为中性基线 2.5（公平性）', () => {
+    // 无任何人气信号时，quality 给中性基线（含义是「未知」，不是「及格」）
+    expect(heuristicRadar({}).quality).toBe(2.5);
+    // 即便传入旧人气信号 rating，quality 仍保持中性基线（市场评分不得冒充能力）
+    expect(heuristicRadar({ rating: 4 } as HeuristicSeed).quality).toBe(2.5);
+    expect(heuristicRadar({ rating: 2 } as HeuristicSeed).quality).toBe(2.5);
   });
 
   it('cost 按报价分档：免费最高，越贵越低（单调不增）', () => {
@@ -346,12 +345,16 @@ describe('radarSource · heuristicRadar（启发式种子）', () => {
     expect(creative).toBeGreaterThan(plain);
   });
 
-  it('reliability：已雇佣数越多越高（社会验证分档）', () => {
-    const low = heuristicRadar({ hiredCount: 0 }).reliability;
-    const mid = heuristicRadar({ hiredCount: 100 }).reliability;
-    const high = heuristicRadar({ hiredCount: 2000 }).reliability;
-    expect(mid).toBeGreaterThan(low);
-    expect(high).toBeGreaterThan(mid);
+  it('reliability：人气信号（hiredCount）不参与，仅取自述质量实践（公平性）', () => {
+    // 即使雇佣数巨大，reliability 仍保持中性基线 2.5（人气 ≠ 能力）
+    expect(heuristicRadar({ hiredCount: 2000 } as HeuristicSeed).reliability).toBe(2.5);
+    const plain = heuristicRadar({ description: '处理日常事务' }).reliability;
+    expect(plain).toBe(2.5);
+    // 自述质量实践（生产级/测试/CI）带来加成
+    const selfDeclared = heuristicRadar({
+      description: '注重生产级稳定性，具备完善的自动化测试与 CI 流程',
+    }).reliability;
+    expect(selfDeclared).toBeGreaterThan(plain);
   });
 
   it('comm：简介越充分、标签越多，沟通信号越强', () => {

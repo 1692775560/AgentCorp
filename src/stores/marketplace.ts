@@ -34,6 +34,8 @@ import { extractTaskProfile, inferJobType, EMPTY_TASK_PROFILE } from '@/engine/m
 import { budgetRefOf, matchScore, sortByMatch } from '@/engine/marketplace/matchScore';
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useScoringStore } from '@/stores/scoringStore';
+import { getFavorites, getLike } from '@/services/reactionStore';
+import { resolveLikeKey } from '@/stores/likesStore';
 
 /** 排序方式：智能匹配 / 初审分 / 报价 / 性价比 */
 export type MarketSortKey = 'match' | 'review' | 'budget' | 'costperf';
@@ -117,6 +119,8 @@ interface MarketplaceState {
   resetRequirement: () => void;
   /** 重算六维解析 + 匹配分 + 排序（userWeight 变化时调用） */
   rescore: () => void;
+  /** 装配小红心点赞数 / BossFavorite 名次（reactionStore 读取，best-effort） */
+  hydrateReactions: () => Promise<void>;
   /** S1 初审：启发式种子 → POST /api/evaluate-stage；失败降级启发式 */
   runPrescreen: (candidateId: string) => Promise<void>;
   clearError: () => void;
@@ -128,9 +132,7 @@ function toHeuristicSeed(seed: MarketCandidateSeed): HeuristicSeed {
     name: seed.name,
     description: seed.description,
     tags: seed.tags,
-    rating: seed.rating,
     budgetNum: parseBudgetNumber(seed.price),
-    hiredCount: seed.hiredCount,
     hireType: seed.hireType,
     capabilityCount: seed.capabilities?.length ?? 0,
   };
@@ -321,6 +323,47 @@ export const useMarketplaceStore = create<MarketplaceState>((set, get) => ({
     });
 
     set({ candidates: sortCandidates(scored, sortKey) });
+  },
+
+  hydrateReactions: async () => {
+    const { candidates } = get();
+    const jobs = new Set<JobType>();
+    for (const c of candidates) if (c.jobType) jobs.add(c.jobType);
+
+    // 并行拉取各工种青睐榜 + 各候选点赞
+    const [rankings, likes] = await Promise.all([
+      Promise.all([...jobs].map((j) => getFavorites(j).catch(() => null))),
+      Promise.all(
+        candidates.map((c) => getLike(resolveLikeKey(c)).catch(() => null)),
+      ),
+    ]);
+    const rankByAgent = new Map<string, number>();
+    const favCountByAgent = new Map<string, number>();
+    rankings.forEach((ranking) => {
+      if (!ranking) return;
+      ranking.ranking.forEach((entry, idx) => {
+        rankByAgent.set(entry.agentId, idx + 1);
+        favCountByAgent.set(entry.agentId, entry.count);
+      });
+    });
+    const likeByAgent = new Map<string, { count: number; likedByMe: boolean }>();
+    likes.forEach((rec) => {
+      if (!rec) return;
+      likeByAgent.set(rec.agentId, { count: rec.count, likedByMe: rec.likedByMe });
+    });
+
+    const enriched: MarketCandidateView[] = candidates.map((c) => {
+      const key = resolveLikeKey(c);
+      const like = likeByAgent.get(key);
+      return {
+        ...c,
+        likeCount: like?.count ?? 0,
+        likedByMe: like?.likedByMe ?? false,
+        favoriteRank: rankByAgent.get(key) ?? undefined,
+        favoriteCount: favCountByAgent.get(key) ?? undefined,
+      };
+    });
+    set({ candidates: enriched });
   },
 
   runPrescreen: async (candidateId) => {

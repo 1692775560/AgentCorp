@@ -10,14 +10,18 @@
  * - 绩效徽章（有 S3 评分卡时：total + verdict 色块）
  * - 雇佣按钮（IPC 流程由页面注入，卡片只回调）
  */
-import { Star, Building2, User, ShoppingCart, Gauge, Loader2, Award } from 'lucide-react';
+import { Star, Building2, User, ShoppingCart, Gauge, Loader2, Award, Heart } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { RadarChartView } from '@/pages/Evaluation/RadarChart';
 import { MatchScoreBadge } from '@/components/marketplace/MatchScoreBadge';
+import { BossFavoriteBadge } from '@/components/marketplace/BossFavoriteBadge';
 import { RADAR_SOURCE_LABELS, type RadarSourceKind } from '@/engine/marketplace/radarSource';
+import { useLikesStore, resolveLikeKey } from '@/stores/likesStore';
 import type { MarketCandidateView } from '@/types/marketplace';
 import type { Verdict } from '@/types/evaluation';
+import type { JobType } from '@/types/evaluation';
 
 export interface MarketCandidateCardProps {
   candidate: MarketCandidateView;
@@ -61,6 +65,21 @@ export function MarketCandidateCard({
 }: MarketCandidateCardProps) {
   const { radarResolution: resolution } = candidate;
   const hasRadar = !!resolution.radar;
+
+  // 小红心：B 站式点赞（类 B 站点赞），本地持久化经 reactionStore
+  const likeKey = resolveLikeKey(candidate);
+  const like = useLikesStore((s) => s.likes[likeKey]);
+  const toggling = useLikesStore((s) => s.toggling[likeKey]);
+  const hydrateLike = useLikesStore((s) => s.hydrate);
+  const toggleLike = useLikesStore((s) => s.toggle);
+
+  useEffect(() => {
+    if (likeKey) void hydrateLike(likeKey);
+  }, [likeKey, hydrateLike]);
+
+  const likeCount = like?.count ?? 0;
+  const likedByMe = like?.likedByMe ?? false;
+  const jobType: JobType | null = candidate.jobType;
 
   return (
     <motion.div
@@ -169,7 +188,7 @@ export function MarketCandidateCard({
         )}
       </div>
 
-      {/* 底部：报价 / 已雇佣 / 雇佣按钮 */}
+      {/* 底部：报价 / 已雇佣 / 小红心 / 雇佣按钮 */}
       <div className="mt-auto flex items-end justify-between border-t border-gray-100/60 pt-5">
         <div className="flex items-end gap-4">
           <div>
@@ -184,6 +203,26 @@ export function MarketCandidateCard({
             </p>
             <p className="mt-1 text-lg font-bold text-[#1A1C1E]">{candidate.hiredCount}</p>
           </div>
+          {/* 小红心：类 B 站点赞（实体红 + 计数用 --neu-ink-soft） */}
+          <button
+            type="button"
+            onClick={() => void toggleLike(likeKey)}
+            disabled={!!toggling || !likeKey}
+            aria-label={likedByMe ? '取消点赞' : '点赞'}
+            className={cn(
+              'flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-transform',
+              toggling ? 'opacity-60' : 'hover:scale-110 active:scale-95',
+            )}
+            title={likedByMe ? '取消点赞' : '点赞'}
+          >
+            <Heart
+              size={17}
+              className={likedByMe ? 'fill-[#FF4D6D] text-[#FF4D6D]' : 'text-gray-400'}
+            />
+            <span className="text-xs font-bold tabular-nums text-[var(--neu-ink-soft)]">
+              {likeCount}
+            </span>
+          </button>
         </div>
         <button
           type="button"
@@ -198,6 +237,19 @@ export function MarketCandidateCard({
           )}
         </button>
       </div>
+
+      {/* 最受 boss 青睐徽章（测评后展示；市场卡纯展示 + 投票入口在测评页） */}
+      {jobType && (
+        <div className="mt-3 flex items-center justify-start">
+          <BossFavoriteBadge
+            agentId={likeKey}
+            agentName={candidate.name}
+            jobType={jobType}
+            mode="rank"
+            votable={false}
+          />
+        </div>
+      )}
     </motion.div>
   );
 }

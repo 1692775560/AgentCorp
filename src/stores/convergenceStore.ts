@@ -62,7 +62,7 @@ interface ConvergenceState {
     source?: ConvSource,
   ) => void;
 
-  /** 提交临时锚点：落库（POST /api/convergence/anchor）+ 设 human_anchor_id */
+  /** 提交临时锚点：落库（POST /api/convergence/anchor）+ 设 anchor_candidate_id */
   commitPin: () => Promise<void>;
 
   /** 计算收敛评分（本地镜像公式 + 服务端权威对拍；失败保本地） */
@@ -147,14 +147,14 @@ export const useConvergenceStore = create<ConvergenceState>((set, get) => ({
     } catch {
       // 网络失败仍保留内存态，不中断
     }
-    // 更新锚点库镜像 + 写回轨迹 human_anchor_id
+    // 更新锚点库镜像 + 写回轨迹 anchor_candidate_id
     const anchors = [
       ...get().anchors.filter((a) => a.anchor_id !== explicitPin.anchor_id),
       explicitPin,
     ];
     const next: ConvergenceTrace = {
       ...trace,
-      human_anchor_id: explicitPin.candidate_id,
+      anchor_candidate_id: explicitPin.candidate_id,
     };
     set({ anchors, trace: next, explicitPin: null });
     void convergenceService.cacheTrace(next);
@@ -236,7 +236,7 @@ export const useConvergenceStore = create<ConvergenceState>((set, get) => ({
     ];
     const next: ConvergenceTrace = {
       ...trace,
-      human_anchor_id: candidateId,
+      anchor_candidate_id: candidateId,
       // 若与 explicit_pin 同源候选冲突，后者被本来源覆盖（互斥合并）
     };
     set({ anchors, trace: next, explicitPin: null });

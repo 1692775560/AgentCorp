@@ -250,8 +250,33 @@ export function ConvergenceTrajectoryWidget({
           <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
             <Metric label="收敛分" value={localScore.convergence_score.toFixed(1)} hint="0–100" />
             <Metric label="收缩率 CR" value={localScore.contraction_rate.toFixed(3)} hint="1−|S_K|/|S_0|" />
-            <Metric label="残差 R" value={localScore.residual.toFixed(3)} hint="越小越好" />
-            <Metric label="稳定度 St" value={localScore.stability.toFixed(3)} />
+            <Metric
+              label="残差 R"
+              value={localScore.residual === null ? '—' : localScore.residual.toFixed(3)}
+              hint={localScore.residual === null ? '未获人类背书' : '越小越好'}
+            />
+            <Metric
+              label="稳定度 St"
+              value={localScore.stability === null ? '—' : localScore.stability.toFixed(3)}
+              hint={localScore.stability === null ? '未获人类背书' : undefined}
+            />
+            <Metric
+              label="语义收敛 SC"
+              value={
+                localScore.semantic_scored
+                  ? localScore.semantic_contraction.toFixed(3)
+                  : '—'
+              }
+              hint={
+                localScore.semantic_scored
+                  ? localScore.unknowns_delta < 0
+                    ? `已消解 ${-localScore.unknowns_delta} 项未知`
+                    : localScore.unknowns_delta > 0
+                      ? `新增 ${localScore.unknowns_delta} 项未知`
+                      : '未知项数量未变'
+                  : '未记录未知项'
+              }
+            />
             <Metric label="可逆性 Rev" value={localScore.reversibility.toFixed(3)} hint="防越权" />
             <Metric
               label="质量 CQ"

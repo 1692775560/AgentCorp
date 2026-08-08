@@ -126,7 +126,7 @@ export interface PcaPoint {
 /**
  * 将一条收敛轨迹投影到 2D PCA 平面。
  * 投影集合：每轮 belief_embedding（标注 S₀/TurnN）+ 每轮候选 embedding +
- * 若已锚定则追加锚点 embedding（取 human_anchor_id 对应候选的 embedding）。
+ * 若已锚定则追加锚点 embedding（取 anchor_candidate_id 对应候选的 embedding）。
  *
  * 返回 { points, beliefs, anchorXY? }：
  *   - points：全部投影点（散点）；
@@ -166,10 +166,10 @@ export function projectTraceToPca(
     }
   }
 
-  // 锚点：优先用显式传入的 anchor.embedding；否则用轨迹内 human_anchor_id 对应候选
+  // 锚点：优先用显式传入的 anchor.embedding；否则用轨迹内 anchor_candidate_id 对应候选
   let anchorVec: number[] | null = anchor ? anchor.embedding : null;
-  if (!anchorVec && trace.human_anchor_id) {
-    const cand = findCandidate(trace, trace.human_anchor_id);
+  if (!anchorVec && trace.anchor_candidate_id) {
+    const cand = findCandidate(trace, trace.anchor_candidate_id);
     anchorVec = cand ? cand.embedding : null;
   }
   let anchorXY: [number, number] | null = null;
@@ -218,10 +218,10 @@ export function selectBeliefSequence(trace: ConvergenceTrace): number[][] {
     .map((t) => t.belief_embedding);
 }
 
-/** 取轨迹已锚定候选的 embedding（human_anchor_id 指向的候选）。 */
+/** 取轨迹已锚定候选的 embedding（anchor_candidate_id 指向的候选）。 */
 export function selectAnchorEmbedding(trace: ConvergenceTrace): number[] | null {
-  if (!trace.human_anchor_id) return null;
-  const c = findCandidate(trace, trace.human_anchor_id);
+  if (!trace.anchor_candidate_id) return null;
+  const c = findCandidate(trace, trace.anchor_candidate_id);
   return c ? c.embedding : null;
 }
 

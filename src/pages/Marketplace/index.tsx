@@ -18,6 +18,7 @@ import { useScoringStore } from '@/stores/scoringStore';
 import { TaskRequirementBar } from '@/components/marketplace/TaskRequirementBar';
 import { DimFilterBar } from '@/components/marketplace/DimFilterBar';
 import { MarketCandidateCard } from '@/components/marketplace/MarketCandidateCard';
+import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
 import type { MarketCandidateView } from '@/types/marketplace';
 
 type HireType = '雇佣团队' | '雇佣员工';
@@ -93,6 +94,7 @@ export function Marketplace() {
   const runPrescreen = useMarketplaceStore((s) => s.runPrescreen);
   const resetDimFilters = useMarketplaceStore((s) => s.resetDimFilters);
   const resetRequirement = useMarketplaceStore((s) => s.resetRequirement);
+  const hydrateReactions = useMarketplaceStore((s) => s.hydrateReactions);
   // 心智权重（绩效双榜拖拽回灌后变化）→ 市场排序即时刷新（设计 §7.3 通道 A）
   const userWeight = useScoringStore((s) => s.userWeight);
 
@@ -135,6 +137,11 @@ export function Marketplace() {
   useEffect(() => {
     rescoreCandidates();
   }, [userWeight, rescoreCandidates]);
+
+  // 装配小红心 / BossFavorite 视图字段（best-effort，失败不影响卡片渲染）
+  useEffect(() => {
+    void hydrateReactions();
+  }, [hydrateReactions, candidates.length]);
 
   // 初审失败等提示（网络不可用时降级启发式，不阻塞流程）
   useEffect(() => {
@@ -241,6 +248,9 @@ export function Marketplace() {
 
         {/* 六维能力门槛（模块 A 新增） */}
         <DimFilterBar />
+
+        {/* 最受 boss 青睐榜（T05：按工种赛道 Top3，测评后深度认可投票） */}
+        <BossFavoriteLeaderboard />
 
         {/* Search & Filters */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

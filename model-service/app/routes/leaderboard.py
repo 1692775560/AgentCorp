@@ -10,8 +10,11 @@ import logging
 import os
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
+
+from ..config import settings
+from ..evaluator import judge_available
 
 # 批次2（T4–T9）：仅追加，不破坏既有端点（架构 §2.1 / 实现清单）。
 from ..scoring.stage_scorer import build_stage_score
@@ -70,7 +73,21 @@ async def api_evaluate_stage(req: StageScoreRequest):
     """
     三阶段评分卡装配（T4）：接收客观分 + 主观分，装配 StageScore 并发 stage_score SSE 事件。
     SSE 事件：stage_score（携带 StageScore）→ done。
+
+    judge 门禁（P0）：本端点分数经 _STAGE_STORE 进入 /api/leaderboard 榜单，且
+    stage_scorer 会把非 craft 维标为 source="judge"。judge 后端不可用时若照常出分，
+    等于让一个从未经过模型评测的分数带着 "judge" 标签污染榜单，下游无字段可识别。
+    故写榜单路径采用硬拒（与 /api/evaluate 同构），不做软降级。
     """
+    if not settings.mock and not judge_available():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
+                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+            ),
+        )
+
     stage_score = build_stage_score(
         stage=req.stage,
         job_type=req.jobType,

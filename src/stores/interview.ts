@@ -31,8 +31,10 @@ import type {
   InterviewRecommendation,
   InterviewReport,
   InterviewTurn,
+  UserQuestionRound,
 } from '@/types/interview';
 import type { CandidateEmbedding, TurnState } from '@/types/convergence';
+import type { CandidateRef } from '@/types/arena';
 
 import {
   makeFollowupQuestion,
@@ -59,6 +61,7 @@ import { useMarketplaceStore } from '@/stores/marketplace';
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useScoringStore } from '@/stores/scoringStore';
 import { useConvergenceStore } from '@/stores/convergenceStore';
+import { useArenaStore } from '@/stores/arenaStore';
 
 /** 面试会话状态机 */
 export type InterviewStatus = 'idle' | 'running' | 'scoring' | 'finished';
@@ -114,6 +117,10 @@ interface InterviewState {
   report: InterviewReport | null;
   /** 最近一张 S2 评分卡 */
   stageScore: StageScore | null;
+  /** 用户自定义题（P3 后可选环节，复用 Arena 通道；不进 turns/dimTracker/模型分） */
+  userQuestionRound: UserQuestionRound | null;
+  userQuestionStatus: 'idle' | 'comparing' | 'ready' | 'picked' | 'error';
+  userQuestionError: string | null;
   error: string | null;
 
   startSession: (input: StartSessionInput) => void;
@@ -132,6 +139,12 @@ interface InterviewState {
   applyFollowup: (suggestion: FollowupSuggestion) => void;
   /** 跳过当前题，前进到题序下一题 */
   skipQuestion: () => void;
+  /** 发起用户自定义题（复用 Arena compare，context='interview'） */
+  startUserQuestion: (question: string, candidates: CandidateRef[]) => Promise<boolean>;
+  /** 用户自定义题主观选择（复用 Arena user-pick） */
+  pickUserQuestion: (pick: string | 'draw' | 'none') => Promise<boolean>;
+  /** 清空用户自定义题状态 */
+  resetUserQuestion: () => void;
   /** 结束面试：评分卡 + 报告落库 + 回写绩效基线 */
   finishSession: (opts?: { notes?: string; recommendation?: InterviewRecommendation }) => Promise<InterviewReport | null>;
   /** 清空会话（不删落库数据） */
@@ -189,6 +202,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   lastRunId: null,
   report: null,
   stageScore: null,
+  userQuestionRound: null,
+  userQuestionStatus: 'idle',
+  userQuestionError: null,
   error: null,
 
   startSession: (input) => {
@@ -347,6 +363,97 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set({ askedQIds, currentQuestion: pickNextQuestion(state.plan, askedQIds) });
   },
 
+  startUserQuestion: async (question, candidates) => {
+    const state = get();
+    if (!state.interviewId) {
+      set({ userQuestionStatus: 'error', userQuestionError: '尚无进行中的面试会话' });
+      return false;
+    }
+    const text = question.trim();
+    if (!text) {
+      set({ userQuestionStatus: 'error', userQuestionError: '用户题不能为空' });
+      return false;
+    }
+    if (candidates.length < 2) {
+      set({ userQuestionStatus: 'error', userQuestionError: '用户题至少需要两个候选 agent' });
+      return false;
+    }
+
+    // 复用 arenaStore 的 compare（context='interview' + interviewId）
+    const arena = useArenaStore.getState();
+    arena.setRequirementText(text);
+    arena.setJobType(state.jobType);
+    arena.setCandidates(candidates);
+    set({ userQuestionStatus: 'comparing', userQuestionError: null });
+    await arena.compare({ context: 'interview', interviewId: state.interviewId });
+
+    const arenaAfter = useArenaStore.getState();
+    if (arenaAfter.status === 'error' || !arenaAfter.match) {
+      set({
+        userQuestionStatus: 'error',
+        userQuestionError: arenaAfter.error ?? '用户题对决失败（后端不可用）',
+      });
+      return false;
+    }
+    const match = arenaAfter.match;
+    set({
+      userQuestionRound: {
+        question: text,
+        matchId: match.matchId,
+        candidates: match.candidates.map((c) => ({
+          agentId: c.agentId,
+          agentName: c.agentName,
+          answerText: c.answerText,
+        })),
+        pick: null,
+        ts: new Date().toISOString(),
+      },
+      userQuestionStatus: 'ready',
+      userQuestionError: null,
+    });
+    return true;
+  },
+
+  pickUserQuestion: async (pick) => {
+    const state = get();
+    const round = state.userQuestionRound;
+    if (!round) {
+      set({ userQuestionStatus: 'error', userQuestionError: '尚未发起用户自定义题' });
+      return false;
+    }
+    const arena = useArenaStore.getState();
+    if (arena.match?.matchId !== round.matchId) {
+      set({ userQuestionStatus: 'error', userQuestionError: '对决状态不一致，请重新发起' });
+      return false;
+    }
+    await arena.pick(pick);
+    const arenaAfter = useArenaStore.getState();
+    if (arenaAfter.status === 'error') {
+      set({ userQuestionStatus: 'error', userQuestionError: arenaAfter.error ?? 'pick 回传失败' });
+      return false;
+    }
+    const updated: UserQuestionRound = {
+      ...round,
+      pick,
+      ts: new Date().toISOString(),
+    };
+    set({ userQuestionRound: updated, userQuestionStatus: 'picked', userQuestionError: null });
+
+    // 面试报告若已落库，立即持久化用户题小节（不进 turns/dimTracker/模型分）
+    const report = get().report;
+    if (report) {
+      try {
+        await saveReport({ ...report, userQuestionRound: updated });
+      } catch {
+        // 落库失败不阻断用户题流程（下次 finishSession 会带上）
+      }
+    }
+    return true;
+  },
+
+  resetUserQuestion: () =>
+    set({ userQuestionRound: null, userQuestionStatus: 'idle', userQuestionError: null }),
+
   finishSession: async (opts) => {
     const state = get();
     if (!state.agentId || !state.interviewId) return null;
@@ -419,6 +526,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         opts?.recommendation ??
         recommendationOf(stageScoreTotal, finalRadar, metrics.coverageRatio),
       notes: opts?.notes,
+      userQuestionRound: state.userQuestionRound ?? undefined,
       createdBy: state.createdBy,
       ts: new Date().toISOString(),
     };
@@ -481,6 +589,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       lastRunId: null,
       report: null,
       stageScore: null,
+      userQuestionRound: null,
+      userQuestionStatus: 'idle',
+      userQuestionError: null,
       error: null,
     });
   },

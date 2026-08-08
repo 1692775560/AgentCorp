@@ -96,15 +96,16 @@ def test_evaluate_run_mock_sse(monkeypatch):
 # ----------------------------------------------------------------------
 def test_evaluate_503_when_model_unavailable(monkeypatch):
     monkeypatch.setattr(settings, "mock", False)
-    # 骨架中 load_minicpmo 始终返回 available=False 的占位模型，
-    # 因此 MOCK=false 时 /api/evaluate 必须明确拒绝（503）。
+    # 评测后端（judge_backend）与本地权重都不可用时（默认 JUDGE_BACKEND=mock），
+    # /api/evaluate 必须明确拒绝（503）并给出配置指引，绝不静默走伪造分。
     payload = {
         "candidate": {"id": "candidate-01", "name": "琳达"},
         "preference": {},
     }
     resp = _client().post("/api/evaluate", json=payload)
     assert resp.status_code == 503
-    assert "模型不可用" in resp.json()["detail"]
+    assert "评测后端不可用" in resp.json()["detail"]
+    assert "JUDGE_BACKEND" in resp.json()["detail"]
 
 
 if __name__ == "__main__":

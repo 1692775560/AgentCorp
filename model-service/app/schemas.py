@@ -363,3 +363,193 @@ class TaskSetMeta(BaseModel):
     title: str = ""
     description: str = ""
     applicableJobs: List[str] = Field(default_factory=list)
+
+
+# ===================== Arena 个性化对决（T01/T02） =====================
+# 契约见 docs/api/contracts.md §1.3；camelCase 兼容经 AliasGenerator（同 JudgeRunRequest 先例）。
+
+
+class ArenaCandidateRef(BaseModel):
+    """候选引用：text 通道直接给 answer；gateway 通道给 endpoint/model/apiKey。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    agent_name: str = ""
+    channel: str = "text"  # text / gateway
+    answer: Optional[str] = None
+    endpoint: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class ArenaCompareRequest(BaseModel):
+    """POST /api/arena/compare 入参（需求 → 题面 → 逐 agent 跑题 → 客观评判）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    requirement_text: str
+    job_type: str = "code"
+    candidates: List[ArenaCandidateRef] = Field(default_factory=list)
+    context: Literal["arena", "interview"] = "arena"
+    interview_id: Optional[str] = None
+
+
+class ArenaCandidateAnswer(BaseModel):
+    """单个候选的对决作答（含 arena_judge 客观评判）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    agent_name: str = ""
+    answer_text: str = ""
+    channel: str = ""
+    latency_ms: float = 0.0
+    judgement: Optional[dict] = None  # arena_judge 输出（dims/checkpoints/padding/confidence/fit）
+    objective_total: float = 0.0  # 客观分汇总（dims 均值 + fit 加权）
+
+
+class ArenaMatch(BaseModel):
+    """一场对决（pending → picked/abandoned），模型服务进程内缓存 + 前端落库。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    match_id: str
+    context: Literal["arena", "interview"] = "arena"
+    interview_id: Optional[str] = None
+    requirement_text: str = ""
+    task_prompt: str = ""
+    job_type: str = "code"
+    candidates: List[ArenaCandidateAnswer] = Field(default_factory=list)
+    objective_leader: Optional[str] = None
+    user_pick: Optional[str] = None  # agent_id | "draw" | "none"
+    status: Literal["pending", "picked", "abandoned"] = "pending"
+    elo_delta: Dict[str, float] = Field(default_factory=dict)
+    created_at: str = ""
+    picked_at: Optional[str] = None
+
+
+class ArenaUserPickRequest(BaseModel):
+    """POST /api/arena/user-pick 入参（用户主观选择 → 双轨 Elo 更新）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    match_id: str
+    pick: str  # agent_id | "draw" | "none"
+
+
+class ArenaPickResult(BaseModel):
+    """user-pick 回包：双轨 Elo 快照。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    match_id: str
+    status: Literal["picked", "abandoned"] = "picked"
+    user_pick: str = ""
+    winner: Optional[str] = None  # agent_id | "draw" | null
+    elo_delta: Dict[str, float] = Field(default_factory=dict)
+    subjective_ratings: Dict[str, float] = Field(default_factory=dict)
+    objective_ratings: Dict[str, float] = Field(default_factory=dict)
+
+
+# ===================== 小红心点赞（T01/T05） =====================
+# 契约见 docs/api/contracts.md §1.4；users/ownerId 为后端聚合预留字段。
+
+
+class LikeRecord(BaseModel):
+    """点赞记录（本地 count + 个人态；users 为后端聚合预留）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    count: int = 0
+    liked_by_me: bool = False
+    users: List[str] = Field(default_factory=list)  # [预留] 后端聚合 user_ids
+    updated_at: str = ""
+
+
+class FavoriteVoteRequest(BaseModel):
+    """POST /api/favorites/vote 入参（BossFavorite 深度认可投票）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    job_type: str = "code"
+    stage: Literal["interview", "performance", "arena"] = "arena"
+    source_id: Optional[str] = None  # interviewId/matchId，幂等键
+    voted_by: str = "default"  # [预留] 本地默认 'default'
+
+
+class FavoriteVoteResult(BaseModel):
+    """投票回包。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    job_type: str
+    count: int = 0
+    voted: bool = True
+
+
+class FavoriteRankingEntry(BaseModel):
+    """工种赛道单条青睐榜条目。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    agent_id: str
+    agent_name: str = ""
+    count: int = 0
+    voters: List[str] = Field(default_factory=list)  # [预留] 后端聚合 user_ids
+
+
+class FavoriteRanking(BaseModel):
+    """GET /api/favorites 回包（按 count 降序）。"""
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        ),
+    )
+    job_type: str
+    ranking: List[FavoriteRankingEntry] = Field(default_factory=list)

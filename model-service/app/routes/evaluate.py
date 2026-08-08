@@ -14,7 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 from ..config import settings
 from ..evaluator import evaluate as run_evaluate
 from ..evaluator import evaluate_run as run_evaluate_run
-from ..model_loader import get_model
+from ..evaluator import judge_available
 from ..schemas import (
     EvaluationRequest,
     JudgeRunRequest,
@@ -35,11 +35,13 @@ router = APIRouter()
 
 @router.post("/api/evaluate")
 async def api_evaluate(req: EvaluationRequest):
-    model = get_model()
-    if not settings.mock and not model.available:
+    if not settings.mock and not judge_available():
         raise HTTPException(
             status_code=503,
-            detail="模型不可用：无 NPU 或未配置权重。请部署到昇腾环境，或设置 MOCK=true。",
+            detail=(
+                "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
+                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+            ),
         )
 
     mode = "mock" if settings.mock else "auto"
@@ -68,11 +70,13 @@ async def api_evaluate_run(req: JudgeRunRequest):
     产出与 /api/evaluate 同构的 SSE 事件流（radar_update ×6 + verdict + done）。
     无 NPU / MOCK=true 时走 Mock 派生；模型可用时走真实推理。
     """
-    model = get_model()
-    if not settings.mock and not model.available:
+    if not settings.mock and not judge_available():
         raise HTTPException(
             status_code=503,
-            detail="模型不可用：无 NPU 或未配置权重。请部署到昇腾环境，或设置 MOCK=true。",
+            detail=(
+                "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
+                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+            ),
         )
 
     mode = "mock" if settings.mock else "auto"

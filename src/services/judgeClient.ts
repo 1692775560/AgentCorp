@@ -13,6 +13,12 @@
 import { invokeIpc } from '@/lib/api-client';
 import type { EvaluationEvent, TelemetryEvent, RadarScore, RadarDim, Verdict } from '@/types/evaluation';
 import type { ConvergenceScore, TurnState } from '@/types/convergence';
+import type {
+  ArenaCompareInput,
+  ArenaMatch,
+  ArenaPickResult,
+  ArenaUserPickInput,
+} from '@/types/arena';
 import { computeKpi } from '@/engine/metricsEngine';
 
 // 与 src/lib/host-api.ts 保持一致
@@ -124,8 +130,21 @@ function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
     run_id: String(json.run_id ?? ''),
     agent_id: String(json.agent_id ?? ''),
     contraction_rate: Number(json.contraction_rate ?? 0),
-    residual: Number(json.residual ?? 0),
-    stability: Number(json.stability ?? 0),
+    // A3：R/St 缺失或为 null 时保持 null（= 未获人类背书，未参与评分），
+    // 不能落成 0 —— 0 会被读成「完美对齐」。
+    residual: json.residual === null || json.residual === undefined ? null : Number(json.residual),
+    stability:
+      json.stability === null || json.stability === undefined ? null : Number(json.stability),
+    // 语义收缩（SC）：走 A3 数值契约 —— 始终填数值（下游 toFixed/Number 不会崩），
+    // 「没算过」与「一项未知都没消解」靠 semantic_scored 区分，不靠 null。
+    // 旧版后端无此字段 → 0 + semantic_scored=false，UI 应显示「—」而非 0.000。
+    semantic_contraction: Number(json.semantic_contraction ?? 0),
+    // 是否真的参与了评分。下游必须读本字段判断，不许靠 semantic_contraction === 0
+    // 反推 —— 0 是合法的「未消解」取值，两者不可混。
+    semantic_scored: json.semantic_scored === true,
+    // 诊断字段：S₀→S_K 的 unknowns 净变化，允许为负（负 = 探索中发现新未知，
+    // 是真实信号不是错误）。缺失时 0 表示「无变化」，语义上安全。
+    unknowns_delta: Number(json.unknowns_delta ?? 0),
     convergence_score: Number(json.convergence_score ?? 0),
     reversibility: Number(json.reversibility ?? 0),
     convergence_quality: json.convergence_quality === 1 ? 1 : 0,
@@ -135,9 +154,11 @@ function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
       w3: Number(weights.w3 ?? 0),
     },
     ts: String(json.ts ?? new Date().toISOString()),
-    // 08-07：透传诚实标注与落盘结果（旧版后端无此字段 → undefined）
-    source: json.source === 'projected' || json.source === 'measured' ? json.source : undefined,
-    synthetic: typeof json.synthetic === 'boolean' ? json.synthetic : undefined,
+    // A2：source/synthetic 为必填。旧版后端不发这两个字段时，按最保守方向
+    // 兜底为 projected/synthetic —— 未标注的数据不能默认当实测用，
+    // 否则一条来路不明的分数会直接进榜单。
+    source: json.source === 'measured' ? 'measured' : 'projected',
+    synthetic: json.synthetic === false ? false : true,
     persisted: typeof json.persisted === 'boolean' ? json.persisted : undefined,
   };
 }
@@ -436,4 +457,94 @@ function currentWindow(): string {
   return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-export const judgeClient = { evaluate, fallbackMock };
+/** 对话逐轮/整段评分结果（C：live 面试证据 → 模型评测） */
+export interface ChatJudgeResult {
+  /** judge = 模型评测；degraded = 启发式降级（前端应据此决定展示优先级） */
+  source: 'judge' | 'degraded';
+  radar: RadarScore | null;
+  verdict?: Verdict;
+  confidence: number;
+  evidence_trace: string[];
+}
+
+/**
+ * 调用模型裁判对一段面试 transcript 评分（C 挂载点）。
+ * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
+ */
+export async function judgeChat(
+  agentId: string,
+  transcript: string,
+): Promise<ChatJudgeResult | null> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify({ agent_id: agentId, transcript }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as Record<string, unknown>;
+    const radar = json.radar;
+    return {
+      source: json.source === 'judge' ? 'judge' : 'degraded',
+      radar: radar && typeof radar === 'object' ? (radar as RadarScore) : null,
+      verdict: json.verdict as Verdict | undefined,
+      confidence: Number(json.confidence ?? 0),
+      evidence_trace: Array.isArray(json.evidence_trace)
+        ? (json.evidence_trace as unknown[]).map(String)
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Arena 个性化对决：POST /api/arena/compare（T03）。
+ * 经 Host API 代理（127.0.0.1:3210）转发至 model-service；任何失败返回 null，
+ * 调用方（arenaStore）据此展示降级提示（后端不可用 / 网络错误）。
+ */
+export async function arenaCompare(input: ArenaCompareInput): Promise<ArenaMatch | null> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/arena/compare`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ArenaMatch;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Arena 用户主观选择：POST /api/arena/user-pick（T03）。
+ * 经 Host API 代理转发至 model-service；任何失败返回 null。
+ */
+export async function arenaUserPick(input: ArenaUserPickInput): Promise<ArenaPickResult | null> {
+  try {
+    const token = await getHostApiToken();
+    const res = await fetch(`${HOST_API_BASE}/api/arena/user-pick`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [SESSION_HEADER]: token,
+      },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ArenaPickResult;
+  } catch {
+    return null;
+  }
+}
+
+export const judgeClient = { evaluate, fallbackMock, judgeChat, arenaCompare, arenaUserPick };
