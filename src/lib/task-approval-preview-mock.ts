@@ -29,6 +29,8 @@ import type {
 } from '@/types/task';
 import type { ApprovalItem } from '@/stores/approvals';
 import { OFFICE_DEPTS, computeOfficeRoster, type OfficeEmployee } from '@/engine/office/assignment';
+import { useEvaluationStore } from '@/stores/evaluation';
+import { useAgentsStore } from '@/stores/agents';
 
 // ── 内存状态 ────────────────────────────────────────────────
 let tasks: KanbanTask[] = [];
