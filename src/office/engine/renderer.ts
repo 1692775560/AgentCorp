@@ -1,4 +1,4 @@
-import type { ColorValue } from '../../components/ui/types.js';
+import type { ColorValue } from '../_deps/uiTypes.js';
 import {
   AREA_ACTIVE_ALPHA_MULTIPLIER,
   AREA_LABEL_ALPHA,

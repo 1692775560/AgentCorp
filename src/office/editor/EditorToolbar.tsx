@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button.js';
 import { ColorPicker } from '../../components/ui/ColorPicker.js';
 import { Dropdown, DropdownItem } from '../../components/ui/Dropdown.js';
 import { ItemSelect } from '../../components/ui/ItemSelect.js';
-import type { ColorValue } from '../../components/ui/types.js';
+import type { ColorValue } from '../_deps/uiTypes.js';
 import { VisualColorPicker } from '../../components/VisualColorPicker.js';
 import {
   AREA_DEFAULT_COLORS,

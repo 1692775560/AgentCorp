@@ -11,7 +11,7 @@
  * each flat-colorized with the user's `color` / `accentColor`, then merged.
  */
 
-import type { ColorValue } from '../../components/ui/types.js';
+import type { ColorValue } from '../_deps/uiTypes.js';
 import { CARPET_DEFAULT_ACCENT_COLOR, CARPET_DEFAULT_COLOR } from '../_deps/constants.js';
 import { flatColorizeSprite } from '../colorize.js';
 import type { CarpetTile, SpriteData } from '../types.js';

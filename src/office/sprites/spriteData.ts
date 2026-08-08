@@ -1,4 +1,4 @@
-import type { ColorValue } from '../../components/ui/types.js';
+import type { ColorValue } from '../_deps/uiTypes.js';
 import { PALETTE_COUNT } from '../_deps/constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { Direction, SpriteData } from '../types.js';
