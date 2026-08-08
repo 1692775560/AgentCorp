@@ -59,6 +59,8 @@ export interface OfficeEmployee {
   agentId: string;
   name: string;
   avatar?: string | null;
+  /** 目标 agent 的会话键（取 AgentSummary.mainSessionKey）；派活必需，缺失则不可调度 */
+  sessionKey: string | null;
   /** 一句话简介（取自 agent 画像 / 职责） */
   bio: string;
   dept: OfficeDept;
@@ -127,6 +129,7 @@ export function computeOfficeRoster(
       agentId: profile.agentId,
       name: agent?.name ?? profile.agentId,
       avatar: agent?.avatar ?? null,
+      sessionKey: agent?.mainSessionKey ?? null,
       bio,
       dept: jobTypeToDept(profile.jobType),
       jobType: profile.jobType,
