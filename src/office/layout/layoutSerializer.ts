@@ -167,12 +167,16 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
 
   // Build set of all desk tiles
   const deskTiles = new Set<string>();
+  // Build set of electronics tiles (PC / monitor) — 员工应优先面朝电脑
+  const electronicsTiles = new Set<string>();
   for (const item of furniture) {
     const entry = getCatalogEntry(item.type);
-    if (!entry || !entry.isDesk) continue;
+    if (!entry) continue;
+    const target = entry.isDesk ? deskTiles : entry.category === 'electronics' ? electronicsTiles : null;
+    if (!target) continue;
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
-        deskTiles.add(`${item.col + dc},${item.row + dr}`);
+        target.add(`${item.col + dc},${item.row + dr}`);
       }
     }
   }
