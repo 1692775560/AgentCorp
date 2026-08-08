@@ -181,6 +181,16 @@ export async function getLike(agentId: string): Promise<LikeRecord> {
       `/api/likes/${encodeURIComponent(agentId)}`,
     );
   } catch {
+    // Web 预览无 electron-store：返回默认零态，避免 getLikeLocal 抛错。
+    if (isBrowserPreviewMode()) {
+      return {
+        agentId,
+        count: 0,
+        likedByMe: false,
+        users: [],
+        updatedAt: new Date().toISOString(),
+      };
+    }
     return getLikeLocal(agentId);
   }
 }
