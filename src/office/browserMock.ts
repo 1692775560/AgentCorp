@@ -245,6 +245,26 @@ export async function initBrowserMock(): Promise<void> {
 }
 
 /**
+ * AgentCorp 追加：仅派发「资源 + 布局 + 设置」消息（不含 pixel-agents 的 7 个 mock agent）。
+ * /office 页面用它加载像素办公室外观后，再用真实入职 agent 自行 dispatch agentCreated。
+ */
+export function dispatchOfficeAssets(): void {
+  if (!mockPayload) return;
+  const { characters, floorSprites, wallSets, carpetSets, furnitureCatalog, furnitureSprites, layout } =
+    mockPayload;
+  function dispatch(data: unknown): void {
+    window.dispatchEvent(new MessageEvent('message', { data }));
+  }
+  dispatch({ type: 'characterSpritesLoaded', characters });
+  dispatch({ type: 'floorTilesLoaded', sprites: floorSprites });
+  dispatch({ type: 'wallTilesLoaded', sets: wallSets });
+  dispatch({ type: 'carpetTilesLoaded', sets: carpetSets });
+  dispatch({ type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites });
+  dispatch({ type: 'layoutLoaded', layout });
+  dispatch({ type: 'settingsLoaded', soundEnabled: false, extensionVersion: '1.4.0', lastSeenVersion: '1.3' });
+}
+
+/**
  * Call inside a useEffect in App.tsx -- after the window message listener
  * in useExtensionMessages has been registered.
  *
