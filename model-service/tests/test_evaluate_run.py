@@ -153,12 +153,12 @@ def test_evaluate_run_deterministic():
 # 4) 成本维度由真实 usage 折算（验证 _derive_run_radar 成本分支）
 # ----------------------------------------------------------------------
 def test_evaluate_run_cost_dim_reflects_usage():
-    # usage cost == 0 → cost 维回退为 3.0（见 evaluator._derive_run_radar）
+    # usage cost == 0 → cost 维回退为中性基线 2.5（未知，而非「及格」）
     req_zero = _make_request("agent-cost-zero", usage_cost=0.0)
     scores_zero = {
         e["dim"]: e["score"] for e in _collect(req_zero, mode="mock") if e["type"] == "radar_update"
     }
-    assert scores_zero["cost"] == 3.0, "无成本时 cost 维应回退为 3.0"
+    assert scores_zero["cost"] == 2.5, "无成本数据时 cost 维应为中性基线 2.5"
 
     # usage cost 远超预算基准(1.0 USD) → cost 维被裁剪到 0
     req_high = _make_request("agent-cost-high", usage_cost=2.0)
@@ -187,15 +187,18 @@ def test_verdict_thresholds():
 
 
 # ----------------------------------------------------------------------
-# 6) radar 派生缓存存在 agent_id 作为种子（合同护栏：
-#    若前端误传 agentId（camelCase）而后端只读 agent_id，则此处会暴露为全同种子）
+# 6) 公平性护栏：派生雷达与 agent_id 完全无关（LLM-as-judge 契约：
+#    分数只由真实运行数据（transcript + usage）决定；旧实现用 md5(agent_id)
+#    造分，改个名字分数就变——已移除）
 # ----------------------------------------------------------------------
-def test_derive_run_radar_seed_depends_on_agent_id():
+def test_derive_run_radar_independent_of_agent_id():
     r1 = _derive_run_radar(_make_request("agent-A", usage_cost=0.5))
     r2 = _derive_run_radar(_make_request("agent-B", usage_cost=0.5))
-    # 不同 agent_id → 派生雷达应不同（除非哈希巧合，6 维全同几乎不可能）
-    diff = any(getattr(r1, d) != getattr(r2, d) for d in EXPECTED_DIMS)
-    assert diff, "不同 agent_id 应派生不同的雷达（验证 agent_id 确实作为种子生效）"
+    # 相同 transcript/usage、不同 agent_id → 六维必须完全一致
+    for d in EXPECTED_DIMS:
+        assert getattr(r1, d) == getattr(r2, d), (
+            f"维度 {d} 不应随 agent_id 变化（改名不能换分）"
+        )
 
 
 if __name__ == "__main__":

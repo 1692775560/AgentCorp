@@ -15,12 +15,13 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 from typing import AsyncGenerator, Dict, List, Optional
 
 from .config import settings
 from .judge_backend import JudgeUnavailable, get_backend
-from .model_loader import get_model
+from .model_loader import get_model, optional_import
 from .prompt_templates import build_evaluation_messages
 from .schemas import (
     Aesthetic,
@@ -44,6 +45,22 @@ RADAR_DIMS: List[str] = [
     "reliability",
     "cost",
 ]
+
+DIM_LABELS: Dict[str, str] = {
+    "task": "任务完成",
+    "quality": "产出质量",
+    "comm": "沟通协作",
+    "creativity": "创造泛化",
+    "reliability": "稳定可靠",
+    "cost": "性价比",
+}
+
+_VERDICT_LABELS: Dict[str, str] = {
+    "MVP": "MVP",
+    "OBSERVE": "待观察",
+    "FIRED": "You are fired",
+}
+
 
 
 # ======================================================================
@@ -290,24 +307,135 @@ def _get_fixture(candidate: CandidateProfile) -> Dict:
 # ======================================================================
 # 4) 媒体加载与推理（真实环境实现；骨架中为占位）
 # ======================================================================
+def _resolve_media_path(url: str) -> Optional[str]:
+    """
+    将媒体 URL 解析为本地文件路径：
+    - "/uploads/..."（/api/upload 落盘的静态前缀）→ settings.upload_dir 下；
+    - http(s) 远程 URL → 不抓取，返回 None（记日志跳过）；
+    - 其余按文件系统路径处理。
+    """
+    if not url:
+        return None
+    if url.startswith("http://") or url.startswith("https://"):
+        logger.info("远程媒体 URL 不抓取（按本地部署约定）：%s", url[:80])
+        return None
+    if url.startswith("/uploads/"):
+        return os.path.join(settings.upload_dir, url[len("/uploads/"):])
+    return url
+
+
+def _load_image(path: str) -> Optional[object]:
+    """PIL 加载图像（RGB，最长边 ≤1024）；失败返回 None。"""
+    pil_image = optional_import("PIL.Image")
+    if pil_image is None:
+        logger.warning("Pillow 未安装，跳过图像加载：%s", path)
+        return None
+    try:
+        img = pil_image.open(path).convert("RGB")
+        img.thumbnail((1024, 1024))
+        return img
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("图像加载失败（跳过）：%s：%s", path, exc)
+        return None
+
+
+def _load_audio(path: str) -> Optional[object]:
+    """librosa 加载音频（16kHz mono numpy 波形，与官方用法一致）；失败返回 None。"""
+    librosa = optional_import("librosa")
+    if librosa is None:
+        logger.warning("librosa 未安装，跳过音频加载：%s", path)
+        return None
+    try:
+        y, _sr = librosa.load(path, sr=16000, mono=True)
+        return y
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("音频加载失败（跳过）：%s：%s", path, exc)
+        return None
+
+
+def _sample_video_frames(path: str, n_frames: int) -> List[object]:
+    """opencv 均匀抽帧（BGR→RGB→PIL）；cv2 缺失或失败返回空列表。"""
+    cv2 = optional_import("cv2")
+    pil_image = optional_import("PIL.Image")
+    if cv2 is None or pil_image is None:
+        logger.warning("opencv-python 未安装，跳过视频抽帧：%s", path)
+        return []
+    cap = cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            logger.warning("视频无法打开（跳过）：%s", path)
+            return []
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        if total <= 0:
+            return []
+        n = max(1, min(n_frames, total))
+        # 均匀抽帧：首尾对齐，索引确定性（复现性）
+        indices = [round(i * (total - 1) / (n - 1)) if n > 1 else 0 for i in range(n)]
+        frames = []
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, bgr = cap.read()
+            if not ok:
+                continue
+            frames.append(pil_image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
+        return frames
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("视频抽帧失败（跳过）：%s：%s", path, exc)
+        return []
+    finally:
+        cap.release()
+
+
 def load_media(candidate: CandidateProfile) -> Dict:
     """
     加载并预处理多模态证据（架构 §8 多模态约定）：
-    - 视频：确定性均匀抽帧（默认 8 帧）
-    - 音频：重采样至 16kHz mono
-    - 图像：最长边 ≤1024
-    骨架中仅返回占位结构；真实环境在此调用 opencv/librosa/Pillow。
+    - 视频：确定性均匀抽帧（settings.frame_sample，默认 8 帧）
+    - 音频：重采样至 16kHz mono（librosa，numpy 波形）
+    - 图像：最长边 ≤1024（PIL）
+
+    返回真实载荷 dict：frames: List[PIL.Image]，audio: np.ndarray|None，
+    images: List[PIL.Image]，code_lang: str。
+    文件不存在 / 依赖缺失时优雅降级为空媒体 + warning 日志，不中断评估。
     """
-    frame_sample = settings.frame_sample
+    frames: List[object] = []
+    video_path = _resolve_media_path(candidate.video_demo.url)
+    if video_path:
+        if os.path.isfile(video_path):
+            frames = _sample_video_frames(video_path, settings.frame_sample)
+        else:
+            logger.warning("视频文件不存在（跳过）：%s", video_path)
+
+    audio = None
+    audio_path = _resolve_media_path(candidate.voice_intro.url)
+    if audio_path:
+        if os.path.isfile(audio_path):
+            audio = _load_audio(audio_path)
+        else:
+            logger.warning("音频文件不存在（跳过）：%s", audio_path)
+
+    images: List[object] = []
+    for ref in candidate.artwork:
+        img_path = _resolve_media_path(ref.url)
+        if not img_path:
+            continue
+        if not os.path.isfile(img_path):
+            logger.warning("作品图不存在（跳过）：%s", img_path)
+            continue
+        img = _load_image(img_path)
+        if img is not None:
+            images.append(img)
+
     logger.info(
-        "load_media 占位：候选=%s，抽帧数=%d（真实环境将解码视频/音频/图像）",
+        "load_media：候选=%s，帧=%d，音频=%s，图像=%d",
         candidate.id,
-        frame_sample,
+        len(frames),
+        "已加载" if audio is not None else "无",
+        len(images),
     )
     return {
-        "frames": frame_sample,
-        "audio_loaded": bool(candidate.voice_intro.url),
-        "images": len(candidate.artwork),
+        "frames": frames,
+        "audio": audio,
+        "images": images,
         "code_lang": candidate.code_repo.lang,
     }
 
@@ -640,6 +768,19 @@ def _build_run_prompt(req: JudgeRunRequest) -> str:
     )
 
 
+def _build_run_narration(req: JudgeRunRequest, radar: RadarScore, verdict: Verdict) -> str:
+    """由雷达 + 判定生成中文讲解稿（mock-run 语音闭环用）。"""
+    name = req.agent_name or req.agent_id
+    scores = {d: float(getattr(radar, d)) for d in RADAR_DIMS}
+    strongest = max(scores, key=lambda d: scores[d])
+    weakest = min(scores, key=lambda d: scores[d])
+    return (
+        f"{name} 的六维评估已完成。"
+        f"最强维度是{DIM_LABELS[strongest]}（{scores[strongest]:.1f} 分），"
+        f"最弱维度是{DIM_LABELS[weakest]}（{scores[weakest]:.1f} 分）。"
+        f"综合判定为{_VERDICT_LABELS[verdict.value]}。"
+    )
+
 async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
     """
     降级运行期裁判流：雷达逐维点亮 → 判定 → done。
@@ -663,6 +804,21 @@ async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
     verdict = _verdict_from_radar(radar)
     avg = sum(getattr(radar, d) for d in RADAR_DIMS) / len(RADAR_DIMS)
     user_fit = round(avg * 20, 1)
+    # 讲解（逐句 narration delta）+ 语音（audio 事件，chunk=base64 UTF-8 文本）
+    # 注意：audio 必须先于本句 narration 发出——渲染层见到首个 audio 后才把
+    # narration 降级为「只上屏不播报」，先发 narration 会导致首句被双播。
+    narration = _build_run_narration(req, radar, verdict)
+    sentences = [s for s in re.split(r"(?<=[。！？])", narration) if s.strip()]
+    for sent in sentences:
+        yield {
+            "type": "audio",
+            "chunk": _encode_text(sent),
+            "format": "wav",
+            "sample_rate": 16000,
+        }
+        await asyncio.sleep(0.2)
+        yield {"type": "narration", "delta": sent, "is_final": False}
+    yield {"type": "narration", "delta": "", "is_final": True}
     await asyncio.sleep(0.3)
     yield {
         "type": "verdict",
@@ -670,6 +826,18 @@ async def _stream_mock_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
         "user_fit": user_fit,
         "evidence_trace": [*notes, f"avg_radar={avg:.2f}"],
         "confidence": 0.35,
+    }
+
+    # 语音宣判（事件顺序：verdict 之后、done 之前；渲染层据此播报最终结论）
+    verdict_text = (
+        f"综合判定：{_VERDICT_LABELS[verdict.value]}。"
+        f"用户契合度 {user_fit:.0f}%。"
+    )
+    yield {
+        "type": "audio",
+        "chunk": _encode_text(verdict_text),
+        "format": "wav",
+        "sample_rate": 16000,
     }
 
     await asyncio.sleep(0.2)
