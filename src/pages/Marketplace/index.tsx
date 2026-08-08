@@ -105,11 +105,18 @@ export function Marketplace() {
     async function loadTemplates() {
       try {
         const res = await invokeIpc<TemplateListResponse>('marketplace:listTemplates');
-        if (res.success && res.templates) {
+        if (res.success && res.templates && res.templates.length > 0) {
           setTemplates(res.templates);
+        } else if (isBrowserPreviewMode()) {
+          // Web 预览：IPC 无后端，回退到本地种子模板（与 Office 数据一致）
+          setTemplates(getPreviewMarketplaceTemplates());
         }
       } catch (err) {
         console.error('Failed to load marketplace templates:', err);
+        // 拉取失败且处于 web 预览：同样回退，避免「加载失败 / 空市集」
+        if (isBrowserPreviewMode()) {
+          setTemplates(getPreviewMarketplaceTemplates());
+        }
       } finally {
         setLoadingTemplates(false);
       }
