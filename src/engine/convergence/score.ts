@@ -12,8 +12,9 @@
  *   Reversibility = mean_t( clamp(n_candidates_t / 3, 0, 1) )
  *                  末轮前坍缩到 1 候选施加 COLLAPSE_PENALTY=0.5 惩罚。
  *
- * 兜底（未锚定 / 锚点候选不在轨迹）：R=0, St=0, CQ=0，
+ * 兜底（未锚定 / 锚点候选不在轨迹）：R=null, St=null, CQ=0，
  *   score 仅由收缩率贡献（100·w1·CR），明确标注「未获人类背书」。
+ *   R/St 用 null 而非 0 —— 0 会被读成「完美对齐」（A3）。
  */
 import { clamp, cosineSimilarity, l2Norm, stdPop } from './pca';
 import type { ConvergenceTrace, ConvergenceScore, ConvSource } from '@/types/convergence';
@@ -77,7 +78,7 @@ export function computeConvergenceScore(
   const beliefs = turns.map((t) => t.belief_embedding);
 
   // 锚点定位
-  const anchorId = trace.human_anchor_id ?? undefined;
+  const anchorId = trace.anchor_candidate_id ?? undefined;
   let anchored = false;
   let eAnchor: number[] | null = null;
   if (anchorId) {
@@ -85,13 +86,14 @@ export function computeConvergenceScore(
     anchored = eAnchor !== null;
   }
 
-  let r: number;
-  let st: number;
+  let r: number | null;
+  let st: number | null;
   let cq: number;
   let score: number;
 
   if (anchored && eAnchor) {
     const eK = sK.belief_embedding;
+    assertSameDim(eK, eAnchor);
     const dist = l2Norm(eK.map((x, i) => x - eAnchor[i]));
     r = clamp(dist / config.scale, 0, 1);
     const aligns = beliefs.map((b) => cosineSimilarity(b, eAnchor!));
@@ -100,9 +102,9 @@ export function computeConvergenceScore(
     cq = lastIds.has(anchorId!) ? 1 : 0;
     score = 100 * (w.w1 * cr + w.w2 * (1 - r) + w.w3 * st);
   } else {
-    // 兜底：未锚定
-    r = 0;
-    st = 0;
+    // 兜底：未锚定 —— R/St 未参与评分，置 null 而非 0
+    r = null;
+    st = null;
     cq = 0;
     score = 100 * (w.w1 * cr);
   }
@@ -119,18 +121,36 @@ export function computeConvergenceScore(
   }
   rev = clamp(rev, 0, 1);
 
+  // 来源标注：任一轮为投影/合成，整条分数即为投影/合成（A2）。
+  // 取「或」而非「且」—— 掺了一轮假数据，这个分数就不能当实测用。
+  const source: 'projected' | 'measured' = turns.some((t) => t.source === 'projected')
+    ? 'projected'
+    : 'measured';
+  const synthetic = turns.some((t) => t.synthetic === true);
+
   return {
     run_id: trace.run_id,
     agent_id: trace.agent_id,
     contraction_rate: round6(cr),
-    residual: round6(r),
-    stability: round6(st),
+    residual: r === null ? null : round6(r),
+    stability: st === null ? null : round6(st),
     convergence_score: round4(score),
     reversibility: round6(rev),
     convergence_quality: cq as 0 | 1,
     weights: { w1: w.w1, w2: w.w2, w3: w.w3 },
     ts: new Date().toISOString(),
+    source,
+    synthetic,
   };
+}
+
+/** 维度不等直接抛错：zip/map 会静默截断，让维度 bug 一路潜行到分数里（A4）。 */
+function assertSameDim(a: number[], b: number[]): void {
+  if (a.length !== b.length) {
+    throw new Error(
+      `收敛评分维度不匹配：belief=${a.length} anchor=${b.length}（须同维）`,
+    );
+  }
 }
 
 function round6(v: number): number {

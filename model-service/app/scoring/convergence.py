@@ -74,6 +74,10 @@ class TurnState(BaseModel):
     candidates: List[CandidateEmbedding]  # 该轮候选（建议 3–7，保可逆性）
     belief_embedding: List[float]  # agent "它以为你要什么" 的 embedding
     human_signal: Optional[ConvSource] = None  # 若该轮人类已置顶则记来源
+    # A2：该轮数据来源。默认 projected/synthetic=True —— 未标注的数据不能
+    # 默认当实测用，真实模型编码路径必须显式传 measured/False。
+    source: Literal["projected", "measured"] = "projected"
+    synthetic: bool = True
 
 
 class ConvergenceTrace(BaseModel):
@@ -87,7 +91,9 @@ class ConvergenceTrace(BaseModel):
     stage: Optional[str] = None  # 可选关联到 S1/S2/S3
     k: int = 3  # 默认 3，可配置
     turns: List[TurnState]  # 含 turn=0 的 S₀
-    human_anchor_id: Optional[str] = None  # 指向 HumanAnchor（拖拽置顶候选）
+    # A1：改名自 human_anchor_id。引擎全程按 candidate_id 语义使用它
+    # （在候选集里查 embedding），旧名会被误读成 HumanAnchor.anchor_id。
+    anchor_candidate_id: Optional[str] = None
     created_by: str  # owner id
     ts: str
 
@@ -115,11 +121,20 @@ class ConvergenceScore(BaseModel):
     contraction_rate: float  # CR ∈[0,1]
     residual: float  # R ∈[0,1]（越小越好）
     stability: float  # St ∈[0,1]
+    # A3：R/St 是否真的参与了评分。
+    # 未获人类背书时 R/St 仍填 0.0（保持数值契约，下游 toFixed / Number 不会崩），
+    # 但 0 在语义上等同「完美对齐」，与「没算」无法区分 —— 必须靠本字段区分。
+    # anchored=False 时 R/St 无意义，UI 应显示「—」而非 0.000。
+    anchored: bool
     convergence_score: float  # 0–100 = 100·(w1·CR + w2·(1−R) + w3·St)
     reversibility: float  # Rev ∈[0,1]（防越权）
     convergence_quality: int  # CQ（是否获人类背书，0|1）
     weights: Dict[str, float]  # {w1,w2,w3}
     ts: str
+    # A2：由产出方显式标注，不由下游推断。
+    # 'projected' = 确定性投影演示数据；'measured' = 真实模型编码。
+    source: Literal["projected", "measured"]
+    synthetic: bool  # true = 合成数据，不得进入任何对外榜单
 
 
 # ======================================================================
@@ -135,7 +150,7 @@ class ConvergenceEngine:
 
     - record_turn(trace, turn_state)：按 turn 号合并/追加一轮状态（S₀..K）。
     - set_anchor(trace, candidate_id, source)：在轨迹候选集中定位被背书候选，
-      生成 HumanAnchor 并写入 trace.human_anchor_id。
+      生成 HumanAnchor 并写入 trace.anchor_candidate_id。
     - compute_convergence_score(trace)：按 §3.5 公式产出 ConvergenceScore。
     """
 
@@ -192,7 +207,7 @@ class ConvergenceEngine:
             ts=_now_iso(),
         )
         self._anchors[anchor.anchor_id] = anchor
-        trace.human_anchor_id = candidate_id
+        trace.anchor_candidate_id = candidate_id
         return anchor
 
     def get_anchor(self, anchor_id: str) -> Optional[HumanAnchor]:
@@ -221,8 +236,10 @@ class ConvergenceEngine:
         末轮前坍缩到 1 候选施加 COLLAPSE_PENALTY 惩罚。
 
         兜底（未锚定 / 锚点候选不在轨迹）：
-          - 无锚点 → CQ=0，R、St 置 0，score 仅由收缩率贡献
-            （score = 100·w1·CR），明确标注「未获人类背书」。
+          - 无锚点 → anchored=False，CQ=0，R、St 填 0.0 但不参与评分，
+            score 仅由收缩率贡献（score = 100·w1·CR）。
+            消费方必须先看 anchored 再读 R/St —— 否则会把「未背书」
+            读成「零残差 / 零波动」，即误判为完美对齐。
         """
         cfg = self.config
         w = cfg.weights_dict()
@@ -242,13 +259,15 @@ class ConvergenceEngine:
         beliefs = [list(t.belief_embedding) for t in turns]
 
         # 锚点定位
-        anchor_id = trace.human_anchor_id
+        anchor_id = trace.anchor_candidate_id
         anchored = False
         e_anchor: Optional[List[float]] = None
         if anchor_id is not None:
             e_anchor = self._find_candidate_embedding(trace, anchor_id)
             anchored = e_anchor is not None
 
+        r: float
+        st: float
         if anchored and e_anchor is not None:
             eK = list(sK.belief_embedding)
             # 残差（模型已 L2 归一 → 最大距离 = scale=2.0）
@@ -263,7 +282,8 @@ class ConvergenceEngine:
             cq = 1 if anchor_id in last_ids else 0
             score = 100.0 * (w["w1"] * cr + w["w2"] * (1.0 - r) + w["w3"] * st)
         else:
-            # 兜底：未锚定，anchor 相关项不给分，仅收缩率贡献
+            # 兜底：未锚定，anchor 相关项不参与评分。
+            # R/St 填 0.0 保持数值契约，参与与否由 anchored=False 承载（A3）。
             r = 0.0
             st = 0.0
             cq = 0
@@ -285,14 +305,26 @@ class ConvergenceEngine:
             contraction_rate=round(cr, 6),
             residual=round(r, 6),
             stability=round(st, 6),
+            anchored=anchored,
             convergence_score=round(score, 4),
             reversibility=round(rev, 6),
             convergence_quality=cq,
             weights=w,
             ts=_now_iso(),
+            # A2：任一轮为投影/合成，整条分数即被污染，取最保守值。
+            source="measured"
+            if all(t.source == "measured" for t in turns)
+            else "projected",
+            synthetic=any(t.synthetic for t in turns),
         )
 
 
 def l2_distance(a: List[float], b: List[float]) -> float:
-    """欧氏距离 ||a − b||（两个向量相同长度假定）。"""
+    """欧氏距离 ||a − b||。
+
+    维度不等时抛 ValueError（A4）：zip 会静默截断到较短的一方，
+    让维度错配的 embedding 也能算出一个看似合理的距离。
+    """
+    if len(a) != len(b):
+        raise ValueError(f"l2_distance 维度不匹配：{len(a)} vs {len(b)}")
     return math.sqrt(sum((x - y) * (x - y) for x, y in zip(a, b)))

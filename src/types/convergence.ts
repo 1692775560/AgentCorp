@@ -58,8 +58,14 @@ export interface ConvergenceTrace {
   k: number;
   /** 含 turn=0 的 S₀ */
   turns: TurnState[];
-  /** 指向 HumanAnchor（被拖拽置顶候选的 candidate_id） */
-  human_anchor_id?: string;
+  /**
+   * 被人类背书候选的 candidate_id。
+   *
+   * 命名说明（A1）：旧名 human_anchor_id 会被读成 HumanAnchor.anchor_id，
+   * 但引擎全程按 candidate_id 语义使用它（在候选集里查 embedding），
+   * 拿它去 get_anchor 恒为 null。改名以消除这个歧义。
+   */
+  anchor_candidate_id?: string;
   /** owner id */
   created_by: string;
   /** ISO8601 UTC */
@@ -85,10 +91,16 @@ export interface ConvergenceScore {
   agent_id: string;
   /** CR ∈[0,1] */
   contraction_rate: number;
-  /** R ∈[0,1]（越小越好） */
-  residual: number;
-  /** St ∈[0,1] */
-  stability: number;
+  /**
+   * R ∈[0,1]（越小越好）。
+   *
+   * null = 未获人类背书，该项未参与评分（A3）。
+   * 不能用 0 代替：0 在语义上等于「完美对齐」，与「没算」无法区分，
+   * 下游只要不查 convergence_quality 就会把未背书读成满分。
+   */
+  residual: number | null;
+  /** St ∈[0,1]；null 含义同 residual */
+  stability: number | null;
   /** 0–100 = 100·(w1·CR + w2·(1−R) + w3·St) */
   convergence_score: number;
   /** Rev ∈[0,1]（防越权） */
@@ -97,10 +109,13 @@ export interface ConvergenceScore {
   convergence_quality: 0 | 1;
   weights: { w1: number; w2: number; w3: number };
   ts: string;
-  /** 轨迹来源标注（08-07 加固）：'projected' = MVP 投影，非实测 */
-  source?: 'projected' | 'measured';
-  /** true = 合成数据（投影演示），非实测轨迹 */
-  synthetic?: boolean;
+  /**
+   * 数据来源，由产出方（引擎）显式标注，不由下游推断（A2）。
+   * 'projected' = 确定性投影的演示数据；'measured' = 真实模型编码。
+   */
+  source: 'projected' | 'measured';
+  /** true = 合成数据（投影演示），不得进入任何对外榜单（A2） */
+  synthetic: boolean;
   /** 服务端落盘是否成功（false = 持久化失败，显式暴露不再静默） */
   persisted?: boolean;
 }

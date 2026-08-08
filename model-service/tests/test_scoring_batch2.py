@@ -240,7 +240,7 @@ def test_api_evaluate_stage_sse():
 # ======================================================================
 # 端点：/api/leaderboard 生成 divergences
 # ======================================================================
-def test_api_leaderboard_divergences():
+def test_api_leaderboard_divergences(reset_sse):
     """POST /api/evaluate-stage 多次后，GET /api/leaderboard 按拖拽序派生 divergences。"""
     client = TestClient(app)
     stage_key = "performance"  # 与 SSE 测试（interview/agent-eval）隔离，避免 _STAGE_STORE 串扰
@@ -252,6 +252,7 @@ def test_api_leaderboard_divergences():
             objective=_full_objective("code", 5.0 if obj >= 90 else 4.0),
             subjective=_full_subjective("performance", 4.0),
         ).model_dump(mode="json")
+        reset_sse()  # 每次 stream 都是新 event loop，须先清掉上一次遗留的 Event 单例
         with client.stream("POST", "/api/evaluate-stage", json=body):
             pass
 

@@ -107,7 +107,7 @@ def _make_trace(k=3, anchor_id=None):
         jobType="code",
         k=k,
         turns=turns,
-        humanAnchorId=anchor_id,
+        anchorCandidateId=anchor_id,
         createdBy="owner-1",
         ts="2026-07-28T00:00:00+00:00",
     )
@@ -193,7 +193,7 @@ def test_convergence_models_serialization_camel():
     assert "belief_embedding" in td and "candidates" in td
     trace = _make_trace()
     trd = trace.model_dump(mode="json")
-    assert "human_anchor_id" in trd and "created_by" in trd and "run_id" in trd
+    assert "anchor_candidate_id" in trd and "created_by" in trd and "run_id" in trd
     # 反向：snake_case（兼容 camel 校验别名）输入可被解析
     t2 = ConvergenceTrace(**{
         "run_id": "r2", "agent_id": "a", "job_type": "code",
@@ -212,7 +212,7 @@ def test_convergence_score_full_anchored():
     trace = _make_trace()
     trace.turns[-1].candidates[0].summary_text = final_belief
     anchor_id = trace.turns[-1].candidates[0].candidate_id
-    trace.human_anchor_id = anchor_id
+    trace.anchor_candidate_id = anchor_id
 
     score = eng.compute_convergence_score(trace)
 
@@ -246,6 +246,9 @@ def test_convergence_score_no_anchor_fallback_cq0():
     nK = len(trace.turns[-1].candidates)
     cr = 1 - nK / n0
     assert score.convergence_score == pytest.approx(100 * 0.4 * cr)
+    # A3：未锚定时由 anchored=False 标记「未参与评分」，
+    # 不能只看 R/St 的 0.0 —— 那在数值上与「完美对齐」无法区分
+    assert score.anchored is False
     assert score.residual == 0.0 and score.stability == 0.0
 
 
@@ -254,10 +257,11 @@ def test_convergence_score_anchor_not_in_final_set_cq0():
     eng = ConvergenceEngine()
     trace = _make_trace()
     anchor_id = trace.turns[0].candidates[0].candidate_id
-    trace.human_anchor_id = anchor_id
+    trace.anchor_candidate_id = anchor_id
     score = eng.compute_convergence_score(trace)
     assert score.convergence_quality == 0
-    assert score.residual != 0.0 or score.stability != 0.0
+    # 已锚定 → anchored=True，R/St 真实参与评分，只是 CQ 不给分
+    assert score.anchored is True
 
 
 def test_reversibility_collapse_penalty():
@@ -321,7 +325,7 @@ def test_k_configurable_and_custom_weights():
     anchor_id = turns[-1].candidates[0].candidate_id
     trace = ConvergenceTrace(
         runId="rk", agentId="a", jobType="code", k=5, turns=turns,
-        humanAnchorId=anchor_id, createdBy="o", ts="2026-01-01T00:00:00+00:00",
+        anchorCandidateId=anchor_id, createdBy="o", ts="2026-01-01T00:00:00+00:00",
     )
     score = eng.compute_convergence_score(trace)
     assert score.weights == {"w1": 0.5, "w2": 0.5, "w3": 0.0}
@@ -344,10 +348,56 @@ def test_set_anchor_creates_human_anchor():
     assert isinstance(anchor, HumanAnchor)
     assert anchor.candidate_id == cid
     assert anchor.source == "explicit_pin"
-    assert trace.human_anchor_id == cid
+    assert trace.anchor_candidate_id == cid
+    # A1：anchor_id 现在可被 get_anchor 反查（此前存的是 candidate_id，恒返回 None）
     assert eng.get_anchor(anchor.anchor_id) is anchor
     with pytest.raises(ValueError):
         eng.set_anchor(trace, "nonexistent-cid")
+
+
+# ======================================================================
+# A2：数据来源标注（projected/measured + synthetic）
+# ======================================================================
+def test_turn_state_defaults_to_projected_synthetic():
+    """未标注来源的轮次默认按合成投影处理 —— 默认值方向不能反。
+
+    若默认成 measured/False，投影演示数据会静默混进对外榜单。
+    """
+    ts = _make_turn(0, ["a broad", "b broad"], "belief text")
+    assert ts.source == "projected"
+    assert ts.synthetic is True
+
+
+def test_turn_state_accepts_measured_explicitly():
+    """真实模型编码路径可显式声明 measured/False。"""
+    ts = TurnState(
+        turn=1,
+        candidates=[_make_candidate("c-1-0", 1, "x")],
+        beliefEmbedding=encode_summary("y"),
+        source="measured",
+        synthetic=False,
+    )
+    assert ts.source == "measured" and ts.synthetic is False
+
+
+def test_score_inherits_synthetic_from_turns():
+    """轨迹含任一合成轮 → 分数必须标 synthetic，不得当实测用。"""
+    eng = ConvergenceEngine()
+    score = eng.compute_convergence_score(_make_trace())
+    assert score.synthetic is True
+    assert score.source == "projected"
+
+
+def test_score_is_measured_only_when_all_turns_measured():
+    """全部轮次实测才允许 measured/False —— 一轮投影即污染整条轨迹。"""
+    eng = ConvergenceEngine()
+    trace = _make_trace()
+    for t in trace.turns:
+        t.source = "measured"
+        t.synthetic = False
+    score = eng.compute_convergence_score(trace)
+    assert score.source == "measured"
+    assert score.synthetic is False
 
 
 # ======================================================================
@@ -378,8 +428,19 @@ def test_convergence_endpoints_via_testclient():
     ).model_dump(mode="json")
     r = client.post("/api/convergence/anchor", json=anchor)
     assert r.status_code == 200 and r.json()["ok"] is True
+    # A1：候选 c-3-0 属于已登记的 run-test-1，因此必须走 set_anchor 回填，
+    # 而不是仅把锚点塞进 _anchors。anchored_run_id 就是回填成功的凭据。
+    assert r.json()["anchored_run_id"] == run_id
     r = client.get("/api/convergence/anchor", params={"ownerId": "owner-1"})
     assert r.status_code == 200 and len(r.json()) == 1
+    # A1 回归：设锚点后重新评分，CQ 必须从 0 翻到 1、anchored 必须为 True。
+    # 旧实现绕过 set_anchor，此处会恒为 0/False —— 即人类背书对评分毫无影响。
+    r = client.post("/api/convergence/score", json={"run_id": run_id})
+    assert r.status_code == 200, r.text
+    sc2 = r.json()
+    assert sc2["convergence_quality"] == 1
+    assert sc2["anchored"] is True
+    assert sc2["convergence_score"] > sc["convergence_score"]
 
 
 def test_evaluate_run_emits_convergence_sse():

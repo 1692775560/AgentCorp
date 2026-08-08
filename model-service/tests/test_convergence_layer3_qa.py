@@ -102,7 +102,7 @@ def _make_trace_k1(anchor_in_final=True, anchor_present=True):
         )
     return ConvergenceTrace(
         runId="run-k1", agentId="a", jobType="code", k=1, turns=[s0, s1],
-        humanAnchorId=anchor_id, createdBy="o", ts="2026-01-01T00:00:00+00:00",
+        anchorCandidateId=anchor_id, createdBy="o", ts="2026-01-01T00:00:00+00:00",
     )
 
 
@@ -143,6 +143,9 @@ def test_k1_no_anchor_fallback_cq0():
     nK = len(trace.turns[-1].candidates)
     cr = 1 - nK / n0
     assert score.convergence_quality == 0
+    # A3：未锚定 → anchored=False 标记「R/St 未参与评分」；
+    # R/St 本身仍填 0.0 以保持数值契约（下游不必处理 null）。
+    assert score.anchored is False
     assert score.residual == 0.0
     assert score.stability == 0.0
     assert score.convergence_score == pytest.approx(100 * 0.4 * cr, abs=1e-3)
@@ -160,7 +163,7 @@ def test_all_beliefs_identical_stability_is_one():
     s2 = _turn(2, ["s2 a", "s2 b"], const)
     trace = ConvergenceTrace(
         runId="r-all-same", agentId="a", jobType="code", k=2,
-        turns=[s0, s1, s2], humanAnchorId="c-2-0", createdBy="o",
+        turns=[s0, s1, s2], anchorCandidateId="c-2-0", createdBy="o",
         ts="2026-01-01T00:00:00+00:00",
     )
     score = eng.compute_convergence_score(trace)
@@ -172,19 +175,21 @@ def test_all_beliefs_identical_stability_is_one():
 
 
 # ======================================================================
-# 边界 3：锚点候选完全不在轨迹任何轮（非法 human_anchor_id）
+# 边界 3：锚点候选完全不在轨迹任何轮（非法 anchor_candidate_id）
 # ======================================================================
 def test_illegal_anchor_id_not_in_trace_cq0():
-    """human_anchor_id 指向轨迹中不存在的候选 → 不崩溃，走兜底 CQ=0。"""
+    """anchor_candidate_id 指向轨迹中不存在的候选 → 不崩溃，走兜底 CQ=0。"""
     eng = ConvergenceEngine()
     trace = _make_trace_k1(anchor_in_final=True)
-    trace.human_anchor_id = "ghost-candidate-absent-everywhere"
+    trace.anchor_candidate_id = "ghost-candidate-absent-everywhere"
     score = eng.compute_convergence_score(trace)
 
     n0 = len(trace.turns[0].candidates)
     nK = len(trace.turns[-1].candidates)
     cr = 1 - nK / n0
     assert score.convergence_quality == 0          # 兜底
+    # A3：锚点不可定位 → 与未锚定同路径，anchored=False
+    assert score.anchored is False
     assert score.residual == 0.0
     assert score.stability == 0.0
     assert score.convergence_score == pytest.approx(100 * 0.4 * cr, abs=1e-3)

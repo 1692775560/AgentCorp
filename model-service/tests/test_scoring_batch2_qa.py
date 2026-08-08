@@ -382,7 +382,7 @@ def test_api_evaluate_stage_assembly():
 # ======================================================================
 # 端点：/api/leaderboard divergences 自动派生
 # ======================================================================
-def test_api_leaderboard_divergences():
+def test_api_leaderboard_divergences(reset_sse):
     from app.serve import app as serve_app
     client = TestClient(serve_app)
     stage_key = "preScreen"  # 与既有测试隔离
@@ -393,6 +393,7 @@ def test_api_leaderboard_divergences():
             objective=_full_objective("code", 5.0 if aid == "qa-a" else 4.0),
             subjective={},
         ).model_dump(mode="json")
+        reset_sse()  # 每次 stream 都是新 event loop，须先清掉上一次遗留的 Event 单例
         with client.stream("POST", "/api/evaluate-stage", json=body):
             pass
     r0 = client.get("/api/leaderboard", params={"stage": stage_key, "jobType": "code"})

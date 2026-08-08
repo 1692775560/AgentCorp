@@ -123,8 +123,11 @@ function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
     run_id: String(json.run_id ?? ''),
     agent_id: String(json.agent_id ?? ''),
     contraction_rate: Number(json.contraction_rate ?? 0),
-    residual: Number(json.residual ?? 0),
-    stability: Number(json.stability ?? 0),
+    // A3：R/St 缺失或为 null 时保持 null（= 未获人类背书，未参与评分），
+    // 不能落成 0 —— 0 会被读成「完美对齐」。
+    residual: json.residual === null || json.residual === undefined ? null : Number(json.residual),
+    stability:
+      json.stability === null || json.stability === undefined ? null : Number(json.stability),
     convergence_score: Number(json.convergence_score ?? 0),
     reversibility: Number(json.reversibility ?? 0),
     convergence_quality: json.convergence_quality === 1 ? 1 : 0,
@@ -134,9 +137,11 @@ function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
       w3: Number(weights.w3 ?? 0),
     },
     ts: String(json.ts ?? new Date().toISOString()),
-    // 08-07：透传诚实标注与落盘结果（旧版后端无此字段 → undefined）
-    source: json.source === 'projected' || json.source === 'measured' ? json.source : undefined,
-    synthetic: typeof json.synthetic === 'boolean' ? json.synthetic : undefined,
+    // A2：source/synthetic 为必填。旧版后端不发这两个字段时，按最保守方向
+    // 兜底为 projected/synthetic —— 未标注的数据不能默认当实测用，
+    // 否则一条来路不明的分数会直接进榜单。
+    source: json.source === 'measured' ? 'measured' : 'projected',
+    synthetic: json.synthetic === false ? false : true,
     persisted: typeof json.persisted === 'boolean' ? json.persisted : undefined,
   };
 }

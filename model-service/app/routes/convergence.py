@@ -170,7 +170,30 @@ def api_get_anchor(ownerId: Optional[str] = None) -> list:
 
 @router.post("/api/convergence/anchor")
 def api_post_anchor(req: HumanAnchor) -> dict:
-    """设置/置顶锚点（显式 pin 源）。返回 ok + anchorId + persisted。"""
-    _ENGINE._anchors[req.anchor_id] = req
+    """设置/置顶锚点（显式 pin 源）。返回 ok + anchorId + persisted。
+
+    A1：此前直接写 _ENGINE._anchors 而绕过 set_anchor，导致
+    trace.anchor_candidate_id 永不回填 —— 经 HTTP 设的锚点对评分毫无影响
+    （CQ 恒 0、R/St 恒走未锚定兜底）。现改为：轨迹已记录时走 set_anchor
+    回填，未记录时才退化为仅存锚点。
+    """
+    with _TRACE_LOCK:
+        trace = next(
+            (t for t in _TRACE_STORE.values()
+             if any(c.candidate_id == req.candidate_id
+                    for turn in t.turns for c in turn.candidates)),
+            None,
+        )
+    anchored_run_id: Optional[str] = None
+    if trace is not None:
+        _ENGINE.set_anchor(trace, req.candidate_id, req.source)
+        anchored_run_id = trace.run_id
+    else:
+        _ENGINE._anchors[req.anchor_id] = req
     persisted = _persist_convergence()
-    return {"ok": True, "anchor_id": req.anchor_id, "persisted": persisted}
+    return {
+        "ok": True,
+        "anchor_id": req.anchor_id,
+        "anchored_run_id": anchored_run_id,
+        "persisted": persisted,
+    }
