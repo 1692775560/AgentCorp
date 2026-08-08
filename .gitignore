@@ -100,3 +100,4 @@ docs/pr-session-notes-*.md
 
 # Layer3 可选 JSON 落盘（运行时生成，非源码）
 convergence-store.json
+_downloads/
