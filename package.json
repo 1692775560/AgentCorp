@@ -26,6 +26,7 @@
         "dev": "vite",
         "build": "pnpm run package:prepare && electron-builder",
         "build:vite": "vite build",
+        "office:predecode": "node scripts/office/predecode-assets.mjs",
         "bundle:openclaw": "zx scripts/bundle-openclaw.mjs",
         "bundle:openclaw-plugins": "zx scripts/bundle-openclaw-plugins.mjs",
         "bundle:preinstalled-skills": "zx scripts/bundle-preinstalled-skills.mjs",
