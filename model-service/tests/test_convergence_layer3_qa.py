@@ -148,7 +148,10 @@ def test_k1_no_anchor_fallback_cq0():
     assert score.anchored is False
     assert score.residual == 0.0
     assert score.stability == 0.0
-    assert score.convergence_score == pytest.approx(100 * 0.4 * cr, abs=1e-3)
+    # 未锚定路径归一化 bug 修复，用户 2026-08-08 拍定方案①：
+    # 旧 100·w1·CR 不归一化，完美收缩仅因缺人类背书即被压到 40 分上限；
+    # 新实现按收缩族独占分母 0.40 归一化 → 100·(0.40·CR)/0.40 = 100·CR。
+    assert score.convergence_score == pytest.approx(100 * cr, abs=1e-3)
 
 
 # ======================================================================
@@ -192,7 +195,9 @@ def test_illegal_anchor_id_not_in_trace_cq0():
     assert score.anchored is False
     assert score.residual == 0.0
     assert score.stability == 0.0
-    assert score.convergence_score == pytest.approx(100 * 0.4 * cr, abs=1e-3)
+    # 未锚定路径归一化 bug 修复，用户 2026-08-08 拍定方案①：
+    # 锚点不可定位 → 与未锚定同路径，同样按收缩族分母 0.40 归一化 → 100·CR。
+    assert score.convergence_score == pytest.approx(100 * cr, abs=1e-3)
 
 
 # ======================================================================

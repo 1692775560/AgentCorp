@@ -245,7 +245,10 @@ def test_convergence_score_no_anchor_fallback_cq0():
     n0 = len(trace.turns[0].candidates)
     nK = len(trace.turns[-1].candidates)
     cr = 1 - nK / n0
-    assert score.convergence_score == pytest.approx(100 * 0.4 * cr)
+    # 未锚定路径归一化 bug 修复，用户 2026-08-08 拍定方案①：
+    # 旧实现 100·w1·CR 不归一化，CR=1.0 的完美收缩 trace 仅因缺人类背书即被压到 40 分上限。
+    # 新实现按收缩族独占分母 0.40 归一化：100·(0.40·CR)/0.40 = 100·CR。
+    assert score.convergence_score == pytest.approx(100 * cr)
     # A3：未锚定时由 anchored=False 标记「未参与评分」，
     # 不能只看 R/St 的 0.0 —— 那在数值上与「完美对齐」无法区分
     assert score.anchored is False

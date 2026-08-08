@@ -260,6 +260,23 @@ export function ConvergenceTrajectoryWidget({
               value={localScore.stability === null ? '—' : localScore.stability.toFixed(3)}
               hint={localScore.stability === null ? '未获人类背书' : undefined}
             />
+            <Metric
+              label="语义收敛 SC"
+              value={
+                localScore.semantic_scored
+                  ? localScore.semantic_contraction.toFixed(3)
+                  : '—'
+              }
+              hint={
+                localScore.semantic_scored
+                  ? localScore.unknowns_delta < 0
+                    ? `已消解 ${-localScore.unknowns_delta} 项未知`
+                    : localScore.unknowns_delta > 0
+                      ? `新增 ${localScore.unknowns_delta} 项未知`
+                      : '未知项数量未变'
+                  : '未记录未知项'
+              }
+            />
             <Metric label="可逆性 Rev" value={localScore.reversibility.toFixed(3)} hint="防越权" />
             <Metric
               label="质量 CQ"

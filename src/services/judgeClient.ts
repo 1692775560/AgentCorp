@@ -128,6 +128,16 @@ function toConvergenceScore(json: Record<string, unknown>): ConvergenceScore {
     residual: json.residual === null || json.residual === undefined ? null : Number(json.residual),
     stability:
       json.stability === null || json.stability === undefined ? null : Number(json.stability),
+    // 语义收缩（SC）：走 A3 数值契约 —— 始终填数值（下游 toFixed/Number 不会崩），
+    // 「没算过」与「一项未知都没消解」靠 semantic_scored 区分，不靠 null。
+    // 旧版后端无此字段 → 0 + semantic_scored=false，UI 应显示「—」而非 0.000。
+    semantic_contraction: Number(json.semantic_contraction ?? 0),
+    // 是否真的参与了评分。下游必须读本字段判断，不许靠 semantic_contraction === 0
+    // 反推 —— 0 是合法的「未消解」取值，两者不可混。
+    semantic_scored: json.semantic_scored === true,
+    // 诊断字段：S₀→S_K 的 unknowns 净变化，允许为负（负 = 探索中发现新未知，
+    // 是真实信号不是错误）。缺失时 0 表示「无变化」，语义上安全。
+    unknowns_delta: Number(json.unknowns_delta ?? 0),
     convergence_score: Number(json.convergence_score ?? 0),
     reversibility: Number(json.reversibility ?? 0),
     convergence_quality: json.convergence_quality === 1 ? 1 : 0,
