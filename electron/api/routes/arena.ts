@@ -34,7 +34,7 @@ async function forwardToModelService(
     });
     return;
   }
-  let payload: unknown = {};
+  let payload: unknown;
   try {
     payload = await upstream.json();
   } catch {
