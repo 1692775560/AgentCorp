@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
+import {
+  appendA2aTrace,
+  delegatorFromSessionKey,
+  deriveRootSessionId,
+  readA2aTraces,
+} from './evaluation/a2a-trace';
+import type { A2aTraceRecord } from '../../src/types/evaluation';
+
 export type RuntimeSessionStatus =
   | 'running'
   | 'blocked'
@@ -189,6 +197,7 @@ export class SessionRuntimeManager {
       runId: this.extractFirstString(sendResult, ['runId', 'run_id']) ?? record.runId,
       updatedAt: new Date().toISOString(),
     });
+    await this.writeA2aTrace(withRun, 'spawn');
     await this.persistSessions();
     return await this.refreshRecord(withRun.id, {
       fallbackStatus: 'running',
@@ -217,6 +226,7 @@ export class SessionRuntimeManager {
     const existing = this.sessions.get(id);
     if (!existing) return null;
     await this.gatewayRpc('chat.abort', { sessionKey: existing.sessionKey });
+    await this.writeA2aTrace(existing, 'kill');
     return await this.refreshRecord(id, {
       fallbackStatus: 'killed',
       forcedStatus: 'killed',
@@ -240,6 +250,7 @@ export class SessionRuntimeManager {
       runId: this.extractFirstString(sendResult, ['runId', 'run_id']) ?? existing.runId,
       updatedAt: new Date().toISOString(),
     });
+    await this.writeA2aTrace(patched, 'steer', input);
     await this.persistSessions();
     return await this.refreshRecord(id, {
       fallbackStatus: 'running',
@@ -1097,6 +1108,48 @@ export class SessionRuntimeManager {
   private extractArray(source: unknown, keys: string[]): unknown[] | null {
     const value = this.extractFirstValue(source, keys);
     return Array.isArray(value) ? value : null;
+  }
+
+  /**
+   * A2A 委派 trace 埋点（a2a-integration §3.4 / P1）。
+   * spawn/steer/kill 各写一条；round 与 rework_of 由既有 trace 推导
+   * （steer 的 rework_of 指向同一 task_id 上一条 message）。
+   * 旁路采集：任何失败都吞掉，绝不影响委派主流程。
+   */
+  private async writeA2aTrace(
+    record: RuntimeSessionRecord,
+    trigger: A2aTraceRecord['trigger'],
+    message?: string,
+  ): Promise<void> {
+    try {
+      const rootSessionId = deriveRootSessionId(record.parentSessionKey);
+      if (!rootSessionId) return;
+      const priorTraces = await readA2aTraces(rootSessionId);
+      const taskTraces = priorTraces.filter((trace) => trace.task_id === record.id);
+      const lastMessage = [...taskTraces].reverse().find((trace) => trace.kind === 'message');
+      const now = new Date().toISOString();
+      const summaryText = (message ?? record.prompt).trim().replace(/\s+/g, ' ');
+      await appendA2aTrace({
+        trace_id: randomUUID(),
+        task_id: record.id,
+        parent_task_id: record.parentRuntimeId ?? null,
+        delegator: delegatorFromSessionKey(record.parentSessionKey),
+        delegatee: `agent:${record.agentName?.trim() || 'unknown'}`,
+        round: taskTraces.length + 1,
+        kind: trigger === 'kill' ? 'status' : 'message',
+        state: trigger === 'kill' ? 'canceled' : 'submitted',
+        rework_of: trigger === 'steer' ? lastMessage?.trace_id ?? null : null,
+        channel: 'internal-rpc',
+        sent_at: now,
+        completed_at: trigger === 'kill' ? now : null,
+        summary: summaryText.length > 160 ? `${summaryText.slice(0, 157)}...` : summaryText,
+        session_key: record.sessionKey,
+        root_session_id: rootSessionId,
+        trigger,
+      });
+    } catch {
+      // Best effort: trace 失败绝不影响委派主流程
+    }
   }
 
   private async gatewayRpc<T>(method: string, params?: unknown): Promise<T> {

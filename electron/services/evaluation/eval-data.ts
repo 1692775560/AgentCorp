@@ -9,6 +9,8 @@
  * - 转录：~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl
  * - 用量：getRecentTokenUsageHistory（electron/utils/token-usage）
  * - 会话清单：sessions 目录下的 sessions.json（容忍三种 shape）+ 文件名扫描兜底
+ * - A2A 委派 trace：~/.openclaw/a2a-traces/<rootSessionId>.jsonl（a2a-integration §3.4，
+ *   有 trace 时 rework/escalations/latency_ms 由协作日志客观计算，替代硬编码 0）
  */
 import { readdir, readFile, access, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -20,7 +22,8 @@ import {
   parseUsageEntriesFromJsonl,
   type TokenUsageHistoryEntry,
 } from '../../utils/token-usage-core';
-import type { TelemetryEvent } from '../../../src/types/evaluation';
+import { loadA2aTracesForRun } from './a2a-trace';
+import type { A2aTraceRecord, TelemetryEvent } from '../../../src/types/evaluation';
 
 /** 会话下拉框选项（评估页用） */
 export interface AgentSessionOption {
@@ -37,6 +40,8 @@ export interface RunData {
   events: TelemetryEvent[];
   transcript: string;
   entries: TokenUsageHistoryEntry[];
+  /** 本次运行关联到的 A2A 委派 trace（仅加法；无 trace 时为空数组） */
+  traces: A2aTraceRecord[];
 }
 
 /** agentId 防路径穿越（与 session:delete 同级防护） */
@@ -206,6 +211,46 @@ async function telemetryFromUsage(
 }
 
 /**
+ * 从 A2A 委派 trace 客观计算遥测（a2a-integration §3.4）：
+ * - rework = rework_of != null 的记录数（每次 steer 返工计一次）
+ * - escalations = input-required 状态数（delegatee 向 delegator 求助）
+ * - human_interventions = 人工 steer 触发的记录数
+ * - latency_ms = trace 首末时间差（sent_at / completed_at 的最小→最大）
+ * - first_try = 无返工且无求助
+ */
+function telemetryFromA2aTraces(
+  agentId: string,
+  sessionId: string,
+  traces: A2aTraceRecord[],
+  fallbackLatencyMs: number,
+): TelemetryEvent {
+  const rework = traces.filter((t) => t.rework_of != null).length;
+  const escalations = traces.filter((t) => t.state === 'input-required').length;
+  const humanInterventions = traces.filter((t) => t.trigger === 'steer').length;
+  const timestamps = traces
+    .flatMap((t) => [t.sent_at, t.completed_at])
+    .filter((t): t is string => typeof t === 'string' && t.length > 0)
+    .map((t) => Date.parse(t))
+    .filter((t) => !Number.isNaN(t))
+    .sort((a, b) => a - b);
+  const traceLatencyMs =
+    timestamps.length >= 2 ? timestamps[timestamps.length - 1] - timestamps[0] : 0;
+  const last = traces[traces.length - 1];
+  return {
+    agent_id: agentId,
+    task_id: sessionId,
+    success: !traces.some((t) => t.state === 'failed'),
+    first_try: rework === 0 && escalations === 0,
+    rework,
+    latency_ms: traceLatencyMs > 0 ? traceLatencyMs : fallbackLatencyMs,
+    human_interventions: humanInterventions,
+    escalations,
+    out_of_domain: false,
+    ts: last?.completed_at ?? last?.sent_at ?? new Date().toISOString(),
+  };
+}
+
+/**
  * 采集某次运行的全部评估数据（一次读盘，供 ROI / KPI / judge 三处消费）。
  * 行为与渲染层旧实现一致：转录缺失或解析为空时回退 usage 派生最小遥测。
  * agentId 与 sessionId 至少提供一个；agentId 缺省时仅按 session 过滤用量。
@@ -273,5 +318,12 @@ export async function collectRunData(
     }
   }
 
-  return { events, transcript, entries };
+  // 4) A2A 委派 trace（第三数据源）：有 trace 时遥测由协作日志客观计算，
+  //    替代硬编码的 rework/escalations=0；无 trace 时保持上方兜底行为不变。
+  const traces = await loadA2aTracesForRun(agentId, sessionId);
+  if (traces.length > 0) {
+    events = [telemetryFromA2aTraces(agentId, sessionId, traces, events[0]?.latency_ms ?? 0)];
+  }
+
+  return { events, transcript, entries, traces };
 }

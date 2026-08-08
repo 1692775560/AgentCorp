@@ -331,6 +331,45 @@ export interface TelemetryEvent {
   ts: string; // ISO8601 UTC
 }
 
+/* ===================== A2A 委派 trace（a2a-integration §3.4，P1 仅加法） ===================== */
+
+export type A2aTraceKind = "message" | "status" | "artifact";
+export type A2aTraceState =
+  | "submitted"
+  | "working"
+  | "input-required"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+/**
+ * A2A 委派 trace 记录（JSONL 每行一条，落盘 ~/.openclaw/a2a-traces/<rootSessionId>.jsonl）。
+ * 内部委派（chat.send）与外部 A2A（message/send，P2+）共用同一 schema，
+ * 是六维评估 comm/reliability 维的客观证据源；evidence_trace 可引用 trace_id 回放。
+ *
+ * 末尾三个字段（session_key / root_session_id / trigger）是 P1 在 §3.4 schema
+ * 之上的仅加法扩展：root_session_id 是落盘文件名与 collectRunData 的关联键，
+ * trigger 标记埋点来源（人工 steer 计入 human_interventions）。
+ */
+export interface A2aTraceRecord {
+  trace_id: string; // uuid
+  task_id: string; // 子会话 runtime id（A2A 链路为 A2A task id）
+  parent_task_id: string | null; // 父会话 runtime id
+  delegator: string; // agent:<leaderId> | external:<clientId>
+  delegatee: string; // agent:<workerId> | a2a:<externalUrl>
+  round: number; // 同一 task_id 下的委派轮次（spawn=1，每次 steer +1）
+  kind: A2aTraceKind;
+  state: A2aTraceState;
+  rework_of: string | null; // 返工时指向上一轮的 trace_id
+  channel: "internal-rpc" | "a2a";
+  sent_at: string; // ISO8601 UTC
+  completed_at: string | null; // ISO8601 UTC（kill 时 = sent_at）
+  summary: string; // 一句话任务/结果摘要（进 judge prompt 用）
+  session_key: string; // 子会话完整 sessionKey
+  root_session_id: string; // 根会话 ID（trace 文件名 / 评估关联键）
+  trigger: "spawn" | "steer" | "kill"; // 埋点来源
+}
+
 /* ===================== 评估档案落库（T03 · 阶段 A 持久化契约） ===================== */
 
 /**
