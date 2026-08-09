@@ -89,6 +89,8 @@ Thumbs.db
 
 # ===== 文档 / 工具缓存 =====
 docs/pr-session-notes-*.md
+# 商业与赛事材料仅保留本地，不入库
+docs/strategy/
 .cursor/
 .superpowers/
 .specstory/
