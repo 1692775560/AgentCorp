@@ -20,6 +20,7 @@ import type {
   SubjectiveScore,
 } from '@/types/evaluation';
 import type { TaskRequirement } from '@/types/marketplace';
+import type { CraftJudgement } from '@/types/craft';
 
 /**
  * 面试三阶段（递进式收敛，顺序不可颠倒）：
@@ -89,6 +90,33 @@ export interface InterviewMetrics {
 }
 
 /**
+ * 工种试做题一轮（P2 手艺探针的客观分来源）。
+ *
+ * 与 InterviewTurn 的区别：turn 由 HR 主观打分，本结构由 model-service
+ * 的 LLM-as-judge 按固定 rubric 判定，**HR 不可改分**。同题同 rubric，
+ * 因此个人上传的 agent 与头部开源项目起点一致（不受 star 数影响）。
+ */
+export interface CraftTrialRound {
+  taskId: string;
+  /** 题目标题（展示用，避免重复拉题库） */
+  title: string;
+  /** 实际下发的题面 */
+  prompt: string;
+  /** 候选作答原文 */
+  answerText: string;
+  /** 作答通道：agent = 真实调度，manual = HR 手动粘贴 */
+  mode: 'agent' | 'manual';
+  /** 作答时延（ms）；手动模式为 null */
+  answerLatencyMs: number | null;
+  /** 裁判结果；judge 后端不可用时为 null（不补分） */
+  judgement: CraftJudgement | null;
+  /** judge 失败原因（judgement 为 null 时填充，UI 据此提示而非展示 0 分） */
+  judgeError?: string;
+  /** ISO8601 UTC */
+  ts: string;
+}
+
+/**
  * 用户自定义题（无参考答案，设计 §3 / 决策 D5）。
  * 复用 Arena 通道（context='interview'）：用户按实际情况出题 → 同工种候选作答 →
  * 用户主观选择。**不进 turns[]、不进 dimTracker 证据、不进模型分**（仅用户偏好）。
@@ -121,6 +149,8 @@ export interface InterviewReport {
   baselineRadar: RadarScore | null;
   /** 全部问答轮次 */
   turns: InterviewTurn[];
+  /** 工种试做题轮次（LLM-as-judge 客观分，与 turns 的 HR 主观分并列） */
+  craftTrials: CraftTrialRound[];
   /** 逐维证据（键为 RadarDim | CraftDim 字符串） */
   dimEvidence: Partial<Record<string, string[]>>;
   /** 面试期关键指标 */
