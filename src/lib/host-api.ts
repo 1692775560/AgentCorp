@@ -1,6 +1,11 @@
 import { invokeIpc } from '@/lib/api-client';
 import { trackUiEvent } from './telemetry';
 import { normalizeAppError } from './error-model';
+import { isBrowserPreviewMode } from './browser-preview';
+import {
+  isTaskApprovalMockPath,
+  handleTaskApprovalMock,
+} from './task-approval-preview-mock';
 
 const HOST_API_PORT = 3210;
 const HOST_API_BASE = `http://127.0.0.1:${HOST_API_PORT}`;
@@ -212,6 +217,19 @@ async function runBrowserFetch<T>(
 export async function hostApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const startedAt = Date.now();
   const method = init?.method || 'GET';
+
+  // Web 预览：任务看板 / 审批用内存 mock，不走不存在的 host API（127.0.0.1:3210）。
+  if (isBrowserPreviewMode() && isTaskApprovalMockPath(path)) {
+    trackUiEvent('hostapi.fetch', {
+      path,
+      method,
+      source: 'browser-preview-mock',
+      durationMs: Date.now() - startedAt,
+      status: 200,
+    });
+    return handleTaskApprovalMock<T>(path, init);
+  }
+
   if (isBrowserPreviewShimEnabled()) {
     return runBrowserFetch<T>(path, init, method, startedAt, {
       source: 'browser-preview-shim',

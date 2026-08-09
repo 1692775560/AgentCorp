@@ -21,6 +21,7 @@
  * UI 一律用无后缀版本，才能看到「多少人喜欢」而非「我点过几次」。
  */
 import { hostApiFetch } from '@/lib/host-api';
+import { isBrowserPreviewMode } from '@/lib/browser-preview';
 import type { JobType } from '@/types/evaluation';
 import type {
   BossFavoriteVote,
@@ -181,6 +182,16 @@ export async function getLike(agentId: string): Promise<LikeRecord> {
       `/api/likes/${encodeURIComponent(agentId)}`,
     );
   } catch {
+    // Web 预览无 electron-store：返回默认零态，避免 getLikeLocal 抛错。
+    if (isBrowserPreviewMode()) {
+      return {
+        agentId,
+        count: 0,
+        likedByMe: false,
+        users: [],
+        updatedAt: new Date().toISOString(),
+      };
+    }
     return getLikeLocal(agentId);
   }
 }
@@ -204,6 +215,11 @@ export async function getFavorites(jobType: JobType): Promise<FavoriteRanking> {
       `/api/favorites?jobType=${encodeURIComponent(jobType)}`,
     );
   } catch {
+    // Web 预览无 Electron / electron-store：直接返回空排名，避免 getFavoritesLocal
+    // 初始化 electron-store 抛错导致市集赛道卡「加载失败」。
+    if (isBrowserPreviewMode()) {
+      return { jobType, ranking: [] };
+    }
     return getFavoritesLocal(jobType);
   }
 }

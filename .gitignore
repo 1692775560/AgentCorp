@@ -106,3 +106,6 @@ model-service/models/
 
 # Python 虚拟环境
 model-service/.venv/
+
+# 素材下载暂存目录（像素办公室素材来源，非源码）
+_downloads/
