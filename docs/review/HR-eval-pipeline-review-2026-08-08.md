@@ -54,9 +54,9 @@ curl -s http://127.0.0.1:8000/health   # 应看到 judge_available:true
 
 ## 六、附录：Node PATH 乱码修复（Windows）
 
-**根因**：用户 PATH 里 `C:\Users\陈思丞\.trae\...` 的 UTF-8 字节（陈思丞 = E9 99 88 E6 80 9D E4 B8 9E）被某工具按 GBK 解码写回注册表，变成 `C:\Users\闄堟€濅笧\.trae\...`；且该目录已不存在，导致 PATH 里没有任何可用 node。
+**根因**：当 Windows 用户名含非 ASCII 字符时，PATH 里 `%USERPROFILE%\.trae\...` 的 UTF-8 字节可能被某工具按 GBK 解码后写回注册表，变成乱码路径；若该目录同时已不存在，PATH 里就没有任何可用 node。
 
-**可用 node（已验证）**：`C:\Users\陈思丞\.workbuddy\binaries\node\versions\22.22.2\node.exe`（v22.22.2）
+**可用 node（已验证）**：`%USERPROFILE%\.workbuddy\binaries\node\versions\22.22.2\node.exe`（v22.22.2）
 
 **修复命令（以你的用户身份在 PowerShell 里执行；不要用 setx，setx 会截断长 PATH 且编码有坑）**：
 
@@ -67,7 +67,7 @@ $old | Out-File "$env:USERPROFILE\path-backup-20260808.txt" -Encoding UTF8
 
 # 2) 过滤掉所有 .trae\sdks 条目（含乱码与正确路径，目录已死）并追加可用 node
 $parts = $old -split ';' | Where-Object { $_ -and ($_ -notmatch '\.trae\\sdks') }
-$parts += 'C:\Users\陈思丞\.workbuddy\binaries\node\versions\22.22.2'
+$parts += "$env:USERPROFILE\.workbuddy\binaries\node\versions\22.22.2"
 [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
 
 # 3) 若 Machine PATH 也有乱码（需管理员 PowerShell），同样处理：
