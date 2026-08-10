@@ -20,7 +20,7 @@
  *
  * 全部为纯函数 + 一次异步编排；judgeChat 失败（离线/503）返回 null，由调用方降级。
  */
-import type { RadarScore, Verdict } from '@/types/evaluation';
+import type { BossProfile, RadarScore, Verdict } from '@/types/evaluation';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { judgeChat } from '@/services/judgeClient';
 import { passK, type PassKResult } from '@/engine/evaluation/passK';
@@ -36,6 +36,11 @@ export interface JudgeEnsembleOptions {
   models?: string[];
   /** 单维通过阈值（透传给 passK） */
   threshold?: number;
+  /**
+   * A · 老板原型（用户个性化）：透传给 judgeChat，使其在前缀注入「评估上下文」，
+   * 实现 Wang 的个性化评估——同一 agent 对不同老板表现不同。
+   */
+  persona?: BossProfile | null;
 }
 
 /** judge ensemble 结果 */
@@ -112,7 +117,7 @@ export async function judgeChatEnsemble(
   let anyJudge = false;
 
   for (let i = 0; i < k; i += 1) {
-    const res = await judgeChat(agentId, transcript).catch(() => null);
+    const res = await judgeChat(agentId, transcript, opts?.persona).catch(() => null);
     if (!res || !res.radar) continue;
     radars.push(res.radar);
     if (res.verdict) verdicts.push(res.verdict);

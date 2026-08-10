@@ -11,7 +11,14 @@
  * 通过 renderer→main 的 ipc 'hostapi:token' 获取。
  */
 import { invokeIpc } from '@/lib/api-client';
-import type { EvaluationEvent, TelemetryEvent, RadarScore, RadarDim, Verdict } from '@/types/evaluation';
+import type {
+  EvaluationEvent,
+  TelemetryEvent,
+  RadarScore,
+  RadarDim,
+  Verdict,
+  BossProfile,
+} from '@/types/evaluation';
 import type { ConvergenceScore, TurnState } from '@/types/convergence';
 import type {
   ArenaCompareInput,
@@ -53,6 +60,12 @@ export interface JudgeRunInput {
     budget_max?: number;
     weight?: Partial<Record<string, number>>;
   };
+  /**
+   * A · 老板原型（用户个性化）：描述「正在评估/雇佣这位 agent 的人」。
+   * 与既有 agent.persona（agent 自己的系统人设）区分。后端不识别时忽略该字段；
+   * 前端流式裁判当前未消费它，但 /api/chat-judge 路径（judgeChat）已据此注入前缀。
+   */
+  bossProfile?: BossProfile;
   /**
    * 收敛层开关（仅加法，后端不识别时忽略该字段）。
    * k = 每轮候选数（建议 3–7，保可逆性）；captureSummaries = 是否回传候选摘要文本。
@@ -468,14 +481,39 @@ export interface ChatJudgeResult {
 }
 
 /**
+ * A · 构建老板原型前缀（SP-Profile 等价物，纯函数可单测）。
+ * 把 BossProfile 翻译成裁判 prompt 的「评估上下文」段落，使裁判在
+ * 「与这样一位老板协作」的视角下评估 Agent 行为（Wang 的个性化评估主张）。
+ * 中性老板（id='neutral'）或无画像 → 返回空串（不污染离线基线评估）。
+ */
+export function buildPersonaPreamble(profile: BossProfile | null | undefined): string {
+  if (!profile || profile.id === 'neutral') return '';
+  const lines: string[] = [
+    '[评估上下文 · 老板原型]',
+    '你是正在评估这位 AI Agent 的「老板」。请基于「与这样一位老板协作」的视角，评估 Agent 在上述对话中的表现——尤其是它是否对齐该老板的沟通风格、是否在约束下做出合理取舍、是否在风险情境下稳健。',
+  ];
+  if (profile.name) lines.push(`- 原型名：${profile.name}`);
+  if (profile.domain) lines.push(`- 领域：${profile.domain}`);
+  if (profile.experienceLevel) lines.push(`- 经验水平：${profile.experienceLevel}`);
+  if (profile.riskAversion) lines.push(`- 风险偏好：${profile.riskAversion}`);
+  if (profile.communicationStyle) lines.push(`- 沟通风格：${profile.communicationStyle}`);
+  if (profile.constraintPrefs?.length) lines.push(`- 约束偏好：${profile.constraintPrefs.join('、')}`);
+  return lines.join('\n');
+}
+
+/**
  * 调用模型裁判对一段面试 transcript 评分（C 挂载点）。
  * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
+ * persona 非空时，自动在前缀注入老板原型上下文（不改后端字段名，向后兼容）。
  */
 export async function judgeChat(
   agentId: string,
   transcript: string,
+  persona?: BossProfile | null,
 ): Promise<ChatJudgeResult | null> {
   try {
+    const preamble = buildPersonaPreamble(persona);
+    const fullTranscript = preamble ? `${preamble}\n\n${transcript}` : transcript;
     const token = await getHostApiToken();
     const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
       method: 'POST',
@@ -483,7 +521,7 @@ export async function judgeChat(
         'Content-Type': 'application/json',
         [SESSION_HEADER]: token,
       },
-      body: JSON.stringify({ agent_id: agentId, transcript }),
+      body: JSON.stringify({ agent_id: agentId, transcript: fullTranscript }),
     });
     if (!res.ok) return null;
     const json = (await res.json()) as Record<string, unknown>;

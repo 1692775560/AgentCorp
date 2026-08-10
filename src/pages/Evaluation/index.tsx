@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useAgentsStore } from '@/stores/agents';
+import { getActiveBossProfile, listBossProfiles } from '@/stores/bossProfile';
 import { listAgentSessions, type AgentSessionOption } from '@/services/evaluationData';
 import { speech } from '@/services/speech';
 import { useConvergenceStore } from '@/stores/convergenceStore';
@@ -30,6 +31,8 @@ import { Leaderboard } from './Leaderboard';
 import { DualTrackScoreCard } from '@/components/evaluation/DualTrackScoreCard';
 import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
 import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
+import { BossProfileSelector } from '@/components/persona/BossProfileSelector';
+import { SuiteView } from '@/components/evaluation/SuiteView';
 import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
@@ -165,6 +168,8 @@ export function Evaluation() {
         ? { title: taskTitle.trim(), description: '', weight: 1 }
         : undefined,
       persona: agent.persona,
+      // A · 老板原型：把当前激活的用户个性化画像带入评估（区别于 agent 自身 persona）
+      bossProfile: getActiveBossProfile(),
     });
   };
 
@@ -195,6 +200,11 @@ export function Evaluation() {
       <div className="flex min-h-0 flex-1">
         {/* 左栏：agent 列表 */}
         <aside className="w-[300px] shrink-0 overflow-y-auto border-r border-white/40 p-4">
+          {/* A · 老板原型选择器：决定「与谁协作」的评估视角（个性化基线） */}
+          <div className="mb-3">
+            <BossProfileSelector />
+          </div>
+
           <div className="mb-3 space-y-2 rounded-2xl bg-white/70 p-3 dark:bg-white/5">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">
               {t('evaluation.sessionLabel', '评估会话（真实运行记录）')}
@@ -363,6 +373,13 @@ export function Evaluation() {
                     {t('evaluation.radarSelectHint', '从左侧选择一位员工，再点「运行评估」查看结果。')}
                   </p>
                 )}
+
+                {/* C · 基准套件：维度×原型矩阵 + 个性化增量（人格化评估的核心视图） */}
+                <SuiteView
+                  agentId={selectedAgentId}
+                  radarByPersona={selectedProfile?.radarByPersona}
+                  profiles={listBossProfiles()}
+                />
 
                 {/* 双轨评分卡（客观遥测 + 主观打分 + 0.7/0.3 加权 total） */}
                 <DualTrackScoreCard agentId={selectedAgentId} />

@@ -27,6 +27,7 @@ import type {
   LeaderboardEntry,
   LeaderboardTier,
   Verdict,
+  BossProfile,
 } from '@/types/evaluation';
 import { verdictToLifecycleState, LIFECYCLE_TO_STATE } from '@/types/lifecycle';
 import { save as evalSave, list as evalList } from '@/services/evaluationStore';
@@ -36,6 +37,7 @@ import { tokenUsageCollector } from '@/services/tokenUsageCollector';
 import { collectRunData } from '@/services/evaluationData';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
 import { judgeChatEnsemble } from '@/services/judgeEnsemble';
+import { getActiveBossProfile } from '@/stores/bossProfile';
 import type { PassKResult } from '@/engine/evaluation/passK';
 import { linkRunToTask } from '@/services/evaluationRuntime';
 import { speech } from '@/services/speech';
@@ -56,6 +58,8 @@ export interface EvaluationRunInput {
   taskId?: string;
   task?: { title: string; description: string; weight: number };
   persona?: string;
+  /** A · 老板原型（用户个性化）：描述「正在评估/雇佣这位 agent 的人」，区别于 agent.persona */
+  bossProfile?: BossProfile;
 }
 
 const ZERO_RADAR: RadarScore = {
@@ -300,6 +304,8 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         agentId: input.agentId,
         agentName: input.agentName,
         persona: input.persona,
+        // A · 老板原型：把激活的用户个性化画像带给流式裁判（后端识别时注入评估上下文）
+        bossProfile: input.bossProfile,
         task: input.task ?? { title: 'Ad-hoc task', description: '', weight: 1 },
         transcript,
         usage: entries,
@@ -369,6 +375,12 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         subjectiveHistory: prev?.subjectiveHistory,
         craftLatest: prev?.craftLatest,
         interviewBaseline,
+        // C · 基准套件：把本次（在某老板原型下）的六维雷达按原型 id 落入矩阵，
+        // 供维度×原型对比与 personalization delta 计算（中性基线写入 'neutral'）。
+        radarByPersona: {
+          ...(prev?.radarByPersona ?? {}),
+          [input.bossProfile?.id ?? 'neutral']: radarScore,
+        },
       };
       await evalSave(profile);
 
@@ -425,7 +437,11 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
     }
     set({ passKRunning: true, passKResult: null, error: null });
     try {
-      const result = await judgeChatEnsemble(agentId, transcript, { k });
+      const result = await judgeChatEnsemble(agentId, transcript, {
+        k,
+        // A · 人格化裁判：把激活的老板原型透传给 judgeChat（前缀注入「评估上下文」）
+        persona: getActiveBossProfile(),
+      });
       if (!result) {
         // 裁判服务不可用（离线/503）：优雅降级，不阻塞主流程
         set({

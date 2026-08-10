@@ -17,6 +17,7 @@ import { MessagesSquare } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { InterviewCandidatePanel } from '@/components/interview/InterviewCandidatePanel';
+import { BossProfileSelector } from '@/components/persona/BossProfileSelector';
 import { InterviewThread } from '@/components/interview/InterviewThread';
 import { DimScoreboard } from '@/components/interview/DimScoreboard';
 import { CraftTrialPanel } from '@/components/interview/CraftTrialPanel';
@@ -169,6 +170,10 @@ export function Interview() {
         <aside
           className={`${narrowView === 'candidate' ? 'flex' : 'hidden'} w-full min-w-0 shrink-0 flex-col border-r border-white/50 bg-white/35 backdrop-blur-xl xl:flex xl:w-72 dark:bg-white/5`}
         >
+          {/* A · 老板原型选择器：决定面试选题的「与谁协作」视角（顶部常驻） */}
+          <div className="shrink-0 p-3 pb-0">
+            <BossProfileSelector />
+          </div>
           <InterviewCandidatePanel />
         </aside>
 

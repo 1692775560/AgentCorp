@@ -45,6 +45,7 @@ import {
   renderPrompt,
   selectQuestions,
 } from '@/engine/interview/questionBank';
+import { getActiveBossProfile } from '@/stores/bossProfile';
 import {
   buildDimEvidence,
   buildMetrics,
@@ -248,6 +249,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       jobType,
       dimBoost: profile?.dimBoost,
       tags: requirement.tags,
+      // A · 人格化选题：把激活的老板原型喂入，使题序随「与谁协作」而变
+      persona: getActiveBossProfile(),
     }).map((q) => ({
       ...q,
       prompt: renderPrompt(q.prompt, {
