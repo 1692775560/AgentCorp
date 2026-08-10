@@ -16,6 +16,7 @@ import {
   type MarketCandidateSeed,
 } from '@/stores/marketplace';
 import { useScoringStore } from '@/stores/scoringStore';
+import { getActiveBossProfile, useBossProfileStore } from '@/stores/bossProfile';
 import {
   MarketSearchBar,
   type HireTypeFilter,
@@ -97,6 +98,10 @@ export function Marketplace() {
   const hydrateReactions = useMarketplaceStore((s) => s.hydrateReactions);
   // 心智权重（绩效双榜拖拽回灌后变化）→ 市场排序即时刷新（设计 §7.3 通道 A）
   const userWeight = useScoringStore((s) => s.userWeight);
+  // D · 老板原型（用户个性化）：订阅激活原型，切换时重排市场以反映 per-user FIT
+  const activeBossId = useBossProfileStore((s) => s.activeId);
+  const activeBoss = getActiveBossProfile();
+  const personalized = activeBoss.id !== 'neutral';
 
   // Fetch real templates from bundled resources
   useEffect(() => {
@@ -121,6 +126,11 @@ export function Marketplace() {
     }
     void loadTemplates();
   }, []);
+
+  // D · 激活老板原型变化 → 立即按 per-user FIT 重排市场（个性化推荐即时生效）
+  useEffect(() => {
+    rescoreCandidates();
+  }, [activeBossId, rescoreCandidates]);
 
   // 模板 → 候选种子（六维解析与匹配分在 store 内完成）
   useEffect(() => {
@@ -261,6 +271,18 @@ export function Marketplace() {
           teamCount={templates.filter((a) => a.hireType === 'team').length}
           singleCount={templates.filter((a) => a.hireType === 'single').length}
         />
+
+        {/* D · 个性化推荐透明披露：当前老板原型非中性时，明示市场排序已按该原型加权 */}
+        {personalized ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#FF6B4A]/30 bg-[#FF6B4A]/5 px-3 py-2 text-[11px]">
+            <span className="font-bold text-[#1A1C1E] dark:text-white">
+              按「{activeBoss.name ?? activeBoss.id}」个性化
+            </span>
+            <span className="text-gray-400">
+              市场排序已随该老板原型强调的维度加权（同一 Agent 对不同老板匹配分不同）
+            </span>
+          </div>
+        ) : null}
 
         {/* Agent Cards Grid */}
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3 items-stretch">
