@@ -1,0 +1,103 @@
+/**
+ * src/engine/interview/craftAggregate.ts
+ * 多道试做题 → craft 维客观分的聚合（纯函数，可单测）。
+ *
+ * 原则与后端 craft_judge 一致，不在前端做任何补分：
+ * - 只聚合真正被评过的维（judgement 为 null 的轮次整轮跳过）；
+ * - 同一维被多题考到时取均值，并对齐 0.5 步进；
+ * - 未被任何题覆盖的维不出现在结果里，由 unscored 单独列出；
+ * - 注水（padding_detected）不在此处压分（后端 rubric 已压过），
+ *   仅统计条数供 UI 提示，避免二次惩罚。
+ */
+import type { CraftTrialRound } from '@/types/interview';
+
+/** craft 客观分聚合结果 */
+export interface CraftAggregate {
+  /** craft 维 → 0–5 分（0.5 步进），仅含被实际评过的维 */
+  dims: Record<string, number>;
+  /** 被考到但一次都没评上分的维（judge 未覆盖） */
+  unscored: string[];
+  /** 有效评分轮数（judgement 非 null） */
+  judgedCount: number;
+  /** 总轮数 */
+  trialCount: number;
+  /** 被判定注水的轮数 */
+  paddingCount: number;
+  /** 平均置信度（仅计有效轮），无有效轮时 null */
+  avgConfidence: number | null;
+}
+
+/** 对齐 0–5 区间与 0.5 步进（与后端 round(x*2)/2 同口径） */
+export function toHalfStep(value: number): number {
+  const clamped = Math.min(5, Math.max(0, value));
+  return Math.round(clamped * 2) / 2;
+}
+
+/** 聚合多轮试做题的 craft 维分数 */
+export function aggregateCraftDims(trials: CraftTrialRound[]): CraftAggregate {
+  const buckets: Record<string, number[]> = {};
+  const unscoredSet = new Set<string>();
+  const confidences: number[] = [];
+  let judgedCount = 0;
+  let paddingCount = 0;
+
+  for (const trial of trials) {
+    const judgement = trial.judgement;
+    if (!judgement) continue;
+    judgedCount += 1;
+    if (judgement.padding_detected) paddingCount += 1;
+    confidences.push(judgement.confidence);
+
+    for (const [dim, score] of Object.entries(judgement.dims)) {
+      if (typeof score !== 'number' || Number.isNaN(score)) continue;
+      (buckets[dim] ??= []).push(score);
+    }
+    for (const dim of judgement.unscored_dims) unscoredSet.add(dim);
+  }
+
+  const dims: Record<string, number> = {};
+  for (const [dim, scores] of Object.entries(buckets)) {
+    const mean = scores.reduce((sum, v) => sum + v, 0) / scores.length;
+    dims[dim] = toHalfStep(mean);
+    // 某题没覆盖但另一题评上了分 → 不算 unscored
+    unscoredSet.delete(dim);
+  }
+
+  return {
+    dims,
+    unscored: [...unscoredSet].sort(),
+    judgedCount,
+    trialCount: trials.length,
+    paddingCount,
+    avgConfidence:
+      confidences.length > 0
+        ? confidences.reduce((sum, v) => sum + v, 0) / confidences.length
+        : null,
+  };
+}
+
+/**
+ * craft 维分 → 传给 /api/evaluate-stage 的 craftEvidence 文本。
+ *
+ * 只写进真实命中的 checkpoint 引文，不写「未命中」的空条目 ——
+ * 证据栏的语义是「凭什么给这个分」，无引文即无证据。
+ */
+export function buildCraftEvidence(trials: CraftTrialRound[]): Record<string, string> {
+  const perDim: Record<string, string[]> = {};
+  for (const trial of trials) {
+    const judgement = trial.judgement;
+    if (!judgement) continue;
+    const quotes = judgement.checkpoints
+      .filter((cp) => cp.hit && cp.quote.trim().length > 0)
+      .map((cp) => `「${cp.quote.trim()}」`);
+    if (quotes.length === 0) continue;
+    for (const dim of Object.keys(judgement.dims)) {
+      (perDim[dim] ??= []).push(`${trial.title}：${quotes.join('，')}`);
+    }
+  }
+  const evidence: Record<string, string> = {};
+  for (const [dim, list] of Object.entries(perDim)) {
+    evidence[dim] = list.join(' ／ ').slice(0, 500);
+  }
+  return evidence;
+}

@@ -71,6 +71,7 @@ export default defineConfig(({ command }) => {
     },
   },
   server: {
+    allowedHosts: ['.e2b.app'],
     // Bind dev server to IPv4 localhost explicitly. The default "localhost"
     // can resolve to ::1 on Windows, leaving Electron's renderer fetching from
     // 127.0.0.1 unable to reach the server and causing a permanent "loading..."

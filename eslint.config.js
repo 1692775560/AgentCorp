@@ -59,6 +59,10 @@ export default [
       // Kept at warn so style noise never fails the lint run outright.
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': 'warn',
+      // 同理：规则不区分 TS 的值空间与类型空间，会把
+      // `const X = {...} as const` + `type X = ...`（const enum 的惯用替代）误判为重复声明。
+      // TS-aware 变体的 ignoreDeclarationMerge 也不覆盖这种配对；真正的重复声明由 tsc 报错。
+      'no-redeclare': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },

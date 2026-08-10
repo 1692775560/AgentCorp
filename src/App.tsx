@@ -28,9 +28,11 @@ const Kanban = lazy(() => import('./pages/Kanban'));
 const Interview = lazy(() => import('./pages/Interview').then((m) => ({ default: m.Interview })));
 // 模块 Arena：个性化对决（需求 → 同工种候选作答 → 双轨 Elo）
 const ArenaPage = lazy(() => import('./pages/Arena/ArenaPage').then((m) => ({ default: m.ArenaPage })));
+const Office = lazy(() => import('./pages/Office').then((m) => ({ default: m.Office })));
 import { useSettingsStore } from './stores/settings';
 import { useGatewayStore } from './stores/gateway';
 import { isBrowserPreviewMode } from './lib/browser-preview';
+import { seedOfficePreviewData } from './lib/office-preview-seed';
 
 
 /**
@@ -108,6 +110,14 @@ function App() {
   const initGateway = useGatewayStore((state) => state.init);
   const [settingsInitialized, setSettingsInitialized] = useState(false);
   const browserPreviewMode = isBrowserPreviewMode();
+
+  // Web 预览模式：注入种子 agent + 评估档案，让人才市集 / 绩效考核 /
+  // Agent Office 有可展示数据（Electron 桌面端不受影响）。
+  useEffect(() => {
+    if (browserPreviewMode) {
+      seedOfficePreviewData();
+    }
+  }, [browserPreviewMode]);
 
   useEffect(() => {
     let active = true;
@@ -226,6 +236,7 @@ function App() {
             <Route path="interview" element={<Interview />} />
             <Route path="arena" element={<ArenaPage />} />
             <Route path="evaluation" element={<Evaluation />} />
+            <Route path="office" element={<Office />} />
             {/* 任务看板：当前为占位页，全量拖拽看板实现后续接入 */}
             <Route path="kanban" element={<Kanban />} />
             {/* /memory 已迁移至 Settings > 记忆与知识 */}

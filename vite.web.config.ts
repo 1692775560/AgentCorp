@@ -48,7 +48,10 @@ export default defineConfig(() => {
     },
     server: {
       port: 5174,
-      host: '127.0.0.1',
+      host: '0.0.0.0',
+      // 放行 E2B 公开预览域名（Vite 会校验 Host 头，默认拒绝非 localhost）。
+      // 用 .e2b.app 后缀通配，适配沙盒重开后子域变化。
+      allowedHosts: ['.e2b.app', 'localhost', '127.0.0.1'],
     },
     build: {
       outDir: 'dist-web',

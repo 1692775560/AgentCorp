@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   BarChart3,
+  Building2,
   ChevronRight,
   Home,
   LayoutDashboard,
@@ -252,6 +253,11 @@ export function Sidebar() {
       label: tSidebar('evaluation', '评估中心'),
       path: '/evaluation',
       icon: BarChart3,
+    },
+    {
+      label: tSidebar('office', 'Agent Office'),
+      path: '/office',
+      icon: Building2,
     },
     // 模块 Arena：个性化对决（需求 → 同工种候选作答 → 双轨 Elo）
     {

@@ -27,7 +27,7 @@
 |---|---|---|
 | 高置信密钥模式（`ghp_` / `sk-` / `AIza` / `xoxb-` / `AKIA` / JWT） | ripgrep 全仓（排除 node_modules、dist） | **0 命中** |
 | 赋值式密钥（`api_key` / `secret` / `password` / `private_key` = ...） | ripgrep 全仓（排除 node_modules、dist） | 仅 `node_modules` 内第三方库占位常量（`ReactPropTypesSecret` 等），**非真实密钥** |
-| 硬编码用户名绝对路径 | ripgrep `陈思丞\|Users/.../WorkBuddy` | 修复前 **3 处**，修复后 **0 处** |
+| 硬编码用户名绝对路径 | ripgrep 本机用户名与工作区目录名 | 修复前 **3 处**，修复后 **0 处** |
 | `.env` 实际内容 | 人工读取 | `VITE_MOCK=true`；`VITE_API_BASE=http://localhost:8000`（无密钥） |
 | `model-service` 配置 | 读取 `config.py` / `serve.py` / `model_loader.py` / `tts.py` | 全部 env 驱动；默认 `DEVICE=npu`，`MODEL_PATH=/models/MiniCPM-o-4.5`；无硬编码密钥 |
 | `samples/` 候选人档案 | 读取 `profile.json` | 虚构 Mock 数据（琳达等），**无真实 PII** |
@@ -38,7 +38,7 @@
 
 | 文件 | 原内容（泄露） | 修复方式 |
 |---|---|---|
-| `scripts/qa/gen.mjs:2` | `const ROOT = "C:/Users/陈思丞/WorkBuddy/YouAreFired/agentcorp";` | 改为 `const ROOT = process.cwd();`（从运行目录推导，跨机器可移植） |
+| `scripts/qa/gen.mjs:2` | `const ROOT = "<硬编码的本机绝对路径>";` | 改为 `const ROOT = process.cwd();`（从运行目录推导，跨机器可移植） |
 | `scripts/qa/marketplace.qa.test.ts:19` | 注释中硬编码 Node 22 二进制绝对路径 | 改为占位符 `<path-to-node-22-bin>` |
 | `scripts/qa/github-import.qa.test.ts:19` | 同上 | 同上修复 |
 

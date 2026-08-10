@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { InterviewCandidatePanel } from '@/components/interview/InterviewCandidatePanel';
 import { InterviewThread } from '@/components/interview/InterviewThread';
 import { DimScoreboard } from '@/components/interview/DimScoreboard';
+import { CraftTrialPanel } from '@/components/interview/CraftTrialPanel';
 import { SubjectiveScorePanel } from '@/components/evaluation/SubjectiveScorePanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
 import { RadarChartView } from '@/pages/Evaluation/RadarChart';
@@ -84,8 +85,9 @@ export function Interview() {
         {/* 右栏 */}
         <aside className="hidden w-80 shrink-0 border-l border-white/50 bg-white/35 backdrop-blur-xl xl:block dark:bg-white/5">
           <Tabs defaultValue="coverage" className="flex h-full flex-col">
-            <TabsList className="mx-3 mt-3 grid w-auto grid-cols-3">
+            <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
               <TabsTrigger value="coverage">覆盖</TabsTrigger>
+              <TabsTrigger value="craft">试做</TabsTrigger>
               <TabsTrigger value="subjective">主观</TabsTrigger>
               <TabsTrigger value="radar">画像</TabsTrigger>
             </TabsList>
@@ -105,6 +107,10 @@ export function Interview() {
                     height={220}
                   />
                 </div>
+              </TabsContent>
+
+              <TabsContent value="craft" className="mt-0">
+                <CraftTrialPanel />
               </TabsContent>
 
               <TabsContent value="subjective" className="mt-0">

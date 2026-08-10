@@ -5,7 +5,7 @@ import { listTaskSnapshots } from './task-config';
 import { readStoredTeams, writeStoredTeams } from './openclaw-runtime-metadata';
 import type { Team, TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamStatus } from '../../src/types/team';
 import { randomUUID } from 'crypto';
-import { buildTeamTaskRollupMap } from '../../src/lib/task-summary-read-model';
+import { buildAgentTaskSummaryMap, buildTeamTaskRollupMap } from '../../src/lib/task-summary-read-model';
 
 interface TeamsConfig {
   teams?: Team[];
@@ -47,10 +47,22 @@ async function writeTeamsConfig(teams: Team[]): Promise<void> {
  * Calculate team status based on member activity
  * Per D-23: active if any member working, blocked if any blocked, else idle
  */
-function calculateTeamStatus(_memberIds: string[], _leaderId: string): TeamStatus {
-  // TODO: Implement actual status calculation based on agent activity
-  // For now, default to 'idle' - will be enhanced when agent activity tracking is available
-  return 'idle';
+async function calculateTeamStatus(memberIds: string[], leaderId: string): Promise<TeamStatus> {
+  const summaries = buildAgentTaskSummaryMap(await listTaskSnapshots());
+
+  let hasActive = false;
+  for (const agentId of [leaderId, ...memberIds]) {
+    const statusKey = summaries[agentId]?.statusKey;
+    // blocked / waiting_approval 都需要人工介入，团队层面统一呈现为 blocked
+    if (statusKey === 'blocked' || statusKey === 'waiting_approval') {
+      return 'blocked';
+    }
+    if (statusKey === 'working' || statusKey === 'active') {
+      hasActive = true;
+    }
+  }
+
+  return hasActive ? 'active' : 'idle';
 }
 
 /**
@@ -161,7 +173,7 @@ export async function createTeam(request: CreateTeamRequest): Promise<TeamSummar
       leaderId: request.leaderId,
       memberIds: request.memberIds,
       description: request.description || '',
-      status: calculateTeamStatus(request.memberIds, request.leaderId),
+      status: await calculateTeamStatus(request.memberIds, request.leaderId),
       createdAt: now,
       updatedAt: now,
     };
@@ -268,7 +280,7 @@ export async function updateTeam(teamId: string, updates: UpdateTeamRequest): Pr
 
     // Recalculate status if members changed
     if (updates.memberIds !== undefined) {
-      updatedTeam.status = calculateTeamStatus(updatedTeam.memberIds, updatedTeam.leaderId);
+      updatedTeam.status = await calculateTeamStatus(updatedTeam.memberIds, updatedTeam.leaderId);
     }
 
     teams[teamIndex] = updatedTeam;

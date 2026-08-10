@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { invokeIpc } from '@/lib/api-client';
+import { isBrowserPreviewMode } from '@/lib/browser-preview';
+import { getPreviewMarketplaceTemplates } from '@/lib/office-preview-seed';
 // —— 模块 A 增量：智能匹配（六维解析 + matchScore 排序 + S1 初审）——
 import {
   useMarketplaceStore,
@@ -103,11 +105,18 @@ export function Marketplace() {
     async function loadTemplates() {
       try {
         const res = await invokeIpc<TemplateListResponse>('marketplace:listTemplates');
-        if (res.success && res.templates) {
+        if (res.success && res.templates && res.templates.length > 0) {
           setTemplates(res.templates);
+        } else if (isBrowserPreviewMode()) {
+          // Web 预览：IPC 无后端，回退到本地种子模板（与 Office 数据一致）
+          setTemplates(getPreviewMarketplaceTemplates());
         }
       } catch (err) {
         console.error('Failed to load marketplace templates:', err);
+        // 拉取失败且处于 web 预览：同样回退，避免「加载失败 / 空市集」
+        if (isBrowserPreviewMode()) {
+          setTemplates(getPreviewMarketplaceTemplates());
+        }
       } finally {
         setLoadingTemplates(false);
       }

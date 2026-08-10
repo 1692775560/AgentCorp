@@ -26,6 +26,7 @@ import type {
 } from '@/types/evaluation';
 import type { TaskProfile, TaskRequirement } from '@/types/marketplace';
 import type {
+  CraftTrialRound,
   InterviewPhase,
   InterviewQuestion,
   InterviewRecommendation,
@@ -33,6 +34,7 @@ import type {
   InterviewTurn,
   UserQuestionRound,
 } from '@/types/interview';
+import type { CraftTask } from '@/types/craft';
 import type { CandidateEmbedding, TurnState } from '@/types/convergence';
 import type { CandidateRef } from '@/types/arena';
 
@@ -54,7 +56,12 @@ import {
   type DimCoverage,
   type FollowupSuggestion,
 } from '@/engine/interview/dimTracker';
+import {
+  aggregateCraftDims,
+  buildCraftEvidence,
+} from '@/engine/interview/craftAggregate';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
+import { fetchCraftTasks, judgeCraftTask, tasksForJob } from '@/services/craftClient';
 import { askAgent as runnerAskAgent } from '@/services/interviewRunner';
 import { save as saveReport } from '@/services/interviewStore';
 import { useMarketplaceStore } from '@/stores/marketplace';
@@ -117,6 +124,16 @@ interface InterviewState {
   report: InterviewReport | null;
   /** 最近一张 S2 评分卡 */
   stageScore: StageScore | null;
+  /** 本场工种试做题（按 jobType 从后端题库筛出，同题同 rubric） */
+  craftTasks: CraftTask[];
+  /** 已完成的试做题轮次（LLM-as-judge 客观分） */
+  craftTrials: CraftTrialRound[];
+  /** 正在跑试做题（作答 + 评分） */
+  craftRunning: boolean;
+  /** 当前正在跑的题 id（UI 高亮） */
+  craftActiveTaskId: string | null;
+  /** 试做题链路错误（题库拉取 / judge 不可用），不阻断面试主流程 */
+  craftError: string | null;
   /** 用户自定义题（P3 后可选环节，复用 Arena 通道；不进 turns/dimTracker/模型分） */
   userQuestionRound: UserQuestionRound | null;
   userQuestionStatus: 'idle' | 'comparing' | 'ready' | 'picked' | 'error';
@@ -139,6 +156,14 @@ interface InterviewState {
   applyFollowup: (suggestion: FollowupSuggestion) => void;
   /** 跳过当前题，前进到题序下一题 */
   skipQuestion: () => void;
+  /** 拉取本工种试做题库（幂等，已有则不重复请求） */
+  loadCraftTasks: () => Promise<void>;
+  /** 跑一道试做题：候选作答（或用传入答案）→ LLM-as-judge 评分 */
+  runCraftTask: (taskId: string, manualAnswer?: string) => Promise<CraftTrialRound | null>;
+  /** 按题序依次跑完本工种全部未做的试做题 */
+  runAllCraftTasks: () => Promise<void>;
+  /** 清空试做题错误提示 */
+  clearCraftError: () => void;
   /** 发起用户自定义题（复用 Arena compare，context='interview'） */
   startUserQuestion: (question: string, candidates: CandidateRef[]) => Promise<boolean>;
   /** 用户自定义题主观选择（复用 Arena user-pick） */
@@ -202,6 +227,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   lastRunId: null,
   report: null,
   stageScore: null,
+  craftTasks: [],
+  craftTrials: [],
+  craftRunning: false,
+  craftActiveTaskId: null,
+  craftError: null,
   userQuestionRound: null,
   userQuestionStatus: 'idle',
   userQuestionError: null,
@@ -252,6 +282,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       lastRunId: null,
       report: null,
       stageScore: null,
+      craftTasks: [],
+      craftTrials: [],
+      craftRunning: false,
+      craftActiveTaskId: null,
+      craftError: null,
       error: null,
     });
 
@@ -263,6 +298,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       k: plan.length,
       createdBy,
     });
+
+    // 试做题题库：开场即预拉，P2 阶段可直接开跑（失败只置 craftError）
+    void get().loadCraftTasks();
   },
 
   askAgent: async () => {
@@ -362,6 +400,97 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       : [...state.askedQIds, state.currentQuestion.qId];
     set({ askedQIds, currentQuestion: pickNextQuestion(state.plan, askedQIds) });
   },
+
+  loadCraftTasks: async () => {
+    const state = get();
+    if (state.craftTasks.length > 0) return;
+    try {
+      const all = await fetchCraftTasks();
+      const mine = tasksForJob(all, state.jobType);
+      set({ craftTasks: mine, craftError: null });
+    } catch (e) {
+      set({
+        craftTasks: [],
+        craftError:
+          e instanceof Error ? e.message : '试做题题库不可用（model-service 未启动？）',
+      });
+    }
+  },
+
+  runCraftTask: async (taskId, manualAnswer) => {
+    const state = get();
+    const task = state.craftTasks.find((t) => t.id === taskId);
+    if (!task || state.craftRunning) return null;
+
+    set({ craftRunning: true, craftActiveTaskId: taskId, craftError: null });
+
+    // 1) 取答案：优先手动传入，否则真实调度候选作答
+    let answerText = manualAnswer?.trim() ?? '';
+    let mode: 'agent' | 'manual' = 'manual';
+    let answerLatencyMs: number | null = null;
+
+    if (answerText.length === 0) {
+      if (!state.sessionKey) {
+        set({
+          craftRunning: false,
+          craftActiveTaskId: null,
+          craftError: '该候选没有可用会话键，请手动粘贴试做题答案',
+        });
+        return null;
+      }
+      const ask = await runnerAskAgent({ sessionKey: state.sessionKey, question: task.prompt });
+      answerText = ask.replyText.trim();
+      mode = ask.mode;
+      answerLatencyMs = ask.latencyMs;
+      if (answerText.length === 0) {
+        set({
+          craftRunning: false,
+          craftActiveTaskId: null,
+          craftError: ask.error ?? '未取回试做题答案，请手动粘贴',
+        });
+        return null;
+      }
+    }
+
+    // 2) 评分：judge 不可用时保留答案、judgement 置 null，绝不补分
+    const trial: CraftTrialRound = {
+      taskId: task.id,
+      title: task.title,
+      prompt: task.prompt,
+      answerText,
+      mode,
+      answerLatencyMs,
+      judgement: null,
+      ts: new Date().toISOString(),
+    };
+    try {
+      trial.judgement = await judgeCraftTask({ task_id: task.id, answer: answerText });
+    } catch (e) {
+      trial.judgeError =
+        e instanceof Error ? e.message : '评分后端不可用，本题记为未评测';
+    }
+
+    set((s) => ({
+      craftTrials: [...s.craftTrials.filter((t) => t.taskId !== task.id), trial],
+      craftRunning: false,
+      craftActiveTaskId: null,
+      craftError: trial.judgeError ?? null,
+    }));
+    return trial;
+  },
+
+  runAllCraftTasks: async () => {
+    const pending = get().craftTasks.filter(
+      (task) => !get().craftTrials.some((t) => t.taskId === task.id),
+    );
+    for (const task of pending) {
+      const trial = await get().runCraftTask(task.id);
+      // 作答通道断了（无会话键 / 取不回答案）就停，避免连环失败刷屏
+      if (trial === null) break;
+    }
+  },
+
+  clearCraftError: () => set({ craftError: null }),
 
   startUserQuestion: async (question, candidates) => {
     const state = get();
@@ -464,11 +593,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     const finalRadar = aggregateHrRadar(state.turns, state.baselineRadar);
     const dimEvidence = buildDimEvidence(state.turns);
 
-    // 客观项：面试期六维（HR 评分聚合）
+    // 客观项：面试期六维（HR 评分聚合）+ 试做题 craft 维（LLM-as-judge）
     const objective: Record<string, number> = {};
     if (finalRadar) {
       for (const dim of RADAR_DIMS) objective[dim] = finalRadar[dim];
     }
+    const craft = aggregateCraftDims(state.craftTrials);
+    for (const [dim, score] of Object.entries(craft.dims)) objective[dim] = score;
     // 主观项：S2 启用的 sub_* 维（SubjectiveScorePanel 写入）
     const subjectiveMap = useScoringStore.getState().getSubjective(state.agentId, 'interview');
     const subjective: Record<string, number> = {};
@@ -481,6 +612,10 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       if (!Array.isArray(list) || list.length === 0) continue;
       if ((RADAR_DIMS as string[]).includes(dim)) continue;
       craftEvidence[dim] = list.join(' ／ ').slice(0, 500);
+    }
+    // 试做题的 checkpoint 引文是可核验证据，优先于 HR 手写备注
+    for (const [dim, text] of Object.entries(buildCraftEvidence(state.craftTrials))) {
+      craftEvidence[dim] = text;
     }
 
     let stageScore: StageScore | null = null;
@@ -516,6 +651,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       taskRequirement: state.taskRequirement,
       baselineRadar: state.baselineRadar,
       turns: state.turns,
+      craftTrials: state.craftTrials,
       dimEvidence,
       metrics,
       finalRadar,
@@ -589,6 +725,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       lastRunId: null,
       report: null,
       stageScore: null,
+      craftTasks: [],
+      craftTrials: [],
+      craftRunning: false,
+      craftActiveTaskId: null,
+      craftError: null,
       userQuestionRound: null,
       userQuestionStatus: 'idle',
       userQuestionError: null,
