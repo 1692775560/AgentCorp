@@ -112,12 +112,7 @@ export async function judgeChatEnsemble(
   let anyJudge = false;
 
   for (let i = 0; i < k; i += 1) {
-    let res: Awaited<ReturnType<typeof judgeChat>> = null;
-    try {
-      res = await judgeChat(agentId, transcript);
-    } catch {
-      res = null;
-    }
+    const res = await judgeChat(agentId, transcript).catch(() => null);
     if (!res || !res.radar) continue;
     radars.push(res.radar);
     if (res.verdict) verdicts.push(res.verdict);
