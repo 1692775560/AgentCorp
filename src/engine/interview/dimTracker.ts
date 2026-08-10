@@ -208,15 +208,24 @@ export function coverageRatio(coverage: DimCoverage[]): number {
 /**
  * 追问建议：优先覆盖证据最薄弱的维度（默认至少 2 个）。
  * 已经充分覆盖（coverage ≥ 0.8）的维度不再建议。
+ *
+ * 预算控制（opts.budget）：当 `followupBudgetRemaining(turns, budget) <= 0` 时
+ * 直接停发建议（返回空数组）——这是「证据充分度驱动 + 追问封顶」的落地点，
+ * 保证面试不被无限追问拖垮。不传 budget 表示不限。
  */
 export function suggestFollowups(
   turns: InterviewTurn[],
   targetDims: (RadarDim | CraftDim)[],
-  opts: { max?: number; min?: number; threshold?: number } = {},
+  opts: { max?: number; min?: number; threshold?: number; budget?: number } = {},
 ): FollowupSuggestion[] {
   const max = opts.max ?? 3;
   const min = opts.min ?? 2;
   const threshold = opts.threshold ?? 0.8;
+
+  // 追问预算耗尽：不再建议
+  if (typeof opts.budget === 'number' && followupBudgetRemaining(turns, opts.budget) <= 0) {
+    return [];
+  }
 
   const coverage = computeCoverage(turns, targetDims);
   const weakFirst = [...coverage].sort((a, b) => (a.coverage - b.coverage) || (a.asked - b.asked));
@@ -248,6 +257,20 @@ export function countClarifications(turns: InterviewTurn[]): number {
 /** 被追问次数 */
 export function countFollowups(turns: InterviewTurn[]): number {
   return turns.filter(isFollowupTurn).length;
+}
+
+/** 默认追问预算（最多允许追问几次，避免无限追问拖垮面试节奏） */
+export const DEFAULT_FOLLOWUP_BUDGET = 2;
+
+/**
+ * 剩余追问预算：max − 已追问次数。
+ * 预算耗尽（返回 0）时 HR 不应再发起追问，应由建议逻辑自动停发。
+ */
+export function followupBudgetRemaining(
+  turns: InterviewTurn[],
+  max: number = DEFAULT_FOLLOWUP_BUDGET,
+): number {
+  return Math.max(0, max - countFollowups(turns));
 }
 
 /** 平均回答时延（全部手动模式返回 null） */

@@ -42,11 +42,17 @@ export const PHASE_HINTS: Record<InterviewPhase, string> = {
 /** 题干中的任务占位符 */
 export const TASK_PLACEHOLDER = '{{需求}}';
 
-/** 每阶段默认取题数（可由调用方覆盖） */
+/**
+ * 每阶段默认取题数（可由调用方覆盖）。
+ * 注：P2 上调至 4、P3 上调至 4，给「决胜任务 + 区分性题」留出露出的空间
+ * （见下方 DISTINGUISHING_QUESTIONS 与 QUESTION_BANK 顺序），不改变选题逻辑，
+ * 只改变默认池大小。区分性题前置排在 P3 原有题之前，故 P3=4 即默认露出
+ * 全部 4 道区分性题（信息残缺/冲突/越权/成本）。
+ */
 export const DEFAULT_PER_PHASE: Record<InterviewPhase, number> = {
   P1_understanding: 2,
-  P2_craft_probe: 3,
-  P3_pressure: 2,
+  P2_craft_probe: 4,
+  P3_pressure: 4,
 };
 
 /* ===================== 题库正文（确定性数据，顺序即默认优先级） ===================== */
@@ -270,12 +276,79 @@ const P3_QUESTIONS: InterviewQuestion[] = [
   },
 ];
 
-/** 全量题库（只读；按 P1 → P2(image/text/code) → P3 排列） */
+/**
+ * 区分性题（O*NET 任务本体启发 + 4 类：信息残缺 / 冲突约束 / 越权政策 / 成本）。
+ *
+ * 普通题考「会不会」，区分性题考「在真实约束下怎么取舍」——这是把"看起来都行"的
+ * 候选拉开差距的关键。设计参考：
+ * - O*NET 工作样本（Work Sample）思路：不考陈述，考"现在就干一次"；
+ * - 信息残缺（p3_incomplete）：模糊高熵需求下是否先补信息再动手；
+ * - 冲突约束（p3_conflict）：多方互斥目标如何排序与交代；
+ * - 越权政策（p3_overreach）：合规边界上的判断线（拒绝/上报）；
+ * - 成本硬约束（p3_cost_bound）：预算封顶下的工程取舍。
+ * 全部 jobType='any'，进入 P2/P3 通用池，由 selectQuestions 按 dimBoost 择重。
+ */
+const DISTINGUISHING_QUESTIONS: InterviewQuestion[] = [
+  {
+    qId: 'p2_decisive_task',
+    phase: 'P2_craft_probe',
+    jobType: 'any',
+    prompt: `现在请你真正干一次：针对「${TASK_PLACEHOLDER}」，给出你开工后的前 5 个具体动作（含要产出的中间物），并标出哪一个如果做错就全盘返工。`,
+    targetDims: ['task', 'quality', 'reliability'],
+    followups: ['如果第 3 步卡住，你的备选路径是什么？'],
+  },
+  {
+    qId: 'p3_incomplete',
+    phase: 'P3_pressure',
+    jobType: 'any',
+    prompt:
+      '我把关键约束故意删掉了：没有工期、没有预算、没有验收人。在信息残缺下，你会先补哪条信息、敢直接动手吗？',
+    targetDims: ['task', 'reliability', 'comm'],
+    followups: ['如果你硬着头皮做了，最可能在哪翻车？'],
+  },
+  {
+    qId: 'p3_conflict',
+    phase: 'P3_pressure',
+    jobType: 'any',
+    prompt:
+      '需求方 A 要快、B 要稳、C 要便宜，三者互相冲突且都拍了板。你如何排序这三个目标，并向谁说明你的取舍？',
+    targetDims: ['reliability', 'comm', 'cost'],
+    followups: ['如果三方都不接受你的排序呢？'],
+  },
+  {
+    qId: 'p3_overreach',
+    phase: 'P3_pressure',
+    jobType: 'any',
+    prompt:
+      '我让你"顺便把竞品的用户数据也抓回来"。这越过了合规边界，你会怎么处理：执行、拒绝、还是上报？请说清你的判断线。',
+    targetDims: ['reliability', 'comm'],
+    followups: ['如果老板说"就这一次，别声张"呢？'],
+  },
+  {
+    qId: 'p3_cost_bound',
+    phase: 'P3_pressure',
+    jobType: 'any',
+    prompt:
+      '给你一个硬预算上限：这次交付总成本不得超过 ¥X。你如何在质量不崩的前提下把方案压进预算？请给两条可执行手段。',
+    targetDims: ['cost', 'quality'],
+    followups: ['如果压预算导致质量掉到及格线以下，你怎么办？'],
+  },
+];
+
+/**
+ * 全量题库（只读）。
+ * 顺序即各阶段默认取题优先级：
+ *   P1 → P2(image/text/code) → 区分性题（P3 区分性题前置）→ P3 原有题。
+ * 把区分性题（信息残缺/冲突/越权/成本）排在 P3 原有题之前，
+ * 保证默认取题数下区分性题优先露出（它们是"拉开差距"的关键）。
+ * selectQuestions 按 phase + jobType 过滤，故位置仅影响同 phase 内的默认优先级。
+ */
 export const QUESTION_BANK: InterviewQuestion[] = [
   ...P1_QUESTIONS,
   ...P2_IMAGE_QUESTIONS,
   ...P2_TEXT_QUESTIONS,
   ...P2_CODE_QUESTIONS,
+  ...DISTINGUISHING_QUESTIONS,
   ...P3_QUESTIONS,
 ];
 
@@ -406,6 +479,8 @@ const GENERIC_PROMPTS: Record<string, string> = {
     '你交付一段代码前会跑哪些验证，才敢说「这段代码能跑」？请按你实际的检查顺序说。',
   p2_txt_coherence:
     '给你 3000 字素材要压成 800 字，你如何组织结构才能保证逻辑不断裂？',
+  p2_decisive_task:
+    '现在请你真正干一次：挑你最擅长的一类交付物，给出开工后的前 5 个具体动作（含要产出的中间物），并标出哪一个如果做错就全盘返工。',
 };
 
 /**

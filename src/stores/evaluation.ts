@@ -35,6 +35,8 @@ import { zscore } from '@/engine/roiEngine';
 import { tokenUsageCollector } from '@/services/tokenUsageCollector';
 import { collectRunData } from '@/services/evaluationData';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
+import { judgeChatEnsemble } from '@/services/judgeEnsemble';
+import type { PassKResult } from '@/engine/evaluation/passK';
 import { linkRunToTask } from '@/services/evaluationRuntime';
 import { speech } from '@/services/speech';
 // 模块 B 增量（仅加法）：
@@ -91,6 +93,16 @@ interface EvaluationState {
   /** 语音播报开关（默认开） */
   voiceEnabled: boolean;
 
+  /**
+   * 最近一次评估 transcript（runEvaluation 采集后写入，供 pass^k 可靠性复判复用，
+   * 避免重复采集）。无 transcript 时 pass^k 不可用。
+   */
+  lastTranscript: string | null;
+  /** pass^k 可靠性结论（runPassK 计算后写入；null = 尚未测算） */
+  passKResult: PassKResult | null;
+  /** pass^k 测算中标记 */
+  passKRunning: boolean;
+
   /** 从 electron-store 载入全部评估档案 */
   loadAll: () => Promise<void>;
   /** 保存（覆盖写）某个 agent 的评估档案 */
@@ -106,6 +118,8 @@ interface EvaluationState {
   selectAgent: (agentId: string | null) => void;
   clearError: () => void;
   toggleVoice: () => void;
+  /** 可靠性 pass^k 测算：复用 lastTranscript 重复裁判 k 次并聚合（默认流程不变，纯增量） */
+  runPassK: (agentId: string, k?: number) => Promise<void>;
 }
 
 /**
@@ -169,6 +183,9 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   error: null,
   narrationText: '',
   voiceEnabled: true,
+  lastTranscript: null,
+  passKResult: null,
+  passKRunning: false,
 
   loadAll: async () => {
     try {
@@ -256,6 +273,8 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
     try {
       // 1+2) 一次采集：token 用量 + 遥测事件 + 转录（主进程完成，sessionId 为空时仅按 agent 兜底）
       const { events, transcript, entries } = await collectRunData(input.agentId, input.sessionId);
+      // 缓存 transcript 供 pass^k 复判复用（纯增量，不改变既有评估流）
+      set({ lastTranscript: transcript });
 
       // 3) 客观 KPI（来自真实遥测）
       const window = currentWindow();
@@ -396,6 +415,29 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
     const next = !get().voiceEnabled;
     speech.setEnabled(next);
     set({ voiceEnabled: next });
+  },
+
+  runPassK: async (agentId, k = 3) => {
+    const transcript = get().lastTranscript;
+    if (!transcript) {
+      set({ error: '尚无转录文本，请先运行一次评估以采集对话。' });
+      return;
+    }
+    set({ passKRunning: true, passKResult: null, error: null });
+    try {
+      const result = await judgeChatEnsemble(agentId, transcript, { k });
+      if (!result) {
+        // 裁判服务不可用（离线/503）：优雅降级，不阻塞主流程
+        set({
+          passKRunning: false,
+          error: '裁判服务不可用，无法计算 pass^k（需联网的 MiniCPM-o 裁判）。',
+        });
+        return;
+      }
+      set({ passKResult: result.passK, passKRunning: false });
+    } catch (e) {
+      set({ passKRunning: false, error: e instanceof Error ? e.message : String(e) });
+    }
   },
 }));
 

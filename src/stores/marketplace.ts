@@ -32,13 +32,14 @@ import {
 } from '@/engine/marketplace/radarSource';
 import { extractTaskProfile, inferJobType, EMPTY_TASK_PROFILE } from '@/engine/marketplace/taskMatch';
 import { budgetRefOf, matchScore, sortByMatch } from '@/engine/marketplace/matchScore';
+import { paretoRankCandidates } from '@/engine/marketplace/paretoRank';
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useScoringStore } from '@/stores/scoringStore';
 import { getFavorites, getLike } from '@/services/reactionStore';
 import { resolveLikeKey } from '@/stores/likesStore';
 
-/** 排序方式：智能匹配 / 初审分 / 报价 / 性价比 */
-export type MarketSortKey = 'match' | 'review' | 'budget' | 'costperf';
+/** 排序方式：智能匹配 / 初审分 / 报价 / 性价比 / Pareto 前沿 */
+export type MarketSortKey = 'match' | 'review' | 'budget' | 'costperf' | 'pareto';
 
 /** 排序方式中文标签（UI 与文案单一真相） */
 export const SORT_KEY_LABELS: Record<MarketSortKey, string> = {
@@ -46,6 +47,7 @@ export const SORT_KEY_LABELS: Record<MarketSortKey, string> = {
   review: '初审分',
   budget: '报价（低→高）',
   costperf: '性价比',
+  pareto: '质量×成本前沿',
 };
 
 /** 六维阈值筛选的循环档位（点击一次进一档） */
@@ -208,6 +210,20 @@ export function sortCandidates(
   sortKey: MarketSortKey,
 ): MarketCandidateView[] {
   if (sortKey === 'match') return sortByMatch(candidates);
+
+  if (sortKey === 'pareto') {
+    const ranked = paretoRankCandidates(candidates);
+    const frontById = new Map(ranked.map((r) => [r.id, r.front]));
+    // 先按前沿升序（0 = 最优），同前沿按质量均值降序
+    return [...candidates]
+      .map((c) => ({ c, front: frontById.get(c.id) ?? Number.MAX_SAFE_INTEGER }))
+      .sort(
+        (a, b) =>
+          a.front - b.front ||
+          radarMean(b.c.radarResolution.radar) - radarMean(a.c.radarResolution.radar),
+      )
+      .map((item) => item.c);
+  }
 
   const arr = [...candidates];
   if (sortKey === 'budget') {

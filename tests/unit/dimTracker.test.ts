@@ -23,7 +23,9 @@ import {
   computeCoverage,
   countClarifications,
   countFollowups,
+  DEFAULT_FOLLOWUP_BUDGET,
   coverageRatio,
+  followupBudgetRemaining,
   dimLabel,
   evidenceStrength,
   isClarification,
@@ -568,5 +570,56 @@ describe('dimTracker · recommendationOf（HR 结论建议）', () => {
 
   it('无任何数据 → hold（保守）', () => {
     expect(recommendationOf(null, null, 0)).toBe('hold');
+  });
+});
+
+describe('dimTracker · 追问预算封顶（#137）', () => {
+  const targetDims: (RadarDim | CraftDim)[] = [
+    'task', 'quality', 'comm', 'reliability', 'creativity', 'cost',
+  ];
+
+  it('followupBudgetRemaining：初始预算为默认值', () => {
+    expect(followupBudgetRemaining([])).toBe(DEFAULT_FOLLOWUP_BUDGET);
+  });
+
+  it('followupBudgetRemaining：每追问一次预算减一', () => {
+    const turns = [
+      turnOf({ turn: 1, qId: 'a:fu1', targetDims: ['task'], replyText: 'x' }),
+      turnOf({ turn: 2, qId: 'b:fu2', targetDims: ['quality'], replyText: 'y' }),
+    ];
+    expect(countFollowups(turns)).toBe(2);
+    expect(followupBudgetRemaining(turns)).toBe(0);
+  });
+
+  it('followupBudgetRemaining：预算不会变负', () => {
+    const turns = [
+      turnOf({ turn: 1, qId: 'a:fu1', targetDims: ['task'], replyText: 'x' }),
+      turnOf({ turn: 2, qId: 'b:fu2', targetDims: ['quality'], replyText: 'y' }),
+      turnOf({ turn: 3, qId: 'c:fu3', targetDims: ['comm'], replyText: 'z' }),
+    ];
+    expect(followupBudgetRemaining(turns)).toBe(0);
+  });
+
+  it('suggestFollowups：预算耗尽时停发建议（返回空）', () => {
+    const turns = [
+      turnOf({ turn: 1, qId: 'a:fu1', targetDims: ['task'], replyText: 'x' }),
+      turnOf({ turn: 2, qId: 'b:fu2', targetDims: ['quality'], replyText: 'y' }),
+    ];
+    expect(suggestFollowups(turns, targetDims, { budget: 2 })).toEqual([]);
+  });
+
+  it('suggestFollowups：预算未耗尽仍给出建议', () => {
+    const turns = [turnOf({ turn: 1, qId: 'a:fu1', targetDims: ['task'], replyText: 'x' })];
+    const suggestions = suggestFollowups(turns, targetDims, { budget: 2 });
+    expect(suggestions.length).toBeGreaterThan(0);
+  });
+
+  it('suggestFollowups：不传 budget 不受限（默认行为）', () => {
+    const turns = [
+      turnOf({ turn: 1, qId: 'a:fu1', targetDims: ['task'], replyText: 'x' }),
+      turnOf({ turn: 2, qId: 'b:fu2', targetDims: ['quality'], replyText: 'y' }),
+    ];
+    const suggestions = suggestFollowups(turns, targetDims);
+    expect(suggestions.length).toBeGreaterThan(0);
   });
 });

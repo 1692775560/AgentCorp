@@ -32,6 +32,8 @@ import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
 import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
 import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
+import { RADAR_DIMS } from '@/engine/scoring/registry';
+import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
 
 /**
  * 页签从 9 个收拢成 4 组：原先「雷达/讲解/ROI/生命周期/擂台/双轨评分/双榜/收敛/心智模型」
@@ -77,6 +79,9 @@ export function Evaluation() {
     error,
     narrationText,
     voiceEnabled,
+    passKResult,
+    passKRunning,
+    runPassK,
     loadAll,
     runEvaluation,
     setLifecycle,
@@ -361,6 +366,67 @@ export function Evaluation() {
 
                 {/* 双轨评分卡（客观遥测 + 主观打分 + 0.7/0.3 加权 total） */}
                 <DualTrackScoreCard agentId={selectedAgentId} />
+
+                {/* 可靠性 pass^k（跨家族 ensemble + 重复采样；核心差异化指标） */}
+                <div className="space-y-3 rounded-2xl bg-white/70 p-4 dark:bg-white/5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[12px] font-bold text-[#1A1C1E] dark:text-white">
+                      可靠性 pass^k
+                    </p>
+                    <button
+                      type="button"
+                      disabled={passKRunning || !selectedAgentId}
+                      onClick={() => selectedAgentId && void runPassK(selectedAgentId, 3)}
+                      className="rounded-full bg-[#1A1C1E] px-3 py-1.5 text-[11px] font-bold text-white transition-all hover:bg-[#FF6B4A] disabled:opacity-50 dark:bg-white dark:text-[#1A1C1E]"
+                    >
+                      {passKRunning ? '测算中…' : '测可靠性 (pass^k)'}
+                    </button>
+                  </div>
+                  {passKResult ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                            passKResult.allPass
+                              ? 'bg-emerald-100 text-emerald-600'
+                              : 'bg-amber-100 text-amber-600'
+                          }`}
+                        >
+                          {passKResult.allPass ? '可靠（k 次全过）' : '不稳定（未全过）'}
+                        </span>
+                        <span className="text-[11px] text-gray-400">
+                          单轮全维通过率 {Math.round(passKResult.passRate * 100)}% · k=
+                          {passKResult.k}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {RADAR_DIMS.map((dim) => {
+                          const rate = passKResult.dimPassRate[dim] ?? 0;
+                          return (
+                            <div key={dim} className="flex items-center gap-2">
+                              <span className="w-10 text-[10px] text-gray-400">
+                                {RADAR_DIM_LABELS[dim]}
+                              </span>
+                              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-white/10">
+                                <div
+                                  className="h-full rounded-full bg-[#FFD233]"
+                                  style={{ width: `${Math.round(rate * 100)}%` }}
+                                />
+                              </div>
+                              <span className="w-9 text-right text-[10px] text-gray-400">
+                                {Math.round(rate * 100)}%
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-gray-400">
+                      对同一条对话重复裁判 k=3 次，仅当每次都全维达标才算「可靠」。需先运行一次评估，再点此测算（依赖联网裁判服务）。
+                    </p>
+                  )}
+                </div>
 
                 {/* 投入产出 */}
                 <RoiPanel roi={roiLatest} />

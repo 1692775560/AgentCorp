@@ -89,7 +89,7 @@ describe('questionBank · questionsOf（题池筛选）', () => {
       const pool = questionsOf('P2_craft_probe', jobType);
       expect(pool.length).toBeGreaterThan(0);
       for (const q of pool) {
-        expect(q.jobType).toBe(jobType);
+        expect(['any', jobType]).toContain(q.jobType);
       }
     }
   });
@@ -98,6 +98,7 @@ describe('questionBank · questionsOf（题池筛选）', () => {
     for (const jobType of ALL_JOB_TYPES) {
       const prefix = CRAFT_PREFIX[jobType];
       for (const q of questionsOf('P2_craft_probe', jobType)) {
+        if (q.jobType === 'any') continue; // 通用决胜题（p2_decisive_task）不要求 craft 维
         const craftDims = q.targetDims.filter((d) => String(d).includes('_'));
         expect(craftDims.length).toBeGreaterThan(0);
         for (const dim of craftDims) {
@@ -160,10 +161,11 @@ describe('questionBank · selectQuestions（★ 三阶段递进题序）', () =>
     }
   });
 
-  it('默认取题数 = DEFAULT_PER_PHASE（2 + 3 + 2 = 7）', () => {
+  it('默认取题数 = DEFAULT_PER_PHASE（2 + 4 + 4 = 10）', () => {
+    const total = Object.values(DEFAULT_PER_PHASE).reduce((a, b) => a + b, 0);
     for (const jobType of ALL_JOB_TYPES) {
       const plan = selectQuestions({ jobType });
-      expect(plan).toHaveLength(7);
+      expect(plan).toHaveLength(total);
       expect(plan.filter((q) => q.phase === 'P1_understanding')).toHaveLength(
         DEFAULT_PER_PHASE.P1_understanding,
       );
@@ -265,7 +267,8 @@ describe('questionBank · selectQuestions（★ 三阶段递进题序）', () =>
 
   it("工种为 null → 退化为 'code' 题序，仍覆盖三阶段", () => {
     const plan = selectQuestions({ jobType: null });
-    expect(plan).toHaveLength(7);
+    const total = Object.values(DEFAULT_PER_PHASE).reduce((a, b) => a + b, 0);
+    expect(plan).toHaveLength(total);
     expect(plan).toEqual(selectQuestions({ jobType: 'code' }));
   });
 });
@@ -345,5 +348,44 @@ describe('questionBank · 题序辅助函数', () => {
     const followup = makeFollowupQuestion(base, '追问');
     expect(followup.qId).toBe(`${base.qId}:fu1`);
     expect(followup.targetDims).not.toBe(base.targetDims);
+  });
+});
+
+describe('questionBank · 区分性题（#132）', () => {
+  it('题库包含区分性题（决胜任务 + 4 类压力题）', () => {
+    const ids = QUESTION_BANK.map((q) => q.qId);
+    for (const id of [
+      'p2_decisive_task',
+      'p3_incomplete',
+      'p3_conflict',
+      'p3_overreach',
+      'p3_cost_bound',
+    ]) {
+      expect(ids, `题库应含 ${id}`).toContain(id);
+    }
+  });
+
+  it('P3 默认取题露出全部 4 道区分性题（信息残缺/冲突/越权/成本）', () => {
+    const plan = selectQuestions({ jobType: 'code' });
+    const p3 = plan.filter((q) => q.phase === 'P3_pressure').map((q) => q.qId);
+    expect(p3).toEqual(['p3_incomplete', 'p3_conflict', 'p3_overreach', 'p3_cost_bound']);
+    expect(p3.length).toBe(DEFAULT_PER_PHASE.P3_pressure);
+  });
+
+  it('每阶段取题数不超过默认上限', () => {
+    const plan = selectQuestions({ jobType: 'text' });
+    const counts: Record<string, number> = {};
+    for (const q of plan) counts[q.phase] = (counts[q.phase] ?? 0) + 1;
+    for (const phase of Object.keys(DEFAULT_PER_PHASE)) {
+      expect(counts[phase] ?? 0).toBeLessThanOrEqual(
+        DEFAULT_PER_PHASE[phase as keyof typeof DEFAULT_PER_PHASE],
+      );
+    }
+  });
+
+  it('含任务占位符的区分性题可被通用问法替换（无需求时）', () => {
+    const prompt = renderPrompt('{{需求}}', { qId: 'p2_decisive_task' });
+    expect(prompt).not.toContain('{{需求}}');
+    expect(prompt).toContain('开工后的前 5 个具体动作');
   });
 });
