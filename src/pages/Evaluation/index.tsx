@@ -393,9 +393,11 @@ export function Evaluation() {
                     const judgeLabel =
                       selectedProfile?.judgeSource === 'degraded'
                         ? '离线启发式回退'
-                        : selectedProfile?.judgeSource === 'judge'
-                          ? 'MiniCPM-o 外部裁判'
-                          : '未知';
+                        : selectedProfile?.judgeSource === 'mixed'
+                          ? 'MiniCPM-o 裁判（部分维度回退）'
+                          : selectedProfile?.judgeSource === 'judge'
+                            ? 'MiniCPM-o 外部裁判'
+                            : '未知';
                     return (
                       <div className="space-y-2 rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] dark:bg-white/5">
                         <p className="font-bold text-[#1A1C1E] dark:text-white">

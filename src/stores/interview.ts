@@ -64,6 +64,7 @@ import {
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { fetchCraftTasks, judgeCraftTask, tasksForJob } from '@/services/craftClient';
 import { askAgent as runnerAskAgent } from '@/services/interviewRunner';
+import { judgeChatEnsemble } from '@/services/judgeEnsemble';
 import { save as saveReport } from '@/services/interviewStore';
 import { useMarketplaceStore } from '@/stores/marketplace';
 import { useEvaluationStore } from '@/stores/evaluation';
@@ -135,6 +136,21 @@ interface InterviewState {
   craftActiveTaskId: string | null;
   /** 试做题链路错误（题库拉取 / judge 不可用），不阻断面试主流程 */
   craftError: string | null;
+  /**
+   * 模型裁判对本场对话的六维评审（judgeChatEnsemble 聚合）。
+   * 这是 HR 面试的客观分主线：HR 手动打分只作为补充，不再是唯一来源。
+   */
+  judgeRadar: RadarScore | null;
+  /** 模型评审来源：judge = k 次全为真裁判，mixed = 部分降级，degraded = 全降级 */
+  judgeSource: 'judge' | 'mixed' | 'degraded' | null;
+  /** 模型评审引用的证据（checkpoint 引文 / 判据） */
+  judgeEvidence: string[];
+  /** 模型评审置信度（0–1） */
+  judgeConfidence: number | null;
+  /** 正在跑模型评审 */
+  judging: boolean;
+  /** 模型评审错误（后端不可用等），不阻断面试；有值时不造分 */
+  judgeError: string | null;
   /** 用户自定义题（P3 后可选环节，复用 Arena 通道；不进 turns/dimTracker/模型分） */
   userQuestionRound: UserQuestionRound | null;
   userQuestionStatus: 'idle' | 'comparing' | 'ready' | 'picked' | 'error';
@@ -149,7 +165,12 @@ interface InterviewState {
     replyText: string,
     meta?: { latencyMs?: number | null; tokensUsed?: number | null; runId?: string | null },
   ) => void;
-  /** HR 逐轮六维打分 */
+  /**
+   * 让模型裁判评审当前已有对话（LLM-as-judge 主线）。
+   * 幂等可重跑；失败只置 judgeError，绝不补分。
+   */
+  runJudge: () => Promise<void>;
+  /** HR 逐轮六维打分（对模型分的人工修正，非唯一来源） */
   rateTurn: (turn: number, dim: RadarDim, value: number) => void;
   /** HR 逐轮证据备注 */
   noteTurn: (turn: number, note: string) => void;
@@ -200,6 +221,28 @@ function beliefVector(coverage: DimCoverage[]): number[] {
   });
 }
 
+/**
+ * 问答轮次 → 供 chat-judge 评审的 transcript。
+ *
+ * 与 evaluationStore 的 transcript 同口径（角色前缀 + 空行分隔），
+ * 使同一套 rubric 在 S2 面试与 S3 评估间可比。
+ */
+export function buildTranscript(turns: InterviewTurn[]): string {
+  return turns
+    .map((t) => `面试官：${t.question}\n候选：${t.replyText}`)
+    .join('\n\n');
+}
+
+/**
+ * 纯 HR 打分聚合（不回落任何基线）。
+ *
+ * 模型分不可用时，评分卡只能拿 HR 真实打过的分；缺维即缺证据，
+ * 宁可让评分卡看到「维度不全」，也不用 S1 印象分冒充面试结论。
+ */
+function hrRadarOnly(turns: InterviewTurn[]): RadarScore | null {
+  return aggregateHrRadar(turns, null);
+}
+
 /** 当前题所处阶段（无当前题时取题序最后一题的阶段） */
 export function phaseOf(question: InterviewQuestion | null, plan: InterviewQuestion[]): InterviewPhase {
   if (question) return question.phase;
@@ -233,6 +276,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   craftRunning: false,
   craftActiveTaskId: null,
   craftError: null,
+  judgeRadar: null,
+  judgeSource: null,
+  judgeEvidence: [],
+  judgeConfidence: null,
+  judging: false,
+  judgeError: null,
   userQuestionRound: null,
   userQuestionStatus: 'idle',
   userQuestionError: null,
@@ -294,6 +343,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       craftRunning: false,
       craftActiveTaskId: null,
       craftError: null,
+      judgeRadar: null,
+      judgeSource: null,
+      judgeEvidence: [],
+      judgeConfidence: null,
+      judging: false,
+      judgeError: null,
       error: null,
     });
 
@@ -368,6 +423,47 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     });
 
     recordConvergenceTurn(state.agentId, state.jobType, turn, coverage);
+
+    // 每答完一轮就让模型裁判重评全场：HR 无需手动打分即可看到六维。
+    // fire-and-forget，失败只落 judgeError，不阻断问答节奏。
+    void get().runJudge();
+  },
+
+  runJudge: async () => {
+    const state = get();
+    if (!state.agentId || state.judging) return;
+    const transcript = buildTranscript(state.turns);
+    if (transcript.trim().length === 0) return;
+
+    set({ judging: true, judgeError: null });
+    const result = await judgeChatEnsemble(state.agentId, transcript, {
+      persona: getActiveBossProfile(),
+    }).catch(() => null);
+
+    // 期间可能已 reset 或换人，丢弃过期结果
+    if (get().agentId !== state.agentId) {
+      set({ judging: false });
+      return;
+    }
+
+    if (!result) {
+      set({
+        judging: false,
+        judgeError: '模型裁判暂不可用，本场六维暂无模型分（不会用估算值代替）',
+      });
+      return;
+    }
+
+    const targetDims = planTargetDims(get().plan);
+    set({
+      judging: false,
+      judgeRadar: result.meanRadar,
+      judgeSource: result.source,
+      judgeEvidence: result.evidence_trace,
+      judgeConfidence: result.confidence,
+      // 模型分接入覆盖度：通用六维不再由正则强度估算
+      coverage: computeCoverage(get().turns, targetDims, result.meanRadar),
+    });
   },
 
   rateTurn: (turn, dim, value) => {
@@ -597,13 +693,27 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
 
     const targetDims: (RadarDim | CraftDim)[] = planTargetDims(state.plan);
     const metrics = buildMetrics(state.turns, targetDims);
-    const finalRadar = aggregateHrRadar(state.turns, state.baselineRadar);
+
+    // 收尾前补跑一次模型评审：最后几轮回答也要进模型分
+    if (state.turns.length > 0 && !state.judgeRadar) {
+      await get().runJudge();
+    }
+    const judgeRadar = get().judgeRadar;
+
+    // 面试后六维 = 模型分为底，HR 手动打过的维覆盖之（人工修正优先）
+    const hrRadar = aggregateHrRadar(state.turns, judgeRadar);
+    const finalRadar = hrRadar ?? judgeRadar;
     const dimEvidence = buildDimEvidence(state.turns);
 
-    // 客观项：面试期六维（HR 评分聚合）+ 试做题 craft 维（LLM-as-judge）
+    // 客观项：面试期六维（模型分 + HR 修正）+ 试做题 craft 维（LLM-as-judge）
+    //
+    // 只有真实评过的分能进评分卡。此前无人打分时 aggregateHrRadar 会回落
+    // baselineRadar（来源含 S1 star 印象分），等于把印象分当面试客观证据，
+    // 与「同题同 rubric、不受 star 影响」的立意冲突 —— 故这里显式排除。
     const objective: Record<string, number> = {};
-    if (finalRadar) {
-      for (const dim of RADAR_DIMS) objective[dim] = finalRadar[dim];
+    const radarForScore = judgeRadar ? finalRadar : hrRadarOnly(state.turns);
+    if (radarForScore) {
+      for (const dim of RADAR_DIMS) objective[dim] = radarForScore[dim];
     }
     const craft = aggregateCraftDims(state.craftTrials);
     for (const [dim, score] of Object.entries(craft.dims)) objective[dim] = score;
@@ -737,6 +847,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       craftRunning: false,
       craftActiveTaskId: null,
       craftError: null,
+      judgeRadar: null,
+      judgeSource: null,
+      judgeEvidence: [],
+      judgeConfidence: null,
+      judging: false,
+      judgeError: null,
+      createdBy: 'default',
       userQuestionRound: null,
       userQuestionStatus: 'idle',
       userQuestionError: null,

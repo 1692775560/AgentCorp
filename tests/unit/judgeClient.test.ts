@@ -110,7 +110,17 @@ describe('judgeClient.fallbackMock', () => {
     }
 
     const v = events.find((e: any) => e.type === 'verdict') as any;
-    expect(Object.keys(v).sort()).toEqual(['confidence', 'evidence_trace', 'type', 'user_fit', 'verdict']);
+    expect(Object.keys(v).sort()).toEqual([
+      'confidence',
+      'evidence_trace',
+      'source',
+      'type',
+      'user_fit',
+      'verdict',
+    ]);
+    // E · 透明披露：verdict 与 radar_update 同样携带来源，
+    // 否则 radar 全被跳过时调用方无从判断这一票是真裁判还是回退
+    expect(v.source).toBe('degraded');
     expect(['MVP', 'OBSERVE', 'FIRED']).toContain(v.verdict);
     expect(v.user_fit).toBeGreaterThanOrEqual(0);
     expect(v.user_fit).toBeLessThanOrEqual(100);

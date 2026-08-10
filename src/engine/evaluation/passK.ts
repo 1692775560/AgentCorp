@@ -33,8 +33,21 @@ export interface PassKOptions {
   dims?: RadarDim[];
 }
 
+/**
+ * 判定语义模式。同名字段在两种模式下含义不同，UI 必须读本字段决定怎么解释，
+ * 不许靠字段名猜：
+ * - 'repeat'（默认）：同一条 transcript 重复 k 次。allPass = k 次都全维达标；
+ *   passRate = 全维达标的次数占比；dimPassRate = 该维在 k 次里达标的比例。
+ * - 'sessions'：同一原型下 k 段独立会话各评一次。allPass = 每段都全维达标；
+ *   passRate = 全过会话的占比；meanRadar/dimPassRate 基于「各段均值雷达」，
+ *   已抹平单段内抖动，会系统性偏高，只可作定位参考，不可当稳定性结论。
+ */
+export type PassKMode = 'repeat' | 'sessions';
+
 /** pass^k 结果 */
 export interface PassKResult {
+  /** 判定语义模式（决定下列字段如何解释） */
+  mode: PassKMode;
   /** 重复运行次数（= 有效样本数） */
   k: number;
   /**
@@ -93,6 +106,7 @@ export function passK(radars: RadarScore[], opts?: PassKOptions): PassKResult {
       return acc;
     }, {} as Record<RadarDim, number>);
     return {
+      mode: 'repeat',
       k: declaredK || 0,
       allPass: false,
       passRate: 0,
@@ -121,6 +135,7 @@ export function passK(radars: RadarScore[], opts?: PassKOptions): PassKResult {
   const passRate = Math.round((roundPasses / runs.length) * 100) / 100;
 
   return {
+    mode: 'repeat',
     k: runs.length,
     allPass: roundPasses === runs.length,
     passRate,

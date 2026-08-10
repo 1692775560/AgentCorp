@@ -458,6 +458,7 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
     user_fit: userFit,
     evidence_trace: evidenceTrace,
     confidence: 0.8,
+    source: 'degraded',
   };
 
   await sleep(100);

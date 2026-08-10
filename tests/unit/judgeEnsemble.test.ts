@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { aggregateRadars, majorityVerdict } from '@/services/judgeEnsemble';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { aggregateRadars, majorityVerdict, judgeChatEnsemble } from '@/services/judgeEnsemble';
+import { judgeChat } from '@/services/judgeClient';
 import type { RadarScore, Verdict } from '@/types/evaluation';
+
+vi.mock('@/services/judgeClient', () => ({
+  judgeChat: vi.fn(),
+}));
 
 describe('aggregateRadars', () => {
   it('逐维平均', () => {
@@ -58,5 +63,62 @@ describe('majorityVerdict', () => {
 
   it('单样本直接返回', () => {
     expect(majorityVerdict(['OBSERVE'] as Verdict[])).toBe('OBSERVE');
+  });
+});
+
+describe('judgeChatEnsemble 的 source 三态', () => {
+  const flat: RadarScore = {
+    task: 4,
+    quality: 4,
+    comm: 4,
+    creativity: 4,
+    reliability: 4,
+    cost: 4,
+  };
+  const mocked = vi.mocked(judgeChat);
+
+  /** 按给定来源序列依次应答 */
+  const respondWith = (sources: Array<'judge' | 'degraded'>): void => {
+    mocked.mockReset();
+    for (const source of sources) {
+      mocked.mockResolvedValueOnce({
+        radar: flat,
+        source,
+        verdict: 'MVP',
+        confidence: 0.9,
+        evidence_trace: [],
+      } as Awaited<ReturnType<typeof judgeChat>>);
+    }
+  };
+
+  beforeEach(() => {
+    mocked.mockReset();
+  });
+
+  it('全部真裁判 => judge，judgeCount = k', async () => {
+    respondWith(['judge', 'judge', 'judge']);
+    const r = await judgeChatEnsemble('a1', 'transcript', { k: 3 });
+    expect(r?.source).toBe('judge');
+    expect(r?.judgeCount).toBe(3);
+  });
+
+  it('真裁判与回退混合 => mixed（此前会误报 judge）', async () => {
+    respondWith(['judge', 'degraded', 'degraded']);
+    const r = await judgeChatEnsemble('a1', 'transcript', { k: 3 });
+    expect(r?.source).toBe('mixed');
+    expect(r?.judgeCount).toBe(1);
+  });
+
+  it('全部回退 => degraded，judgeCount = 0', async () => {
+    respondWith(['degraded', 'degraded']);
+    const r = await judgeChatEnsemble('a1', 'transcript', { k: 2 });
+    expect(r?.source).toBe('degraded');
+    expect(r?.judgeCount).toBe(0);
+  });
+
+  it('全部调用失败 => null，由调用方降级', async () => {
+    mocked.mockReset();
+    mocked.mockRejectedValue(new Error('judge unreachable'));
+    expect(await judgeChatEnsemble('a1', 'transcript', { k: 2 })).toBeNull();
   });
 });

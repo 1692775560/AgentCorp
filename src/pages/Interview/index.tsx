@@ -12,7 +12,7 @@
  * 绩效侧据此对比「面试期承诺 vs 上岗后实际」。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { MessagesSquare } from 'lucide-react';
+import { Loader2, MessagesSquare } from 'lucide-react';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -71,16 +71,25 @@ export function Interview() {
   const baselineRadar = useInterviewStore((s) => s.baselineRadar);
   const report = useInterviewStore((s) => s.report);
   const craftTrials = useInterviewStore((s) => s.craftTrials);
+  const judgeRadar = useInterviewStore((s) => s.judgeRadar);
+  const judgeSource = useInterviewStore((s) => s.judgeSource);
+  const judging = useInterviewStore((s) => s.judging);
+  const judgeError = useInterviewStore((s) => s.judgeError);
+  const runJudge = useInterviewStore((s) => s.runJudge);
 
-  /** 实时六维：面试中用 HR 打分聚合，结束后用报告定稿值 */
+  /**
+   * 实时六维：结束后用报告定稿值；面试中以模型分为底、HR 打过的维覆盖之。
+   * 模型分不可用时只显示 HR 真实打过的分，不回落基线（避免 S1 印象分冒充面试分）。
+   */
   const liveRadar = useMemo(
-    () => report?.finalRadar ?? aggregateHrRadar(turns, baselineRadar),
-    [report, turns, baselineRadar],
+    () => report?.finalRadar ?? aggregateHrRadar(turns, judgeRadar) ?? judgeRadar,
+    [report, turns, judgeRadar],
   );
   const ratio = useMemo(() => currentCoverageRatio(coverage), [coverage]);
 
   const hasTurns = turns.length > 0;
-  const hasJudged = craftTrials.some((t) => t.judgement !== null);
+  // 「已测评」= 对话已被模型评审过，或试做题已出分（两条模型分通路任一即可）
+  const hasJudged = judgeRadar !== null || craftTrials.some((t) => t.judgement !== null);
 
   const [narrowView, setNarrowView] = useState<NarrowView>('candidate');
 
@@ -201,14 +210,43 @@ export function Interview() {
               <TabsContent value="model" className="mt-0 space-y-4">
                 <CraftTrialPanel />
                 <div className="space-y-2 border-t border-white/50 pt-3">
-                  <h3 className="text-sm font-semibold text-foreground">面试期六维</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-foreground">面试期六维</h3>
+                    {judging && (
+                      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        模型评审中
+                      </span>
+                    )}
+                    {!judging && judgeRadar !== null && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {judgeSource === 'judge'
+                          ? '模型评审'
+                          : judgeSource === 'mixed'
+                            ? '模型评审（部分降级）'
+                            : '启发式降级'}
+                      </Badge>
+                    )}
+                    {hasTurns && !judging && (
+                      <button
+                        type="button"
+                        onClick={() => void runJudge()}
+                        className="ml-auto text-[11px] text-muted-foreground underline hover:text-foreground"
+                      >
+                        重新评审
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[11px] text-muted-foreground">
-                    实线 = 本场评分聚合；虚线 = 入场基线（S1 初审 / 历史评估）。
+                    实线 = 模型评审为底、你的打分覆盖之；虚线 = 入场基线（S1 初审 / 历史评估）。
                   </p>
                   <RadarChartView score={liveRadar} baseline={baselineRadar} height={260} />
-                  {liveRadar === null && (
+                  {judgeError !== null && (
+                    <p className="text-[11px] text-orange-600 dark:text-orange-400">{judgeError}</p>
+                  )}
+                  {liveRadar === null && judgeError === null && (
                     <p className="text-[11px] text-muted-foreground">
-                      尚无评分数据：跑完试做题或在中栏对回答打分后，此处即时更新。
+                      尚无评分数据：让候选答完第一题后，模型会自动评审并在此显示。
                     </p>
                   )}
                 </div>

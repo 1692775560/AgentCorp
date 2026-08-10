@@ -41,12 +41,27 @@ export interface JudgeEnsembleOptions {
    * 实现 Wang 的个性化评估——同一 agent 对不同老板表现不同。
    */
   persona?: BossProfile | null;
+  /**
+   * B · 历史协作摘要（SP-History）：透传给 judgeChat，在前缀注入「历史协作」段落，
+   * 使裁判能考察 agent 是否前后一致、是否记得此前约定。
+   * 空/缺省 → 无状态评估（既有行为）。
+   */
+  history?: string[] | null;
 }
+
+/**
+ * judge ensemble 的来源三态。
+ * 此前只有 judge / degraded 两态，且「任一次真裁判」即记 judge，
+ * 于是 1 次真 + 2 次回退也报 judge，高估了结论可信度。
+ */
+export type EnsembleSource = 'judge' | 'mixed' | 'degraded';
 
 /** judge ensemble 结果 */
 export interface JudgeEnsembleResult {
-  /** judge = 真实裁判；degraded = 至少一次回退（前端应据此决定展示优先级） */
-  source: 'judge' | 'degraded';
+  /** judge = k 次全为真裁判；mixed = 真裁判与回退混合；degraded = 全部回退 */
+  source: EnsembleSource;
+  /** 有效运行中真正由外部裁判产出的次数（与 radars.length 对比即知混合比例） */
+  judgeCount: number;
   /** 每次运行的雷达（已过滤掉 null） */
   radars: RadarScore[];
   /** 多次运行均值雷达 */
@@ -125,15 +140,17 @@ export async function judgeChatEnsemble(
   const verdicts: (Verdict | null)[] = [];
   const confidences: number[] = [];
   const evidence: string[] = [];
-  let anyJudge = false;
+  let judgeCount = 0;
 
   for (let i = 0; i < k; i += 1) {
-    const res = await judgeChat(agentId, transcript, opts?.persona).catch(() => null);
+    const res = await judgeChat(agentId, transcript, opts?.persona, opts?.history).catch(
+      () => null,
+    );
     if (!res || !res.radar) continue;
     radars.push(res.radar);
     if (res.verdict) verdicts.push(res.verdict);
     if (typeof res.confidence === 'number') confidences.push(res.confidence);
-    if (res.source === 'judge') anyJudge = true;
+    if (res.source === 'judge') judgeCount += 1;
     if (Array.isArray(res.evidence_trace)) evidence.push(...res.evidence_trace);
   }
 
@@ -146,8 +163,12 @@ export async function judgeChatEnsemble(
     : 0;
   const pk = passK(radars, { k: radars.length, threshold });
 
+  const source: EnsembleSource =
+    judgeCount === 0 ? 'degraded' : judgeCount === radars.length ? 'judge' : 'mixed';
+
   return {
-    source: anyJudge ? 'judge' : 'degraded',
+    source,
+    judgeCount,
     radars,
     meanRadar,
     verdict,

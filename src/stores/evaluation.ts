@@ -330,12 +330,16 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       let verdictUserFit = 0;
       let verdictEvidence: string[] = [];
       let sawAudio = false; // 本流出现过 audio 事件 → narration 只上屏（防双播）
-      // E · 透明披露：追踪本次评估的裁判来源（'degraded' = 离线启发式回退）
-      let judgeSource: 'judge' | 'degraded' = 'judge';
+      // E · 透明披露：分别计数真裁判与回退的维度，据此区分 judge / mixed / degraded。
+      // 此前是「任一维降级即整体标 degraded」，会把 5 维真裁判 + 1 维回退
+      // 说成全盘不可信，与实际不符。
+      let judgeDims = 0;
+      let degradedDims = 0;
       for await (const ev of judgeClient.evaluate(judgeInput)) {
         if (ev.type === 'radar_update') {
           radar[ev.dim] = ev.score;
-          if (ev.source === 'degraded') judgeSource = 'degraded';
+          if (ev.source === 'degraded') degradedDims += 1;
+          else judgeDims += 1;
           set({ radarLatest: { ...ZERO_RADAR, ...radar } });
         } else if (ev.type === 'narration') {
           if (ev.delta) {
@@ -349,8 +353,21 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
           verdict = ev.verdict;
           verdictUserFit = ev.user_fit;
           verdictEvidence = ev.evidence_trace;
+          // verdict 自带来源：只有 radar_update 全被跳过时才靠它兜底标降级
+          if (ev.source === 'degraded') degradedDims += 1;
+          else judgeDims += 1;
         }
       }
+
+      // 无任何来源标注（如 mock 流）时保守记 null，不谎报 judge
+      const judgeSource: 'judge' | 'mixed' | 'degraded' | null =
+        judgeDims + degradedDims === 0
+          ? null
+          : degradedDims === 0
+            ? 'judge'
+            : judgeDims === 0
+              ? 'degraded'
+              : 'mixed';
 
       // 语音宣判：流中无 audio 宣判块时（fallbackMock / tts 不可用）合成文本兜底
       if (verdict && !sawAudio) {
@@ -472,9 +489,13 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       if (opts?.useSessions) {
         const activeId = getActiveBossProfile()?.id ?? 'neutral';
         const sessions = get().profiles[agentId]?.sessionsByPersona?.[activeId] ?? [];
-        const transcripts = sessions
-          .map((s) => s.transcript)
-          .filter((t): t is string => typeof t === 'string' && t.length > 0);
+        // 只保留有 transcript 的会话，transcript 与 summary 从同一份列表派生，
+        // 保证下标一一对应（否则 history 的 slice(0, i) 会错位到别的会话上）
+        const usable = sessions.filter(
+          (s): s is typeof s & { transcript: string } =>
+            typeof s.transcript === 'string' && s.transcript.length > 0,
+        );
+        const transcripts = usable.map((s) => s.transcript);
         if (transcripts.length < 2) {
           set({
             passKRunning: false,
@@ -483,9 +504,19 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
           return;
         }
         const persona = getActiveBossProfile();
-        // 每段独立会话各跑一次裁判，得到该 session 的均值雷达与「全维达标」判定
+        // 摘要按时间正序，与 transcripts 同下标，供逐段注入「此前发生过什么」
+        const summaries = usable.map((s) => s.summary ?? s.transcript.slice(0, 200));
+        // 每段独立会话各跑一次裁判。第 i 段带上前 i 段的摘要作为 SP-History，
+        // 使记忆真正累积——裁判评第 3 段时知道第 1、2 段发生过什么，
+        // 才能考察「是否前后一致、是否记得此前约定」。首段无历史 = 无状态基线。
         const sessionResults = await Promise.all(
-          transcripts.map((t) => judgeChatEnsemble(agentId, t, { k: 1, persona })),
+          transcripts.map((t, i) =>
+            judgeChatEnsemble(agentId, t, {
+              k: 1,
+              persona,
+              history: summaries.slice(0, i),
+            }),
+          ),
         );
         const valid = sessionResults.filter(
           (r): r is JudgeEnsembleResult => Boolean(r) && Boolean(r?.meanRadar),
@@ -499,14 +530,20 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         }
         const perSessionPass = valid.map((r) => r.passK.allPass);
         const allRadars = valid.map((r) => r.meanRadar);
-        // 跨会话聚合：k = 会话数；allPass 升级为「每段都全过」；passRate 为全过会话占比
-        const combined = passK(allRadars, { k: allRadars.length });
-        combined.allPass = allPassAcrossSessions(perSessionPass);
-        combined.passRate =
-          Math.round(
-            (perSessionPass.filter(Boolean).length / perSessionPass.length) * 100,
-          ) / 100;
-        combined.k = allRadars.length;
+        // 跨会话聚合：k = 会话数；allPass 升级为「每段都全过」；passRate 为全过会话占比。
+        // 标 mode='sessions'，因为 meanRadar/dimPassRate 仍是「各段均值雷达」派生的，
+        // 与 allPass/passRate 的会话级语义不同，必须让 UI 能分辨（详见 PassKMode 注释）。
+        const base = passK(allRadars, { k: allRadars.length });
+        const combined: PassKResult = {
+          ...base,
+          mode: 'sessions',
+          k: allRadars.length,
+          allPass: allPassAcrossSessions(perSessionPass),
+          passRate:
+            Math.round(
+              (perSessionPass.filter(Boolean).length / perSessionPass.length) * 100,
+            ) / 100,
+        };
         set({ passKResult: combined, passKRunning: false });
         return;
       }

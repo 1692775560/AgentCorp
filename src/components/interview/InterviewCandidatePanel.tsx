@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { boostedDims } from '@/engine/interview/questionBank';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
+import { inferJobType } from '@/engine/marketplace/taskMatch';
 import { useAgentsStore } from '@/stores/agents';
 import { useMarketplaceStore } from '@/stores/marketplace';
 import { useInterviewStore } from '@/stores/interview';
@@ -29,6 +30,21 @@ const JOB_LABELS: Record<JobType, string> = {
   text: '文本',
   code: '代码',
 };
+
+/**
+ * 候选自身的工种：从人设 / 职责 / 名称推断。
+ *
+ * 此前 startSession 未传 jobType，一路落到 `?? 'code'` 兜底，
+ * 于是画师和文案也按写代码出题 —— 题目与工种完全不匹配。
+ * 优先级：需求卡显式选择 > 候选自身画像 > 需求文本推断 > code。
+ */
+function inferCandidateJob(agent: {
+  name: string;
+  persona: string;
+  responsibility: string;
+}): JobType | null {
+  return inferJobType(`${agent.name} ${agent.persona} ${agent.responsibility}`);
+}
 
 /** 面试结论选项 */
 const RECOMMENDATION_OPTIONS: Array<{ value: InterviewRecommendation | 'auto'; label: string }> = [
@@ -83,6 +99,13 @@ export function InterviewCandidatePanel() {
   const emphasized = useMemo(() => boostedDims(taskProfile?.dimBoost), [taskProfile]);
   const idle = status === 'idle';
 
+  /** 开场前展示「本场实际会用的工种」，与 handleStart 的取值口径保持一致 */
+  const effectiveJob: JobType = useMemo(() => {
+    if (taskProfile?.jobType) return taskProfile.jobType;
+    const agent = agents.find((a) => a.id === selectedId);
+    return (agent ? inferCandidateJob(agent) : null) ?? 'code';
+  }, [taskProfile, agents, selectedId]);
+
   /** 自动预选首位候选：雇完人进来时不必再手点一次列表就能按「开始面试」。
       Agent 没有雇佣时间字段，无法定位「刚雇的那位」，故取首位。 */
   useEffect(() => {
@@ -99,6 +122,7 @@ export function InterviewCandidatePanel() {
       agentId: agent.id,
       agentName: agent.name,
       sessionKey: agent.mainSessionKey,
+      jobType: taskProfile?.jobType ?? inferCandidateJob(agent) ?? undefined,
     });
   };
 
@@ -167,7 +191,8 @@ export function InterviewCandidatePanel() {
 
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">
-            工种：{taskProfile?.jobType ? JOB_LABELS[taskProfile.jobType] : '不限'}
+            工种：{JOB_LABELS[effectiveJob]}
+            {!taskProfile?.jobType && <span className="ml-1 opacity-70">（按候选画像推断）</span>}
           </Badge>
           {emphasized.length > 0 ? (
             emphasized.map((dim) => (

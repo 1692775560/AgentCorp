@@ -235,6 +235,12 @@ export interface VerdictEvent {
   user_fit: number;
   evidence_trace: string[];
   confidence: number;
+  /**
+   * E · 裁判来源（透明披露）：'degraded' = 离线启发式回退，缺省 = 外部 MiniCPM-o 裁判。
+   * verdict 是用户最当真的结论（MVP / 待观察 / You are fired），
+   * 哈希派生的 FIRED 与真裁判给的 FIRED 必须可区分。
+   */
+  source?: "judge" | "degraded";
 }
 
 /** 评估完成 */
@@ -494,11 +500,13 @@ export interface EvaluationProfile {
    */
   lastPersonaId?: string;
   /**
-   * E · 透明披露：本次评估的裁判来源。'judge' = 外部 MiniCPM-o 裁判；
-   * 'degraded' = 离线/不可达时回退客观 KPI 启发式（agentId 哈希派生）。
+   * E · 透明披露：本次评估的裁判来源。'judge' = 全部维度来自外部 MiniCPM-o 裁判；
+   * 'degraded' = 全部回退客观 KPI 启发式（agentId 哈希派生）；
+   * 'mixed' = 部分维度真裁判、部分回退——此前被并入 'degraded'，
+   * 掩盖了「大部分维度其实是真裁判」的事实，故单列一态。
    * 加法字段，缺省 null（历史数据无此标注）。
    */
-  judgeSource?: "judge" | "degraded" | null;
+  judgeSource?: "judge" | "mixed" | "degraded" | null;
 }
 
 /** 个性化风险等级（B · personalization delta 接风险标红） */
