@@ -101,8 +101,8 @@ export function InterviewThread() {
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <p className="text-sm font-medium text-foreground">尚未开始面试</p>
             <p className="max-w-xs text-xs text-muted-foreground">
-              左侧选择候选后点击「开始面试」。题序会依据人才市场的任务画像自动生成，
-              让考查维度对准真实需求。
+              先在「① 选候选」里挑一位已雇佣的员工，点「开始面试」。题序会依据人才市场的
+              任务画像自动生成，让考查维度对准真实需求。
             </p>
           </div>
         )}
@@ -164,13 +164,18 @@ export function InterviewThread() {
                   已降级为手动模式：把候选回答粘贴到下方输入框即可。
                 </span>
               )}
+              {sessionKey.length === 0 && (
+                <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                  该候选未绑定会话，无法自动作答；把回答粘到下方输入框即可继续评分。
+                </span>
+              )}
             </div>
           </section>
         )}
 
         {running && !currentQuestion && (
           <div className="rounded-2xl border border-dashed border-white/50 bg-white/40 px-3 py-4 text-center text-xs text-muted-foreground backdrop-blur dark:bg-white/5">
-            题序已问完。可采纳下方追问建议补齐证据缺口，或在左栏结束面试生成 S2 评分卡。
+            题序已问完。可采纳下方追问建议补齐证据缺口，或到「① 选候选」结束面试生成 S2 评分卡。
           </div>
         )}
 
@@ -179,7 +184,7 @@ export function InterviewThread() {
 
         {finished && (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-3 text-center text-xs text-emerald-700 backdrop-blur dark:text-emerald-300">
-            面试已结束，报告已落库并回写绩效基线。右栏可查看最终六维与收敛轨迹。
+            面试已结束，报告已落库并回写绩效基线。到「③ 测评结果」可查看大模型客观分与最终六维。
           </div>
         )}
       </div>

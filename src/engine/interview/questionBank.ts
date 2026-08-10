@@ -390,13 +390,42 @@ export function nextQuestion(
   return null;
 }
 
-/** 渲染题干占位符（无需求文本时退化为「本次任务」） */
+/**
+ * 无任务需求时的通用题干替换表（qId → 不依赖具体任务的问法）。
+ *
+ * 只填 tags 不足以支撑「复述这个任务」这类题：占位符会退化成「本次任务」，
+ * 题干变成「请复述这个任务：本次任务」——用户看不懂在问什么，agent 也没得复述。
+ * 故对依赖任务上下文最强的题，缺需求时整题换成自陈式问法（考查维度不变）。
+ */
+const GENERIC_PROMPTS: Record<string, string> = {
+  p1_restate:
+    '还没有具体任务，先请你自我介绍：你最擅长交付什么类型的成果？你判断一次交付「算合格」的标准是什么？开工前你通常需要对方先说清哪些信息？',
+  p2_img_composition:
+    '请以你最近一次满意的作品为例，说明你的构图方案：主体位置、视觉重心、留白比例、视线引导线分别怎么安排？',
+  p2_code_runnability:
+    '你交付一段代码前会跑哪些验证，才敢说「这段代码能跑」？请按你实际的检查顺序说。',
+  p2_txt_coherence:
+    '给你 3000 字素材要压成 800 字，你如何组织结构才能保证逻辑不断裂？',
+};
+
+/**
+ * 渲染题干占位符。
+ *
+ * 有需求文本 → 直接代入；只有标签 → 代入标签；两者皆无 → 若该题有通用问法则整题替换，
+ * 否则退化为「本次任务」（保持原行为）。
+ */
 export function renderPrompt(
   prompt: string,
-  ctx: { taskText?: string; tags?: string[] } = {},
+  ctx: { taskText?: string; tags?: string[]; qId?: string } = {},
 ): string {
   const text = (ctx.taskText ?? '').trim();
   const tags = (ctx.tags ?? []).filter(Boolean);
+
+  if (text.length === 0 && tags.length === 0 && ctx.qId) {
+    const generic = GENERIC_PROMPTS[ctx.qId];
+    if (generic) return generic;
+  }
+
   const fallback = tags.length > 0 ? tags.join('、') : '本次任务';
   return prompt.split(TASK_PLACEHOLDER).join(text.length > 0 ? text : fallback);
 }

@@ -6,6 +6,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { Component, lazy, Suspense, useEffect, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { AppToaster } from '@/components/ui/Toast';
+import { FirstRunGuide } from '@/components/onboarding/FirstRunGuide';
 import i18n from './i18n';
 import { MainLayout } from './components/layout/MainLayout';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -246,6 +247,9 @@ function App() {
           </Route>
         </Routes>
         </Suspense>
+
+        {/* 首次启动的业务动线引导：环境配置完成后出现一次，讲清 雇人 → 面试 → 评估 */}
+        {settingsInitialized && !browserPreviewMode && <FirstRunGuide />}
 
         {/* Global toast notifications */}
         <AppToaster />

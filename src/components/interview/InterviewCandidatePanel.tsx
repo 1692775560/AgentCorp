@@ -3,13 +3,14 @@
  * 面试候选与场次控制台（模块 B · 设计 §4.2）。
  *
  * 三块内容：
- * 1) 任务画像卡 —— ★通道①（市场能力标签 → 面试考查维度）的可视化证据：
- *    直接展示 marketplaceStore 的需求文本 / 工种 / 被强调的六维，
- *    这些正是 selectQuestions 用来排题序的输入。
+ * 1) 任务需求卡 —— ★通道①（市场能力标签 → 面试考查维度）的输入与可视化证据：
+ *    未开场时可直接编辑需求文本 / 工种（写回 marketplaceStore，与人才市场同一份真相），
+ *    开场后转为只读展示。需求 + 被强调的六维正是 selectQuestions 用来排题序的输入。
  * 2) 候选列表 —— 选人 + 开场（带上 mainSessionKey 才能真实调度作答）。
  * 3) 收尾区 —— 面试结论 + 备注 → finishSession（S2 评分卡 + 报告落库 + 基线回灌）。
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Briefcase, CheckCircle2, Loader2, RefreshCw, Sparkles, UserCheck } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -51,10 +52,13 @@ const RECOMMENDATION_TEXT: Record<InterviewRecommendation, string> = {
 };
 
 export function InterviewCandidatePanel() {
+  const navigate = useNavigate();
   const agents = useAgentsStore((s) => s.agents);
   const fetchAgents = useAgentsStore((s) => s.fetchAgents);
   const taskRequirement = useMarketplaceStore((s) => s.taskRequirement);
   const taskProfile = useMarketplaceStore((s) => s.taskProfile);
+  const setTaskText = useMarketplaceStore((s) => s.setTaskText);
+  const setJobType = useMarketplaceStore((s) => s.setJobType);
 
   const status = useInterviewStore((s) => s.status);
   const activeAgentId = useInterviewStore((s) => s.agentId);
@@ -78,6 +82,13 @@ export function InterviewCandidatePanel() {
 
   const emphasized = useMemo(() => boostedDims(taskProfile?.dimBoost), [taskProfile]);
   const idle = status === 'idle';
+
+  /** 自动预选首位候选：雇完人进来时不必再手点一次列表就能按「开始面试」。
+      Agent 没有雇佣时间字段，无法定位「刚雇的那位」，故取首位。 */
+  useEffect(() => {
+    if (!idle || selectedId.length > 0 || agents.length === 0) return;
+    setSelectedId(agents[0].id);
+  }, [idle, selectedId, agents]);
   const scoring = status === 'scoring';
   const finished = status === 'finished';
 
@@ -106,21 +117,54 @@ export function InterviewCandidatePanel() {
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
-      {/* ★通道①：任务画像 → 考查维度 */}
+      {/* ★通道①：任务画像 → 考查维度。
+          需求可在此直接填写（面试即「带着具体任务考人」，入口放在这里最顺），
+          填完立刻重算画像并对准题序；不填也能开场，但会提示磨合成本。 */}
       <section className="glass space-y-2 rounded-2xl p-3">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <Briefcase className="h-4 w-4 text-[#FFD233]" />
-          任务画像（来自人才市场）
+          这次想让他干什么
         </h3>
-        {taskRequirement.text.trim().length > 0 ? (
-          <p className="line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-            {taskRequirement.text}
-          </p>
+
+        {idle ? (
+          <>
+            <textarea
+              value={taskRequirement.text}
+              onChange={(e) => setTaskText(e.target.value)}
+              rows={4}
+              placeholder="例：我做一个面向小学生的英语打卡小程序，需要每周 3 篇图文推送，风格活泼、配图统一，交付 Markdown + 配图链接。"
+              className="neu-inset w-full resize-none rounded-xl px-3 py-2 text-xs leading-relaxed text-[var(--neu-ink)] placeholder:text-[var(--neu-ink-soft)]/60 focus:outline-none"
+            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">工种</span>
+              {(['code', 'text', 'image'] as JobType[]).map((jt) => (
+                <button
+                  key={jt}
+                  type="button"
+                  onClick={() => setJobType(jt)}
+                  className={`rounded-full px-3 py-1 text-[11px] font-medium transition-all ${
+                    taskRequirement.jobType === jt
+                      ? 'neu-inset text-[var(--neu-ink)]'
+                      : 'neu-btn text-[var(--neu-ink-soft)]'
+                  }`}
+                >
+                  {JOB_LABELS[jt]}
+                </button>
+              ))}
+            </div>
+            {taskRequirement.text.trim().length === 0 ? (
+              <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                不填也能面试，题目会换成通用问法。但写清真实需求，才能考出他合不合你的活
+                —— 否则你和他可能要花更长时间磨合。
+              </p>
+            ) : null}
+          </>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            尚未在人才市场填写需求，面试将使用通用题序。填了需求后题序会自动对准任务重心。
+          <p className="line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+            {taskRequirement.text.trim().length > 0 ? taskRequirement.text : '本场未填具体需求，使用通用题序。'}
           </p>
         )}
+
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">
             工种：{taskProfile?.jobType ? JOB_LABELS[taskProfile.jobType] : '不限'}
@@ -163,9 +207,12 @@ export function InterviewCandidatePanel() {
 
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-0.5">
             {agents.length === 0 ? (
-              <p className="px-1 py-4 text-center text-xs text-muted-foreground">
-                暂无可面试的员工，请先在人才市场雇佣。
-              </p>
+              <div className="space-y-2 px-1 py-4 text-center">
+                <p className="text-xs text-muted-foreground">还没有可面试的员工。</p>
+                <Button variant="outline" size="sm" onClick={() => navigate('/marketplace')}>
+                  去人才市场雇一位
+                </Button>
+              </div>
             ) : (
               agents.map((agent) => {
                 const active = agent.id === selectedId;

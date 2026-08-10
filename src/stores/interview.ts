@@ -250,7 +250,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       tags: requirement.tags,
     }).map((q) => ({
       ...q,
-      prompt: renderPrompt(q.prompt, { taskText: requirement.text, tags: requirement.tags }),
+      prompt: renderPrompt(q.prompt, {
+        taskText: requirement.text,
+        tags: requirement.tags,
+        qId: q.qId,
+      }),
     }));
 
     // 入场基线：既有评估档案的最新六维（S1 初审 / 历史评估）

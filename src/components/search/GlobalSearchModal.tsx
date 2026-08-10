@@ -71,7 +71,7 @@ const STATIC_PAGE_ITEMS: StaticPageItem[] = [
   { id: 'costs', label: 'Costs', path: '/costs', icon: '💰' },
   { id: 'team-overview', label: 'Team Overview', path: '/team-overview', icon: '👥' },
   { id: 'team-map', label: 'Team Map', path: '/team-map', icon: '🗺' },
-  { id: 'kanban', label: 'Task Kanban', path: '/kanban', icon: '📝' },
+  // Task Kanban 暂时移出搜索：/kanban 仍是占位页（见 pages/Kanban/index.tsx）
   { id: 'settings', label: 'Settings', path: '/settings', icon: '⚙️' },
 ];
 

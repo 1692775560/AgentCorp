@@ -91,6 +91,8 @@ interface SettingsState {
 
   // Setup
   setupComplete: boolean;
+  /** 业务动线引导（雇人 → 面试 → 评估）是否已看过；与 setupComplete 的环境配置分开 */
+  onboardingSeen: boolean;
 
   // Actions
   init: () => Promise<void>;
@@ -153,6 +155,7 @@ interface SettingsState {
   addCustomToolGrant: (value: string) => Promise<boolean>;
   removeCustomToolGrant: (value: string) => void;
   markSetupComplete: () => void;
+  markOnboardingSeen: () => void;
   resetSettings: () => void;
 }
 
@@ -248,6 +251,7 @@ const defaultSettings = {
   remoteRpcEnabled: false,
   p2pSyncEnabled: false,
   setupComplete: false,
+  onboardingSeen: false,
   brandName: 'AgentCorp Control',
   brandSubtitle: '智能编排中枢',
   myName: 'Commander',
@@ -407,6 +411,10 @@ export const useSettingsStore = create<SettingsState>()(
           method: 'PUT',
           body: JSON.stringify({ value: true }),
         }).catch(() => { });
+      },
+      markOnboardingSeen: () => {
+        set({ onboardingSeen: true });
+        void persistSettingValue('onboardingSeen', true).catch(() => { });
       },
       setBrandName: (brandName) => set({ brandName }),
       setBrandSubtitle: (brandSubtitle) => set({ brandSubtitle }),
