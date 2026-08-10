@@ -245,7 +245,7 @@ export function Sidebar() {
     //   path: '/kanban',
     //   icon: LayoutDashboard,
     // },
-    // 模块 B：HR 面试（S2）—— 位于市场初审与绩效考核之间
+    // 模块 B：HR 面试（S2）—— 位于市场初审与评估中心（S3）之间
     {
       label: tSidebar('interview', 'Interview'),
       path: '/interview',
