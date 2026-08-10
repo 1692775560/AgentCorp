@@ -302,23 +302,24 @@ describe('dimTracker · suggestFollowups（★ 优先最薄弱维度）', () => 
     expect(suggestions[0].prompt).toContain('请再具体一点');
   });
 
-  it('默认最多返回 3 条，可通过 max 覆盖（需同步下调 min，二者语义互斥）', () => {
+  it('默认最多返回 3 条，可通过 max 覆盖', () => {
     expect(suggestFollowups(turns, targetDims).length).toBeLessThanOrEqual(3);
-    expect(suggestFollowups(turns, targetDims, { max: 1, min: 1 })).toHaveLength(1);
+    expect(suggestFollowups(turns, targetDims, { max: 1 })).toHaveLength(1);
   });
 
-  it('min 是「保底条数」下限：max < min 时以 min 为准（保证 HR 始终有可点追问）', () => {
-    // 语义约定：max 限制「薄弱维筛选结果」的条数，min 是最终输出的保底条数。
-    // 仅传 max=1 而 min 仍为默认 2 时，筛选结果不足 min → 回退到最薄弱的 min 条。
-    expect(suggestFollowups(turns, targetDims, { max: 1 })).toHaveLength(2);
+  it('max 截断返回条数（无 min 保底：只返回真正 < threshold 的薄弱维）', () => {
+    // 语义约定（P2 修正）：suggestFollowups 只返回 coverage < threshold 的维，
+    // max 仅做截断，不存在「保底条数」。turns 中 cost/quality/reliability 均 < 0.8，
+    // 仅传 max=1 时只截出最薄弱的 1 条。
+    expect(suggestFollowups(turns, targetDims, { max: 1 })).toHaveLength(1);
   });
 
-  it('★ 即使全部维度均已达标，也保留最薄弱的 min 条（HR 始终有可点追问）', () => {
+  it('★ 全部维度均已达标 → 返回空（收敛完成，不把已达标维说成「证据偏薄」）', () => {
     const allCovered = [
       turnOf({ turn: 1, targetDims: ['task', 'comm'], replyText: RICH_REPLY }),
     ];
     const suggestions = suggestFollowups(allCovered, ['task', 'comm']);
-    expect(suggestions).toHaveLength(2);
+    expect(suggestions).toHaveLength(0);
   });
 
   it('threshold 可调：调高后更多维度被判定为需要追问', () => {

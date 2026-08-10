@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { Bot, ChevronDown, ChevronUp, Clock, Coins, MessageSquareQuote, User2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
-import { RADAR_DIMS, craftLinks } from '@/engine/scoring/registry';
+import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
 import { dimLabel } from '@/engine/interview/dimTracker';
 import type { InterviewTurn } from '@/types/interview';
@@ -21,29 +21,18 @@ import type { RadarDim } from '@/types/evaluation';
 
 interface InterviewBubbleProps {
   turn: InterviewTurn;
-  /** HR 逐维打分（0–5，0.5 步进） */
-  onRate: (turn: number, dim: RadarDim, value: number) => void;
+  /** HR 逐维打分（0–5，0.5 步进）。dim 可为通用六维或 craft 维（P1#8 起支持 craft 维） */
+  onRate: (turn: number, dim: string, value: number) => void;
   /** HR 证据备注 */
   onNote: (turn: number, note: string) => void;
   /** 面试已结束时只读 */
   readOnly?: boolean;
 }
 
-/**
- * 本轮「建议优先打分」的通用六维：
- * 题目直接考查的通用维 + craft 维经 CRAFT_LINKS 映射回的通用维。
- * 其余四维折叠，避免每轮都要拖 6 个滑块。
- */
-function primaryDimsOf(turn: InterviewTurn): RadarDim[] {
-  const set = new Set<RadarDim>();
-  for (const dim of turn.targetDims) {
-    if ((RADAR_DIMS as string[]).includes(dim)) {
-      set.add(dim as RadarDim);
-      continue;
-    }
-    for (const linked of craftLinks(dim)) set.add(linked);
-  }
-  return RADAR_DIMS.filter((dim) => set.has(dim));
+/** 维度标签：通用六维用雷达标签，craft 维用 dimLabel 中文（避免硬编码英文 key） */
+function labelOf(dim: string): string {
+  if ((RADAR_DIMS as string[]).includes(dim)) return RADAR_DIM_LABELS[dim as RadarDim];
+  return dimLabel(dim);
 }
 
 /** 毫秒 → 人类可读时长 */
@@ -55,9 +44,16 @@ function formatLatency(ms: number | null): string | null {
 
 export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: InterviewBubbleProps) {
   const [expanded, setExpanded] = useState(false);
-  const primaryDims = primaryDimsOf(turn);
-  const restDims = RADAR_DIMS.filter((dim) => !primaryDims.includes(dim));
-  const visibleDims = expanded ? [...primaryDims, ...restDims] : primaryDims;
+  // P1#8：本轮可直接打分的维度 = 本题考查的全部维度（通用六维 + craft 维）。
+  // 始终展示直接考查的通用六维 + 全部 craft 维；其余未直接考查的通用六维折叠，
+  // 展开后补出（避免每轮都堆 6 个滑块，但 craft 维必须始终可见可评）。
+  const radarDims = turn.targetDims.filter((d) => (RADAR_DIMS as string[]).includes(d)) as RadarDim[];
+  const craftDims = turn.targetDims.filter((d) => !(RADAR_DIMS as string[]).includes(d));
+  const restRadarDims = RADAR_DIMS.filter((d) => !radarDims.includes(d));
+  const visibleDims = expanded
+    ? [...radarDims, ...restRadarDims, ...craftDims]
+    : [...radarDims, ...craftDims];
+  const hasCollapsed = restRadarDims.length > 0;
   const latency = formatLatency(turn.replyLatencyMs);
   const isFollowup = turn.qId.includes(':fu');
 
@@ -127,7 +123,7 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
       <div className="glass space-y-2 rounded-2xl p-3">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">HR 本轮评分（0–5）</p>
-          {restDims.length > 0 && (
+          {hasCollapsed && (
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
@@ -147,7 +143,7 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
         </div>
 
         {visibleDims.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">本题不直接映射通用六维，可展开手动补分。</p>
+          <p className="text-[11px] text-muted-foreground">本题不含可打分维度。</p>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
             {visibleDims.map((dim) => {
@@ -155,7 +151,9 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
               const rated = typeof value === 'number';
               return (
                 <label key={dim} className="flex items-center gap-2 text-xs">
-                  <span className="w-12 shrink-0 text-muted-foreground">{RADAR_DIM_LABELS[dim]}</span>
+                  <span className="w-20 shrink-0 truncate text-muted-foreground" title={dim}>
+                    {labelOf(dim)}
+                  </span>
                   <input
                     type="range"
                     min={0}

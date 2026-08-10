@@ -82,6 +82,7 @@ export function InterviewCandidatePanel() {
   const jobType = useInterviewStore((s) => s.jobType);
   const plan = useInterviewStore((s) => s.plan);
   const turns = useInterviewStore((s) => s.turns);
+  const craftTrials = useInterviewStore((s) => s.craftTrials);
   const report = useInterviewStore((s) => s.report);
   const stageScore = useInterviewStore((s) => s.stageScore);
   const startSession = useInterviewStore((s) => s.startSession);
@@ -316,7 +317,9 @@ export function InterviewCandidatePanel() {
           <Button
             className="w-full"
             variant="default"
-            disabled={scoring || turns.length === 0}
+            // P1#7 修复：试做题-only 面试（无对话轮次、但有试做题轮次）也应可收尾，
+            // 否则「纯手艺探针」链路（craft 客观分）永远卡在无法归档。
+            disabled={scoring || (turns.length === 0 && craftTrials.length === 0)}
             onClick={() => void handleFinish()}
           >
             {scoring ? (
@@ -328,8 +331,8 @@ export function InterviewCandidatePanel() {
               '结束面试并生成评分卡'
             )}
           </Button>
-          {turns.length === 0 && (
-            <p className="text-[11px] text-muted-foreground">至少完成一轮问答才能收尾。</p>
+          {turns.length === 0 && craftTrials.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">至少完成一轮问答或一道试做题才能收尾。</p>
           )}
         </section>
       )}

@@ -93,11 +93,12 @@ export function Interview() {
 
   const [narrowView, setNarrowView] = useState<NarrowView>('candidate');
 
-  /** 窄屏下让视图跟随阶段走：开场 → 对话，归档 → 测评。
-      宽屏三栏并列，这个状态不影响渲染。 */
+  /** 窄屏下让视图跟随阶段走：开场 → 对话，评分/归档 → 测评。
+      宽屏三栏并列，这个状态不影响渲染。
+      P2 修复：此前 `scoring` 态无分支，窄屏会停在 candidate 视图盲区（收尾按钮已在左栏却看不到测评推进）。 */
   useEffect(() => {
     if (status === 'running') setNarrowView('thread');
-    else if (status === 'finished') setNarrowView('assess');
+    else if (status === 'finished' || status === 'scoring') setNarrowView('assess');
     else if (status === 'idle') setNarrowView('candidate');
   }, [status]);
 

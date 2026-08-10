@@ -54,6 +54,7 @@ import {
   coverageRatio,
   recommendationOf,
   suggestFollowups,
+  DEFAULT_FOLLOWUP_BUDGET,
   type DimCoverage,
   type FollowupSuggestion,
 } from '@/engine/interview/dimTracker';
@@ -103,8 +104,10 @@ interface InterviewState {
   taskRequirement: TaskRequirement;
   /** 本场题序（三阶段递进） */
   plan: InterviewQuestion[];
-  /** 已问过的题 id */
+  /** 已问过的题 id（含已跳过；nextQuestion 据此跳过不再问） */
   askedQIds: string[];
+  /** 被 HR 主动跳过的题 id（与已答区分，进度条单独统计，不计入"已完成"） */
+  skippedQIds: string[];
   /** 当前待问的题（可能是追问题） */
   currentQuestion: InterviewQuestion | null;
   /** 已完成的问答轮次 */
@@ -170,8 +173,8 @@ interface InterviewState {
    * 幂等可重跑；失败只置 judgeError，绝不补分。
    */
   runJudge: () => Promise<void>;
-  /** HR 逐轮六维打分（对模型分的人工修正，非唯一来源） */
-  rateTurn: (turn: number, dim: RadarDim, value: number) => void;
+  /** HR 逐轮打分（对模型分的人工修正，非唯一来源）。dim 可为通用六维或 craft 维（P1#8 起支持 craft 维） */
+  rateTurn: (turn: number, dim: string, value: number) => void;
   /** HR 逐轮证据备注 */
   noteTurn: (turn: number, note: string) => void;
   /** 采纳一条追问建议（生成追问题并设为当前题） */
@@ -258,10 +261,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   jobType: 'code',
   createdBy: 'default',
   taskRequirement: { ...EMPTY_REQUIREMENT },
-  plan: [],
-  askedQIds: [],
-  currentQuestion: null,
-  turns: [],
+      plan: [],
+      askedQIds: [],
+      skippedQIds: [],
+      currentQuestion: null,
+      turns: [],
   baselineRadar: null,
   coverage: [],
   suggestions: [],
@@ -327,6 +331,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       taskRequirement: requirement,
       plan,
       askedQIds: [],
+      skippedQIds: [],
       currentQuestion: plan[0] ?? null,
       turns: [],
       baselineRadar,
@@ -408,18 +413,27 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     };
 
     const turns = [...state.turns, turn];
-    const askedQIds = state.askedQIds.includes(question.qId)
-      ? state.askedQIds
-      : [...state.askedQIds, question.qId];
+
+    // P1#5 修复：追问轮（qId 含 `:fu`）把「本体题 qId」一并记入 askedQIds，
+    // 否则 nextQuestion(plan, …) 只会跳过追问自身的 qId，而本体题不在 askedQIds
+    // 中，会被重新问出（被顶掉的题重现）。这里把本体题与追问 qId 都记上。
+    const baseQId = question.qId.includes(':fu')
+      ? question.qId.split(':fu')[0]
+      : question.qId;
+    const askedQIds = [...new Set([...state.askedQIds, baseQId, question.qId])];
     const targetDims = planTargetDims(state.plan);
     const coverage = computeCoverage(turns, targetDims);
+    // P1#6：追问建议接入预算封顶，预算耗尽自动停发。
+    const suggestions = suggestFollowups(turns, targetDims, { budget: DEFAULT_FOLLOWUP_BUDGET });
+    // 题序按「已答 ∪ 已跳过」为已消耗，跳过过的题不再重问。
+    const consumed = [...new Set([...askedQIds, ...state.skippedQIds])];
 
     set({
       turns,
       askedQIds,
       coverage,
-      suggestions: suggestFollowups(turns, targetDims),
-      currentQuestion: pickNextQuestion(state.plan, askedQIds),
+      suggestions,
+      currentQuestion: pickNextQuestion(state.plan, consumed),
     });
 
     recordConvergenceTurn(state.agentId, state.jobType, turn, coverage);
@@ -473,7 +487,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     );
     const targetDims = planTargetDims(state.plan);
     const coverage = computeCoverage(turns, targetDims);
-    set({ turns, coverage, suggestions: suggestFollowups(turns, targetDims) });
+    // P1#6：打分后重算追问建议，同样受预算封顶约束。
+    const suggestions = suggestFollowups(turns, targetDims, { budget: DEFAULT_FOLLOWUP_BUDGET });
+    set({ turns, coverage, suggestions });
   },
 
   noteTurn: (turn, note) => {
@@ -484,24 +500,50 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
 
   applyFollowup: (suggestion) => {
     const state = get();
-    const base =
-      state.currentQuestion ??
-      state.plan.find((q) => q.qId === state.askedQIds[state.askedQIds.length - 1]) ??
-      state.plan[0];
+    const current = state.currentQuestion;
+    // 取本体题 qId（去掉可能的 `:fu{n}` 后缀），保证父题恒为 plan 中的本体题，
+    // 避免 `:fu:fu` 嵌套链，也避免追问挂在另一个追问上。
+    const stripFu = (qId: string) => qId.split(':fu')[0];
+
+    // P1#5 修复：父题优先取「覆盖该维、且不是追问轮」的本体题——
+    //   1) 当前待问题若直接考查该维（用户正盯着它），优先；
+    //   2) 否则取最近一次问过该维的本体题（= 该维的「证据缺口题」）；
+    //   3) 兜底当前待问题 / 题序首题。
+    // 这样追问始终挂在真实考过该维的本体题上，不会顶掉任何未问的题。
+    const fromCurrent =
+      current && !current.qId.includes(':fu') && current.targetDims.includes(suggestion.dim)
+        ? stripFu(current.qId)
+        : null;
+    const fromTurns = state.turns
+      .filter((t) => !t.qId.includes(':fu') && t.targetDims.includes(suggestion.dim))
+      .map((t) => stripFu(t.qId));
+    const baseQId =
+      fromCurrent ??
+      fromTurns[fromTurns.length - 1] ??
+      (current ? stripFu(current.qId) : null) ??
+      state.plan[0]?.qId;
+    if (!baseQId) return;
+    const base = state.plan.find((q) => q.qId === baseQId) ?? state.plan[0];
     if (!base) return;
-    const index = state.turns.filter((t) => t.qId.startsWith(`${base.qId}:fu`)).length + 1;
+
+    // 同一本体题已发起的追问序号（防 `:fu` 序号冲突）。
+    const index = state.turns.filter((t) => t.qId.startsWith(`${baseQId}:fu`)).length + 1;
     const followup = makeFollowupQuestion(base, suggestion.prompt, index);
-    // 追问题只考查被建议的那一维，保证证据精准落到缺口上
+    // 追问题只考查被建议的那一维，保证证据精准落到缺口上。
     set({ currentQuestion: { ...followup, targetDims: [suggestion.dim] } });
   },
 
   skipQuestion: () => {
     const state = get();
     if (!state.currentQuestion) return;
-    const askedQIds = state.askedQIds.includes(state.currentQuestion.qId)
-      ? state.askedQIds
-      : [...state.askedQIds, state.currentQuestion.qId];
-    set({ askedQIds, currentQuestion: pickNextQuestion(state.plan, askedQIds) });
+    const qId = state.currentQuestion.qId;
+    // P2 修复：跳过写 skippedQIds（与已答对账区分，进度条单独统计、不计入「已完成」），
+    // 但题序推进要把「已答 ∪ 已跳过」都视为已消耗，跳过的题不再重问。
+    const skippedQIds = state.skippedQIds.includes(qId)
+      ? state.skippedQIds
+      : [...state.skippedQIds, qId];
+    const consumed = [...new Set([...state.askedQIds, ...skippedQIds])];
+    set({ skippedQIds, currentQuestion: pickNextQuestion(state.plan, consumed) });
   },
 
   loadCraftTasks: async () => {
@@ -805,6 +847,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             ts: report.ts,
           },
         });
+      } else {
+        // P2 修复：此前无档案时静默丢失回灌，HR 以为基线已回灌实则没有。
+        // 这里显式提示，避免「面试已归档却查无基线」的困惑（不阻断收尾）。
+        set({
+          error:
+            '该 agent 尚未在绩效中心建档，面试基线暂未回灌（不影响本次面试归档）；若需回灌基线，请先在「评估中心」运行一次评估。',
+        });
       }
     } catch {
       // 档案不存在或落库失败不阻断面试收尾
@@ -831,6 +880,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       taskRequirement: { ...EMPTY_REQUIREMENT },
       plan: [],
       askedQIds: [],
+      skippedQIds: [],
       currentQuestion: null,
       turns: [],
       baselineRadar: null,
