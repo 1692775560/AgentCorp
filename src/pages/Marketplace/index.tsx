@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, Plus, Building2, User, X, Bot, Users, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Plus, Building2, User, X, Bot, Users, Loader2 } from 'lucide-react';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { invokeIpc } from '@/lib/api-client';
@@ -17,10 +16,11 @@ import {
   type MarketCandidateSeed,
 } from '@/stores/marketplace';
 import { useScoringStore } from '@/stores/scoringStore';
-import { TaskRequirementBar } from '@/components/marketplace/TaskRequirementBar';
-import { DimFilterBar } from '@/components/marketplace/DimFilterBar';
+import {
+  MarketSearchBar,
+  type HireTypeFilter,
+} from '@/components/marketplace/MarketSearchBar';
 import { MarketCandidateCard } from '@/components/marketplace/MarketCandidateCard';
-import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
 import type { MarketCandidateView } from '@/types/marketplace';
 
 type HireType = '雇佣团队' | '雇佣员工';
@@ -63,8 +63,6 @@ type HireTeamResponse = {
   error?: string;
 };
 
-const FILTER_OPTIONS = ['全部', '数据分析', '代码审查', '内容创作', 'SOP', '客服', '翻译', '增长', '营销', '招聘'];
-
 const HIRE_TYPES: HireType[] = ['雇佣团队', '雇佣员工'];
 
 export function Marketplace() {
@@ -72,7 +70,7 @@ export function Marketplace() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('全部');
-  const [activeHireType, setActiveHireType] = useState<HireType | '全部'>('全部');
+  const [activeHireType, setActiveHireType] = useState<HireTypeFilter>('全部');
   const [showListingModal, setShowListingModal] = useState(false);
   const [showPurchasedModal, setShowPurchasedModal] = useState(false);
   const [purchasedAgentName, setPurchasedAgentName] = useState('');
@@ -252,88 +250,17 @@ export function Marketplace() {
           </button>
         </motion.div>
 
-        {/* 任务需求条（模块 A 新增）：自然语言需求 → 任务画像 → 智能排序 */}
-        <TaskRequirementBar />
-
-        {/* 六维能力门槛（模块 A 新增） */}
-        <DimFilterBar />
-
-        {/* 最受 boss 青睐榜（T05：按工种赛道 Top3，测评后深度认可投票） */}
-        <BossFavoriteLeaderboard />
-
-        {/* Search & Filters */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative max-w-md flex-1">
-            <Search className="absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('marketplace.searchPlaceholder', '搜索 Agent...')}
-              className="h-12 w-full rounded-full border border-gray-100 bg-white/50 pl-11 pr-4 text-sm font-bold text-[#1A1C1E] shadow-sm backdrop-blur-md placeholder:text-gray-400 focus:border-[#FFD233] focus:outline-none focus:ring-2 focus:ring-[#FFD233]/20"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter size={16} className="text-gray-400" />
-            {FILTER_OPTIONS.map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setActiveFilter(filter)}
-                className={cn(
-                  'rounded-full px-4 py-2 text-sm font-bold transition-all',
-                  activeFilter === filter
-                    ? 'bg-[#1A1C1E] text-white shadow-lg'
-                    : 'border border-gray-100 bg-white text-[#1A1C1E] shadow-sm hover:bg-gray-50',
-                )}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Hire Type Toggle */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setActiveHireType('全部')}
-            className={cn(
-              'rounded-full px-5 py-2.5 text-sm font-bold transition-all',
-              activeHireType === '全部'
-                ? 'bg-[#FFD233] text-[#1A1C1E] shadow-md'
-                : 'border border-gray-100 bg-white text-gray-500 shadow-sm hover:bg-gray-50',
-            )}
-          >
-            {t('marketplace.allTypes', '全部类型')}
-          </button>
-          {HIRE_TYPES.map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setActiveHireType(type)}
-              className={cn(
-                'flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-all',
-                activeHireType === type
-                  ? 'bg-[#FFD233] text-[#1A1C1E] shadow-md'
-                  : 'border border-gray-100 bg-white text-gray-500 shadow-sm hover:bg-gray-50',
-              )}
-            >
-              {type === '雇佣团队' ? <Building2 size={16} /> : <User size={16} />}
-              {type === '雇佣团队'
-                ? t('marketplace.hireCompany', '雇佣团队')
-                : t('marketplace.hireEmployee', '雇佣员工')}
-              <span className="ml-1 rounded-full bg-black/10 px-2 py-0.5 text-[10px]">
-                {type === '雇佣团队'
-                  ? templates.filter((a) => a.hireType === 'team').length
-                  : templates.filter((a) => a.hireType === 'single').length}
-              </span>
-            </button>
-          ))}
-          <p className="ml-2 text-xs text-gray-400">
-            {t('marketplace.hireCompanyHint', '雇佣团队 = SOP 工作流 · 雇佣员工 = 单个 Agent')}
-          </p>
-        </div>
+        {/* 统一搜索区：需求 → 工种/排序 → 雇佣形态 → 高级筛选（关键词/标签/六维门槛） */}
+        <MarketSearchBar
+          keyword={searchQuery}
+          onKeywordChange={setSearchQuery}
+          activeTag={activeFilter}
+          onTagChange={setActiveFilter}
+          hireType={activeHireType}
+          onHireTypeChange={setActiveHireType}
+          teamCount={templates.filter((a) => a.hireType === 'team').length}
+          singleCount={templates.filter((a) => a.hireType === 'single').length}
+        />
 
         {/* Agent Cards Grid */}
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3 items-stretch">

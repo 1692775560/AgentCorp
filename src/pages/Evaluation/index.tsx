@@ -29,6 +29,7 @@ import { LifecyclePanel } from './LifecyclePanel';
 import { Leaderboard } from './Leaderboard';
 import { DualTrackScoreCard } from '@/components/evaluation/DualTrackScoreCard';
 import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
+import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
 import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
 
@@ -427,11 +428,15 @@ export function Evaluation() {
             {panel === 'dual' ? <DualTrackScoreCard agentId={selectedAgentId} /> : null}
 
             {/* 双榜：客观榜 + 可拖拽主观榜（拖拽即偏好回灌，T39 重写版） */}
+            {/* 最受 boss 青睐榜从人才市集迁入：它是测评结果而非选人筛选条件 */}
             {panel === 'dualBoard' ? (
-              <DualLeaderboard
-                stage="performance"
-                jobType={selectedProfile?.jobType ?? 'all'}
-              />
+              <div className="space-y-6">
+                <DualLeaderboard
+                  stage="performance"
+                  jobType={selectedProfile?.jobType ?? 'all'}
+                />
+                <BossFavoriteLeaderboard />
+              </div>
             ) : null}
 
             {/* 收敛轨迹（Layer3 独立视图，不进客观榜） */}
