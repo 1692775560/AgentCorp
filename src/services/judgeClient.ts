@@ -407,6 +407,8 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
       score: round1(radar[dim]),
       confidence: 0.8,
       evidence: dimEvidence(dim),
+      // E · 透明披露：离线回退路径标记为 degraded（外部 MiniCPM-o 裁判不可达）
+      source: 'degraded',
     };
   }
 

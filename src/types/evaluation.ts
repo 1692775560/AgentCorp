@@ -203,6 +203,8 @@ export interface RadarUpdateEvent {
   score: number;
   confidence: number;
   evidence: string;
+  /** E · 裁判来源（透明披露）：'degraded' = 离线启发式回退，缺省 = 外部 MiniCPM-o 裁判 */
+  source?: "judge" | "degraded";
 }
 
 /** 讲解文本增量（is_final=true 表示讲解结束） */
@@ -485,6 +487,18 @@ export interface EvaluationProfile {
    * 加法字段。
    */
   sessionsByPersona?: Record<string, AgentSessionSummary[]>;
+  /**
+   * E · 透明披露：本次评估所用的老板原型 id（'neutral' = 无个性化基线）。
+   * 供评估卡披露「基于哪个 persona 得出此分」，与当前激活原型对照。
+   * 加法字段。
+   */
+  lastPersonaId?: string;
+  /**
+   * E · 透明披露：本次评估的裁判来源。'judge' = 外部 MiniCPM-o 裁判；
+   * 'degraded' = 离线/不可达时回退客观 KPI 启发式（agentId 哈希派生）。
+   * 加法字段，缺省 null（历史数据无此标注）。
+   */
+  judgeSource?: "judge" | "degraded" | null;
 }
 
 /** 个性化风险等级（B · personalization delta 接风险标红） */

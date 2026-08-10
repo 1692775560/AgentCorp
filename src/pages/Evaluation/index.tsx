@@ -379,6 +379,56 @@ export function Evaluation() {
                   </p>
                 )}
 
+                {/* E · 评估机制透明披露：明示本次分数基于哪个 persona / 哪段历史 / 哪个裁判 / k=几 */}
+                {(selectedProfile?.lastPersonaId || selectedProfile?.judgeSource) ? (
+                  (() => {
+                    const evalPersonaId = selectedProfile?.lastPersonaId ?? 'neutral';
+                    const evalPersona =
+                      listBossProfiles().find((p) => p.id === evalPersonaId);
+                    const evalPersonaName =
+                      evalPersona?.name ??
+                      (evalPersonaId === 'neutral' ? '中性（无个性化）' : evalPersonaId);
+                    const historySessions =
+                      selectedProfile?.sessionsByPersona?.[evalPersonaId]?.length ?? 0;
+                    const judgeLabel =
+                      selectedProfile?.judgeSource === 'degraded'
+                        ? '离线启发式回退'
+                        : selectedProfile?.judgeSource === 'judge'
+                          ? 'MiniCPM-o 外部裁判'
+                          : '未知';
+                    return (
+                      <div className="space-y-2 rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] dark:bg-white/5">
+                        <p className="font-bold text-[#1A1C1E] dark:text-white">
+                          评估机制 · 透明披露
+                        </p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-500">
+                          <span>
+                            老板原型：
+                            <b className="text-[#1A1C1E] dark:text-white">{evalPersonaName}</b>
+                          </span>
+                          <span>
+                            历史会话（SP-History）：
+                            <b className="text-[#1A1C1E] dark:text-white">{historySessions} 段</b>
+                          </span>
+                          <span>
+                            裁判：
+                            <b className="text-[#1A1C1E] dark:text-white">{judgeLabel}</b>
+                          </span>
+                          {passKResult ? (
+                            <span>
+                              可靠性 k=
+                              <b className="text-[#1A1C1E] dark:text-white">{passKResult.k}</b>
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-gray-400">
+                          同一 agent 对不同老板、不同历史、不同裁判，分数会不同——这是个性化评估的应有之义（Wang 透明披露主张）。
+                        </p>
+                      </div>
+                    );
+                  })()
+                ) : null}
+
                 {/* C · 基准套件：维度×原型矩阵 + 个性化增量（人格化评估的核心视图） */}
                 <SuiteView
                   agentId={selectedAgentId}

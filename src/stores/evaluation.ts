@@ -330,9 +330,12 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       let verdictUserFit = 0;
       let verdictEvidence: string[] = [];
       let sawAudio = false; // 本流出现过 audio 事件 → narration 只上屏（防双播）
+      // E · 透明披露：追踪本次评估的裁判来源（'degraded' = 离线启发式回退）
+      let judgeSource: 'judge' | 'degraded' = 'judge';
       for await (const ev of judgeClient.evaluate(judgeInput)) {
         if (ev.type === 'radar_update') {
           radar[ev.dim] = ev.score;
+          if (ev.source === 'degraded') judgeSource = 'degraded';
           set({ radarLatest: { ...ZERO_RADAR, ...radar } });
         } else if (ev.type === 'narration') {
           if (ev.delta) {
@@ -411,6 +414,9 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
             },
           ].slice(-3),
         },
+        // E · 透明披露：记录本次评估所用的老板原型与裁判来源，供评估卡明示机制
+        lastPersonaId: input.bossProfile?.id ?? 'neutral',
+        judgeSource,
       };
       await evalSave(profile);
 
