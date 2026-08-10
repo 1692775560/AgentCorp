@@ -12,10 +12,11 @@
  * 设计：纯展示组件，由父级传入 radarByPersona 与原型表，内部用 computePersonaSuite 计算。
  */
 import { useMemo } from 'react';
-import type { BossProfile, RadarScore } from '@/types/evaluation';
+import type { BossProfile, RadarScore, PersonalizationRisk } from '@/types/evaluation';
 import { NEUTRAL_BOSS } from '@/types/evaluation';
 import {
   computePersonaSuite,
+  personalizationRiskFromRadarMap,
   type PersonaSuite,
 } from '@/engine/evaluation/evalSuite';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
@@ -55,14 +56,38 @@ function deltaRisk(total: number): { label: string; cls: string; ring: string } 
   };
 }
 
+/** B · 个性化风险等级徽标（来自权威落库 personalizationRisk；high 即红标） */
+function riskBadge(level: PersonalizationRisk): { label: string; cls: string; ring: string } {
+  if (level === 'high')
+    return {
+      label: '高风险 · 看人下菜',
+      cls: 'text-rose-700 dark:text-rose-300',
+      ring: 'border-rose-400 dark:border-rose-500/60',
+    };
+  if (level === 'medium')
+    return {
+      label: '中风险 · 略有偏向',
+      cls: 'text-amber-600 dark:text-amber-400',
+      ring: 'border-amber-300 dark:border-amber-500/40',
+    };
+  return {
+    label: '低风险 · 基本稳定',
+    cls: 'text-emerald-600 dark:text-emerald-400',
+    ring: 'border-emerald-300 dark:border-emerald-500/40',
+  };
+}
+
 export function SuiteView({
   agentId,
   radarByPersona,
   profiles,
+  risk,
 }: {
   agentId: string | null;
   radarByPersona?: Record<string, RadarScore>;
   profiles: BossProfile[];
+  /** B · 个性化风险等级（权威落库值）；缺省时由 radarByPersona 推导 */
+  risk?: PersonalizationRisk | null;
 }) {
   const suite: PersonaSuite | null = useMemo(
     () =>
@@ -75,20 +100,32 @@ export function SuiteView({
   if (!suite) return null;
 
   const evaluatedCols = suite.columns.filter((c) => c.radar);
-  const risk = deltaRisk(suite.personalizationDelta.total);
+  const delta = deltaRisk(suite.personalizationDelta.total);
+  // B · 优先用权威落库风险；无则从雷达矩阵推导（保证无 prop 时仍有展示）
+  const riskLevel = risk ?? personalizationRiskFromRadarMap(radarByPersona);
 
   return (
     <div className="space-y-3 rounded-2xl bg-white/70 p-4 dark:bg-white/5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[12px] font-bold text-[#1A1C1E] dark:text-white">
           人格化评估套件 · 维度 × 原型
         </p>
-        <span
-          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${risk.cls} ${risk.ring}`}
-          title="个性化增量 = 相对中性基线的最大逐维漂移（越高越「对谁说都不一样」）"
-        >
-          Δ {suite.personalizationDelta.total.toFixed(2)} · {risk.label}
-        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${delta.cls} ${delta.ring}`}
+            title="个性化增量 = 相对中性基线的最大逐维漂移（越高越「对谁说都不一样」）"
+          >
+            Δ {suite.personalizationDelta.total.toFixed(2)} · {delta.label}
+          </span>
+          {riskLevel ? (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${riskBadge(riskLevel).cls} ${riskBadge(riskLevel).ring}`}
+              title="个性化风险：高 = 该 agent 表现随协作对象显著漂移（对谁说都不一样），真实协作里风险更高，需额外把关"
+            >
+              {riskBadge(riskLevel).label}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {evaluatedCols.length === 0 ? (

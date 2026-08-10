@@ -147,6 +147,11 @@ export function Evaluation() {
 
   /** 当前选中 agent 的评估档案（含面试基线 interviewBaseline） */
   const selectedProfile = selectedAgentId ? (profiles[selectedAgentId] ?? null) : null;
+  // B · 状态化多轮：当前激活老板原型下、带完整 transcript 的历史会话数（≥2 才够跨会话测）
+  const activeBossId = getActiveBossProfile()?.id ?? 'neutral';
+  const sessionTranscriptCount = (
+    selectedProfile?.sessionsByPersona?.[activeBossId] ?? []
+  ).filter((s) => typeof s.transcript === 'string' && s.transcript.length > 0).length;
 
   const handleRun = async (agent: AgentSummary) => {
     // 会话下拉框属于当前选中的 agent；对未选中的 agent 点「运行评估」时
@@ -379,6 +384,7 @@ export function Evaluation() {
                   agentId={selectedAgentId}
                   radarByPersona={selectedProfile?.radarByPersona}
                   profiles={listBossProfiles()}
+                  risk={selectedProfile?.personalizationRisk}
                 />
 
                 {/* 双轨评分卡（客观遥测 + 主观打分 + 0.7/0.3 加权 total） */}
@@ -397,6 +403,22 @@ export function Evaluation() {
                       className="rounded-full bg-[#1A1C1E] px-3 py-1.5 text-[11px] font-bold text-white transition-all hover:bg-[#FF6B4A] disabled:opacity-50 dark:bg-white dark:text-[#1A1C1E]"
                     >
                       {passKRunning ? '测算中…' : '测可靠性 (pass^k)'}
+                    </button>
+                    {/* B · 跨会话测（SP-History）：同一原型下多段历史会话各判一次，全过才算可靠 */}
+                    <button
+                      type="button"
+                      disabled={passKRunning || !selectedAgentId || sessionTranscriptCount < 2}
+                      onClick={() =>
+                        selectedAgentId && void runPassK(selectedAgentId, 3, { useSessions: true })
+                      }
+                      title={
+                        sessionTranscriptCount < 2
+                          ? '需在同一老板原型下运行 ≥2 次评估（累积历史会话）后方可跨会话测'
+                          : '同一原型下多段会话各判一次，全部全维达标才算可靠'
+                      }
+                      className="rounded-full border border-[#1A1C1E]/20 px-3 py-1.5 text-[11px] font-bold text-[#1A1C1E] transition-all hover:border-[#FF6B4A] hover:text-[#FF6B4A] disabled:opacity-40 dark:border-white/20 dark:text-white"
+                    >
+                      跨会话测 ({sessionTranscriptCount})
                     </button>
                   </div>
                   {passKResult ? (

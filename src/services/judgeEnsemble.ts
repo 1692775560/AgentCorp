@@ -98,6 +98,17 @@ export function majorityVerdict(verdicts: (Verdict | null | undefined)[]): Verdi
 }
 
 /**
+ * B · 跨「同原型多 session」全对判定（纯函数，可单测）。
+ * 可靠性 pass^k 升级为：同一 boss 原型下，agent 必须在**每一段独立会话**里都达标，
+ * 才算「可靠」——避免把单次幸运达标当成稳健。任一段不过 → 不可靠。
+ * 调用方应保证入参为 ≥2 段会话的判定；空数组按空真返回 true（由调用方把关）。
+ */
+export function allPassAcrossSessions(perSessionPass: boolean[]): boolean {
+  if (perSessionPass.length === 0) return true;
+  return perSessionPass.every(Boolean);
+}
+
+/**
  * 对同一条 transcript 重复调用裁判 k 次并聚合。
  *
  * @returns 聚合结果；k 次全部失败（无有效雷达）时返回 null（调用方降级处理）。

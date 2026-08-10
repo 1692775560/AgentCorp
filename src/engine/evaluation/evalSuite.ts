@@ -11,7 +11,7 @@
  *
  * 全部为纯函数、无副作用（不读 store / 不发网络），可直接单测。
  */
-import type { BossProfile, RadarScore, RadarDim } from '@/types/evaluation';
+import type { BossProfile, RadarScore, RadarDim, PersonalizationRisk } from '@/types/evaluation';
 import { NEUTRAL_BOSS } from '@/types/evaluation';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { bossPersonaBoost } from '@/engine/interview/questionBank';
@@ -94,6 +94,35 @@ export function personalizationDelta(
     sum += diff;
   }
   return { perDim, total: Math.round((sum / RADAR_DIMS.length) * 100) / 100 };
+}
+
+/**
+ * 个性化风险分级（B · delta 接风险标红）。阈值与 SuiteView 的 deltaRisk 对齐：
+ * total ≥ 1.5 → high（对谁说都不一样，需额外把关）；≥ 0.6 → medium；否则 low。
+ */
+export function classifyPersonalizationRisk(total: number): PersonalizationRisk {
+  if (total >= 1.5) return 'high';
+  if (total >= 0.6) return 'medium';
+  return 'low';
+}
+
+/**
+ * 由 radarByPersona 直接推导个性化风险等级（无需原型表，仅依赖 neutral 锚点 +
+ * 各原型雷达）。无中性锚点或无任何原型评估 → null（数据不足，不臆断）。
+ */
+export function personalizationRiskFromRadarMap(
+  map?: Record<string, RadarScore>,
+): PersonalizationRisk | null {
+  if (!map || !map[NEUTRAL_BOSS.id]) return null;
+  const neutral = map[NEUTRAL_BOSS.id];
+  let maxTotal = 0;
+  for (const [id, radar] of Object.entries(map)) {
+    if (id === NEUTRAL_BOSS.id || !radar) continue;
+    const { total } = personalizationDelta(neutral, radar);
+    if (total > maxTotal) maxTotal = total;
+  }
+  if (maxTotal === 0) return null;
+  return classifyPersonalizationRisk(maxTotal);
 }
 
 /**

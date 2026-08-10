@@ -472,6 +472,32 @@ export interface EvaluationProfile {
    * 加法字段：无 persona 评估时保持 undefined，向后兼容既有落库数据。
    */
   radarByPersona?: Record<string, RadarScore>;
+  /**
+   * B · 个性化风险等级（personalization delta 接风险标红）：由 radarByPersona 的
+   * 跨原型最大漂移推导。'high' = 该 agent 表现随协作对象显著漂移（对谁说都不一样），
+   * 真实协作里风险更高，需额外把关。无足够数据时为 null。加法字段。
+   */
+  personalizationRisk?: PersonalizationRisk | null;
+  /**
+   * B · 状态化多轮会话（SP-History）：按 BossProfile.id 累积的历史会话摘要，
+   * 用于把「记忆」注入裁判上下文，使评估从离线/无状态升级为带历史的状态化评估
+   * （Wang 的 sock-puppet + 交互历史主张）。仅存摘要 + 可选 transcript，封顶 3 条。
+   * 加法字段。
+   */
+  sessionsByPersona?: Record<string, AgentSessionSummary[]>;
+}
+
+/** 个性化风险等级（B · personalization delta 接风险标红） */
+export type PersonalizationRisk = 'high' | 'medium' | 'low';
+
+/** B · 单条历史会话摘要（SP-History 注入用） */
+export interface AgentSessionSummary {
+  /** ISO8601 UTC */
+  ts: string;
+  /** 对话摘要（前若干字符，注入裁判前缀用） */
+  summary: string;
+  /** 完整 transcript（多 session passK 复用；可选，体积敏感） */
+  transcript?: string;
 }
 
 /**
