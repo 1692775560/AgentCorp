@@ -67,8 +67,10 @@ export interface InterviewTurn {
   tokensUsed: number | null;
   /** 真实调度主键（gateway chat.send 返回），手动模式缺省 */
   runId?: string;
-  /** HR 对本轮的通用六维打分（0–5，0.5 步进，可只填部分维） */
-  hrRatings: Partial<Record<RadarDim, number>>;
+  /** HR 对本轮的打分（0–5，0.5 步进，可只填部分维）。
+   *  键为通用六维或工种 craft 维：P1#8 起 HR 可直接给 craft 维打分，
+   *  覆盖度据此由人工判断驱动，而非仅正则猜。 */
+  hrRatings: Record<string, number>;
   /** HR 证据备注（写入 dimEvidence） */
   evidenceNote?: string;
   /** ISO8601 UTC */

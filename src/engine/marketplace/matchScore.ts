@@ -68,6 +68,8 @@ export interface MatchContext {
   budgetRef: number;
   /** 四项权重（缺省用 DEFAULT_MATCH_WEIGHTS） */
   weights?: Partial<MatchWeights>;
+  /** D · 老板原型强调系数（bossPersonaBoost）：使匹配按「与谁协作」个性化 */
+  personaBoost?: Partial<Record<RadarDim, number>>;
 }
 
 /** 夹取到 [0,1] */
@@ -154,8 +156,8 @@ export function matchScore(
 
   const weights: MatchWeights = { ...DEFAULT_MATCH_WEIGHTS, ...(ctx.weights ?? {}) };
 
-  // ① 六维契合（心智权重 × 任务强调）
-  const effWeight = applyTaskBoost(ctx.userWeight, taskProfile?.dimBoost);
+  // ① 六维契合（心智权重 × 任务强调 × 老板原型强调）
+  const effWeight = applyTaskBoost(ctx.userWeight, taskProfile?.dimBoost, ctx.personaBoost);
   const userFit = computeUserFit(candidate.radar, effWeight);
 
   // ② 标签契合（Jaccard）
@@ -188,6 +190,11 @@ export function matchScore(
       cost: weights.cost,
       perf: weights.perf,
     },
+    // D · 回声个性化强调系数（非空 = 本次匹配按老板原型个性化），供 UI 透明披露
+    personaBoost:
+      ctx.personaBoost && Object.keys(ctx.personaBoost).length > 0
+        ? ctx.personaBoost
+        : undefined,
   };
 }
 

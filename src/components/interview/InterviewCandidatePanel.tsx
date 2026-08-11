@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { boostedDims } from '@/engine/interview/questionBank';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
+import { inferJobType } from '@/engine/marketplace/taskMatch';
 import { useAgentsStore } from '@/stores/agents';
 import { useMarketplaceStore } from '@/stores/marketplace';
 import { useInterviewStore } from '@/stores/interview';
@@ -29,6 +30,21 @@ const JOB_LABELS: Record<JobType, string> = {
   text: '文本',
   code: '代码',
 };
+
+/**
+ * 候选自身的工种：从人设 / 职责 / 名称推断。
+ *
+ * 此前 startSession 未传 jobType，一路落到 `?? 'code'` 兜底，
+ * 于是画师和文案也按写代码出题 —— 题目与工种完全不匹配。
+ * 优先级：需求卡显式选择 > 候选自身画像 > 需求文本推断 > code。
+ */
+function inferCandidateJob(agent: {
+  name: string;
+  persona: string;
+  responsibility: string;
+}): JobType | null {
+  return inferJobType(`${agent.name} ${agent.persona} ${agent.responsibility}`);
+}
 
 /** 面试结论选项 */
 const RECOMMENDATION_OPTIONS: Array<{ value: InterviewRecommendation | 'auto'; label: string }> = [
@@ -66,6 +82,7 @@ export function InterviewCandidatePanel() {
   const jobType = useInterviewStore((s) => s.jobType);
   const plan = useInterviewStore((s) => s.plan);
   const turns = useInterviewStore((s) => s.turns);
+  const craftTrials = useInterviewStore((s) => s.craftTrials);
   const report = useInterviewStore((s) => s.report);
   const stageScore = useInterviewStore((s) => s.stageScore);
   const startSession = useInterviewStore((s) => s.startSession);
@@ -83,6 +100,13 @@ export function InterviewCandidatePanel() {
   const emphasized = useMemo(() => boostedDims(taskProfile?.dimBoost), [taskProfile]);
   const idle = status === 'idle';
 
+  /** 开场前展示「本场实际会用的工种」，与 handleStart 的取值口径保持一致 */
+  const effectiveJob: JobType = useMemo(() => {
+    if (taskProfile?.jobType) return taskProfile.jobType;
+    const agent = agents.find((a) => a.id === selectedId);
+    return (agent ? inferCandidateJob(agent) : null) ?? 'code';
+  }, [taskProfile, agents, selectedId]);
+
   /** 自动预选首位候选：雇完人进来时不必再手点一次列表就能按「开始面试」。
       Agent 没有雇佣时间字段，无法定位「刚雇的那位」，故取首位。 */
   useEffect(() => {
@@ -99,6 +123,7 @@ export function InterviewCandidatePanel() {
       agentId: agent.id,
       agentName: agent.name,
       sessionKey: agent.mainSessionKey,
+      jobType: taskProfile?.jobType ?? inferCandidateJob(agent) ?? undefined,
     });
   };
 
@@ -167,7 +192,8 @@ export function InterviewCandidatePanel() {
 
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">
-            工种：{taskProfile?.jobType ? JOB_LABELS[taskProfile.jobType] : '不限'}
+            工种：{JOB_LABELS[effectiveJob]}
+            {!taskProfile?.jobType && <span className="ml-1 opacity-70">（按候选画像推断）</span>}
           </Badge>
           {emphasized.length > 0 ? (
             emphasized.map((dim) => (
@@ -291,7 +317,9 @@ export function InterviewCandidatePanel() {
           <Button
             className="w-full"
             variant="default"
-            disabled={scoring || turns.length === 0}
+            // P1#7 修复：试做题-only 面试（无对话轮次、但有试做题轮次）也应可收尾，
+            // 否则「纯手艺探针」链路（craft 客观分）永远卡在无法归档。
+            disabled={scoring || (turns.length === 0 && craftTrials.length === 0)}
             onClick={() => void handleFinish()}
           >
             {scoring ? (
@@ -303,8 +331,8 @@ export function InterviewCandidatePanel() {
               '结束面试并生成评分卡'
             )}
           </Button>
-          {turns.length === 0 && (
-            <p className="text-[11px] text-muted-foreground">至少完成一轮问答才能收尾。</p>
+          {turns.length === 0 && craftTrials.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">至少完成一轮问答或一道试做题才能收尾。</p>
           )}
         </section>
       )}

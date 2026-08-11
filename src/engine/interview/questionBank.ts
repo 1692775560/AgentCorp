@@ -15,7 +15,7 @@
  *
  * 本文件全部为纯函数、无副作用（不读 store / 不发网络），可直接单测。
  */
-import type { CraftDim, JobType, RadarDim } from '@/types/evaluation';
+import type { BossProfile, CraftDim, JobType, RadarDim } from '@/types/evaluation';
 import type { InterviewPhase, InterviewQuestion } from '@/types/interview';
 
 /** 阶段顺序（选题与展示的唯一真相） */
@@ -360,6 +360,8 @@ export interface QuestionSelectOptions {
   jobType: JobType | null;
   /** 通道①：任务画像的维度强调系数（缺省视为 1） */
   dimBoost?: Partial<Record<RadarDim, number>>;
+  /** A · 老板原型：用户个性化维度强调，与 dimBoost 合并后影响选题 */
+  persona?: BossProfile | null;
   /** 需求标签（用于题干占位符渲染） */
   tags?: string[];
   /** 每阶段取题数（覆盖 DEFAULT_PER_PHASE） */
@@ -378,15 +380,85 @@ export function boostedDims(
     .map(([dim]) => dim);
 }
 
+/**
+ * 老板原型 → 通用六维强调系数（A · 人格化选题）。
+ * 把 BossProfile 翻译成与 dimBoost 同构的「维度强调」权重（>1 表示加强），
+ * 使面试选题随「与谁协作」而变（Wang 的 sock-puppet 思路在题库层的落地）。
+ * 各维从 1 起算：多个信号命中则累加，缺省维不出现（视为 1）。
+ */
+export function bossPersonaBoost(profile: BossProfile | null | undefined): Partial<Record<RadarDim, number>> {
+  if (!profile) return {};
+  const boost: Partial<Record<RadarDim, number>> = {};
+  const add = (dim: RadarDim, w: number) => {
+    boost[dim] = (boost[dim] ?? 0) + w;
+  };
+
+  // 经验水平：新手要澄清+扎实基础；专家要创意+质量
+  if (profile.experienceLevel === 'novice') {
+    add('task', 0.2); add('comm', 0.2); add('quality', 0.1);
+  } else if (profile.experienceLevel === 'expert') {
+    add('creativity', 0.2); add('quality', 0.15);
+  }
+  // 风险厌恶：高=更要可靠+清晰上报；低=更容创意+性价比
+  if (profile.riskAversion === 'high') {
+    add('reliability', 0.3); add('comm', 0.1);
+  } else if (profile.riskAversion === 'low') {
+    add('creativity', 0.1); add('cost', 0.1);
+  }
+  // 沟通风格
+  if (profile.communicationStyle === 'concise') {
+    add('comm', 0.15); add('task', 0.05);
+  } else if (profile.communicationStyle === 'detailed') {
+    add('quality', 0.15); add('comm', 0.1);
+  } else if (profile.communicationStyle === 'socratic') {
+    add('task', 0.15); add('comm', 0.15);
+  }
+  // 约束偏好关键词
+  for (const pref of profile.constraintPrefs ?? []) {
+    if (pref === 'cost') add('cost', 0.25);
+    else if (pref === 'speed') add('task', 0.2);
+    else if (pref === 'quality') add('quality', 0.25);
+    else if (pref === 'safety') add('reliability', 0.3);
+  }
+  // 转成 >1 的强调系数（1 + 权重）
+  const out: Partial<Record<RadarDim, number>> = {};
+  (Object.keys(boost) as RadarDim[]).forEach((dim) => {
+    out[dim] = 1 + (boost[dim] ?? 0);
+  });
+  return out;
+}
+
+/**
+ * 合并两套维度强调系数（dimBoost 任务侧 + personaBoost 用户侧）。
+ * 同维系数相加再减 1（避免双重加成），缺省维视为 1。
+ */
+export function mergeBoost(
+  a: Partial<Record<RadarDim, number>> | undefined,
+  b: Partial<Record<RadarDim, number>> | undefined,
+): Partial<Record<RadarDim, number>> {
+  const out: Partial<Record<RadarDim, number>> = {};
+  const dims = new Set<RadarDim>([
+    ...(Object.keys(a ?? {}) as RadarDim[]),
+    ...(Object.keys(b ?? {}) as RadarDim[]),
+  ]);
+  for (const dim of dims) {
+    const va = (a as Record<string, number | undefined>)?.[dim] ?? 1;
+    const vb = (b as Record<string, number | undefined>)?.[dim] ?? 1;
+    const merged = va + vb - 1;
+    if (merged > 1.001) out[dim] = Math.round(merged * 100) / 100;
+  }
+  return out;
+}
+
 /** 某题与「强调维」的匹配权重（交集维的 boost 之和；无交集为 0） */
 export function questionBoostWeight(
   question: InterviewQuestion,
-  dimBoost: Partial<Record<RadarDim, number>> | undefined,
+  boost: Partial<Record<RadarDim, number>> | undefined,
 ): number {
-  if (!dimBoost) return 0;
+  if (!boost) return 0;
   let sum = 0;
   for (const dim of question.targetDims) {
-    const value = (dimBoost as Record<string, number | undefined>)[dim];
+    const value = (boost as Record<string, number | undefined>)[dim];
     if (typeof value === 'number' && value > 1) sum += value - 1;
   }
   return sum;
@@ -410,8 +482,10 @@ export function questionsOf(
  * 再按阶段顺序拼接；P1 题的 targetDims 追加强调维，保证任务重心从第一轮起被观测。
  */
 export function selectQuestions(opts: QuestionSelectOptions): InterviewQuestion[] {
-  const { jobType, dimBoost, perPhase } = opts;
-  const boosted = boostedDims(dimBoost);
+  const { jobType, dimBoost, persona, perPhase } = opts;
+  // A · 合并任务侧(dimBoost)与用户侧(personaBoost)强调；persona=null 时退化为仅任务侧
+  const combinedBoost = mergeBoost(dimBoost, bossPersonaBoost(persona));
+  const boosted = boostedDims(combinedBoost);
   const plan: InterviewQuestion[] = [];
 
   for (const phase of PHASE_ORDER) {
@@ -421,7 +495,7 @@ export function selectQuestions(opts: QuestionSelectOptions): InterviewQuestion[
     const pool = questionsOf(phase, jobType);
     // 稳定排序：附带原始下标做次级比较键
     const ranked = pool
-      .map((q, index) => ({ q, index, weight: questionBoostWeight(q, dimBoost) }))
+      .map((q, index) => ({ q, index, weight: questionBoostWeight(q, combinedBoost) }))
       .sort((a, b) => (b.weight - a.weight) || (a.index - b.index))
       .slice(0, limit)
       .map((item) => item.q);

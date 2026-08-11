@@ -35,6 +35,8 @@ import { budgetRefOf, matchScore, sortByMatch } from '@/engine/marketplace/match
 import { paretoRankCandidates } from '@/engine/marketplace/paretoRank';
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useScoringStore } from '@/stores/scoringStore';
+import { getActiveBossProfile } from '@/stores/bossProfile';
+import { bossPersonaBoost } from '@/engine/interview/questionBank';
 import { getFavorites, getLike } from '@/services/reactionStore';
 import { resolveLikeKey } from '@/stores/likesStore';
 
@@ -321,6 +323,8 @@ export const useMarketplaceStore = create<MarketplaceState>((set, get) => ({
     const { candidates, taskProfile, sortKey } = get();
     const userWeight = useScoringStore.getState().userWeight;
     const budgetRef = budgetRefOf(candidates);
+    // D · 老板原型强调：让市场契合度按「与谁协作」个性化（中性原型 → {} → 不改变排序）
+    const personaBoost = bossPersonaBoost(getActiveBossProfile());
 
     const scored: MarketCandidateView[] = candidates.map((c) => {
       const breakdown: MatchScoreBreakdown | null = matchScore(
@@ -333,7 +337,7 @@ export const useMarketplaceStore = create<MarketplaceState>((set, get) => ({
           jobType: c.jobType,
         },
         taskProfile,
-        { userWeight, budgetRef },
+        { userWeight, budgetRef, personaBoost },
       );
       return { ...c, match: breakdown ?? undefined };
     });

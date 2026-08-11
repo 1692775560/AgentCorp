@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useAgentsStore } from '@/stores/agents';
+import { getActiveBossProfile, listBossProfiles } from '@/stores/bossProfile';
 import { listAgentSessions, type AgentSessionOption } from '@/services/evaluationData';
 import { speech } from '@/services/speech';
 import { useConvergenceStore } from '@/stores/convergenceStore';
@@ -30,6 +31,8 @@ import { Leaderboard } from './Leaderboard';
 import { DualTrackScoreCard } from '@/components/evaluation/DualTrackScoreCard';
 import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
 import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
+import { BossProfileSelector } from '@/components/persona/BossProfileSelector';
+import { SuiteView } from '@/components/evaluation/SuiteView';
 import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
@@ -144,6 +147,11 @@ export function Evaluation() {
 
   /** 当前选中 agent 的评估档案（含面试基线 interviewBaseline） */
   const selectedProfile = selectedAgentId ? (profiles[selectedAgentId] ?? null) : null;
+  // B · 状态化多轮：当前激活老板原型下、带完整 transcript 的历史会话数（≥2 才够跨会话测）
+  const activeBossId = getActiveBossProfile()?.id ?? 'neutral';
+  const sessionTranscriptCount = (
+    selectedProfile?.sessionsByPersona?.[activeBossId] ?? []
+  ).filter((s) => typeof s.transcript === 'string' && s.transcript.length > 0).length;
 
   const handleRun = async (agent: AgentSummary) => {
     // 会话下拉框属于当前选中的 agent；对未选中的 agent 点「运行评估」时
@@ -165,6 +173,8 @@ export function Evaluation() {
         ? { title: taskTitle.trim(), description: '', weight: 1 }
         : undefined,
       persona: agent.persona,
+      // A · 老板原型：把当前激活的用户个性化画像带入评估（区别于 agent 自身 persona）
+      bossProfile: getActiveBossProfile(),
     });
   };
 
@@ -195,6 +205,11 @@ export function Evaluation() {
       <div className="flex min-h-0 flex-1">
         {/* 左栏：agent 列表 */}
         <aside className="w-[300px] shrink-0 overflow-y-auto border-r border-white/40 p-4">
+          {/* A · 老板原型选择器：决定「与谁协作」的评估视角（个性化基线） */}
+          <div className="mb-3">
+            <BossProfileSelector />
+          </div>
+
           <div className="mb-3 space-y-2 rounded-2xl bg-white/70 p-3 dark:bg-white/5">
             <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">
               {t('evaluation.sessionLabel', '评估会话（真实运行记录）')}
@@ -364,6 +379,66 @@ export function Evaluation() {
                   </p>
                 )}
 
+                {/* E · 评估机制透明披露：明示本次分数基于哪个 persona / 哪段历史 / 哪个裁判 / k=几 */}
+                {(selectedProfile?.lastPersonaId || selectedProfile?.judgeSource) ? (
+                  (() => {
+                    const evalPersonaId = selectedProfile?.lastPersonaId ?? 'neutral';
+                    const evalPersona =
+                      listBossProfiles().find((p) => p.id === evalPersonaId);
+                    const evalPersonaName =
+                      evalPersona?.name ??
+                      (evalPersonaId === 'neutral' ? '中性（无个性化）' : evalPersonaId);
+                    const historySessions =
+                      selectedProfile?.sessionsByPersona?.[evalPersonaId]?.length ?? 0;
+                    const judgeLabel =
+                      selectedProfile?.judgeSource === 'degraded'
+                        ? '离线启发式回退'
+                        : selectedProfile?.judgeSource === 'mixed'
+                          ? 'MiniCPM-o 裁判（部分维度回退）'
+                          : selectedProfile?.judgeSource === 'judge'
+                            ? 'MiniCPM-o 外部裁判'
+                            : '未知';
+                    return (
+                      <div className="space-y-2 rounded-2xl border border-white/40 bg-white/60 p-4 text-[11px] dark:bg-white/5">
+                        <p className="font-bold text-[#1A1C1E] dark:text-white">
+                          评估机制 · 透明披露
+                        </p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-gray-500">
+                          <span>
+                            老板原型：
+                            <b className="text-[#1A1C1E] dark:text-white">{evalPersonaName}</b>
+                          </span>
+                          <span>
+                            历史会话（SP-History）：
+                            <b className="text-[#1A1C1E] dark:text-white">{historySessions} 段</b>
+                          </span>
+                          <span>
+                            裁判：
+                            <b className="text-[#1A1C1E] dark:text-white">{judgeLabel}</b>
+                          </span>
+                          {passKResult ? (
+                            <span>
+                              可靠性 k=
+                              <b className="text-[#1A1C1E] dark:text-white">{passKResult.k}</b>
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-gray-400">
+                          同一 agent 对不同老板、不同历史、不同裁判，分数会不同——这是个性化评估的应有之义（Wang 透明披露主张）。
+                        </p>
+                      </div>
+                    );
+                  })()
+                ) : null}
+
+                {/* C · 基准套件：维度×原型矩阵 + 个性化增量（人格化评估的核心视图） */}
+                <SuiteView
+                  agentId={selectedAgentId}
+                  radarByPersona={selectedProfile?.radarByPersona}
+                  profiles={listBossProfiles()}
+                  risk={selectedProfile?.personalizationRisk}
+                />
+
                 {/* 双轨评分卡（客观遥测 + 主观打分 + 0.7/0.3 加权 total） */}
                 <DualTrackScoreCard agentId={selectedAgentId} />
 
@@ -380,6 +455,22 @@ export function Evaluation() {
                       className="rounded-full bg-[#1A1C1E] px-3 py-1.5 text-[11px] font-bold text-white transition-all hover:bg-[#FF6B4A] disabled:opacity-50 dark:bg-white dark:text-[#1A1C1E]"
                     >
                       {passKRunning ? '测算中…' : '测可靠性 (pass^k)'}
+                    </button>
+                    {/* B · 跨会话测（SP-History）：同一原型下多段历史会话各判一次，全过才算可靠 */}
+                    <button
+                      type="button"
+                      disabled={passKRunning || !selectedAgentId || sessionTranscriptCount < 2}
+                      onClick={() =>
+                        selectedAgentId && void runPassK(selectedAgentId, 3, { useSessions: true })
+                      }
+                      title={
+                        sessionTranscriptCount < 2
+                          ? '需在同一老板原型下运行 ≥2 次评估（累积历史会话）后方可跨会话测'
+                          : '同一原型下多段会话各判一次，全部全维达标才算可靠'
+                      }
+                      className="rounded-full border border-[#1A1C1E]/20 px-3 py-1.5 text-[11px] font-bold text-[#1A1C1E] transition-all hover:border-[#FF6B4A] hover:text-[#FF6B4A] disabled:opacity-40 dark:border-white/20 dark:text-white"
+                    >
+                      跨会话测 ({sessionTranscriptCount})
                     </button>
                   </div>
                   {passKResult ? (

@@ -94,14 +94,33 @@ describe('judgeClient.fallbackMock', () => {
     expect(new Set(dims)).toEqual(new Set(DIMS));
 
     for (const e of radar) {
-      expect(Object.keys(e).sort()).toEqual(['confidence', 'dim', 'evidence', 'score', 'type']);
+      expect(Object.keys(e).sort()).toEqual([
+        'confidence',
+        'dim',
+        'evidence',
+        'score',
+        'source',
+        'type',
+      ]);
+      // E · 透明披露：离线回退路径的雷达事件标记为 degraded（外部裁判不可达）
+      expect(e.source).toBe('degraded');
       expect(e.score).toBeGreaterThanOrEqual(0);
       expect(e.score).toBeLessThanOrEqual(5);
       expect(typeof e.confidence).toBe('number');
     }
 
     const v = events.find((e: any) => e.type === 'verdict') as any;
-    expect(Object.keys(v).sort()).toEqual(['confidence', 'evidence_trace', 'type', 'user_fit', 'verdict']);
+    expect(Object.keys(v).sort()).toEqual([
+      'confidence',
+      'evidence_trace',
+      'source',
+      'type',
+      'user_fit',
+      'verdict',
+    ]);
+    // E · 透明披露：verdict 与 radar_update 同样携带来源，
+    // 否则 radar 全被跳过时调用方无从判断这一票是真裁判还是回退
+    expect(v.source).toBe('degraded');
     expect(['MVP', 'OBSERVE', 'FIRED']).toContain(v.verdict);
     expect(v.user_fit).toBeGreaterThanOrEqual(0);
     expect(v.user_fit).toBeLessThanOrEqual(100);

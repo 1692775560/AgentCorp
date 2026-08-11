@@ -82,6 +82,47 @@ export interface RadarScore {
   cost: number;
 }
 
+/* ===================== 老板原型 / 用户个性化（A · 人格化评估） =====================
+ * Wang et al. (2025) "The inadequacy of offline LLM evaluations" 核心主张：
+ * 离线/无状态评估无法反映真实行为，因为个性化（用户画像、交互历史）根本改变了模型行为。
+ * 评估框架必须把「与谁协作」作为基本输入。AgentCorp 据此引入独立的 BossProfile——
+ * 与既有的 agent.persona（agent 自己的系统人设）区分，描述「正在评估/雇佣这位 agent 的人」。
+ */
+
+/** 经验水平（影响澄清/手艺探针权重） */
+export type ExperienceLevel = 'novice' | 'intermediate' | 'expert';
+/** 风险厌恶（影响可靠性/越权/冲突类题权重；高分=更看重稳健与合规） */
+export type RiskAversion = 'low' | 'medium' | 'high';
+/** 沟通风格（影响沟通维权重） */
+export type CommunicationStyle = 'concise' | 'detailed' | 'socratic';
+
+/**
+ * 老板原型（用户个性化画像）。纯数据、可序列化、无副作用。
+ * id 作为评估套件矩阵（C）的稳定键；neutral 为无个性化基线。
+ */
+export interface BossProfile {
+  /** 稳定键（套件矩阵按此聚合；如 'neutral' / 'boss-growth' / 'boss-risk'） */
+  id: string;
+  /** 展示名（UI 用，可空） */
+  name?: string;
+  /** 领域（如「电商增长」「学术研究」） */
+  domain?: string;
+  /** 经验水平 */
+  experienceLevel?: ExperienceLevel;
+  /** 风险厌恶 */
+  riskAversion?: RiskAversion;
+  /** 沟通风格 */
+  communicationStyle?: CommunicationStyle;
+  /** 约束偏好关键词（'cost' | 'speed' | 'quality' | 'safety' 等，驱动维度强调） */
+  constraintPrefs?: string[];
+}
+
+/** 中性老板（无个性化基线；所有增量评估的对照锚点） */
+export const NEUTRAL_BOSS: BossProfile = {
+  id: 'neutral',
+  name: '中性老板（无个性化）',
+};
+
 /** 六维权重（Σ=1） */
 export interface WeightVector {
   task: number;
@@ -162,6 +203,8 @@ export interface RadarUpdateEvent {
   score: number;
   confidence: number;
   evidence: string;
+  /** E · 裁判来源（透明披露）：'degraded' = 离线启发式回退，缺省 = 外部 MiniCPM-o 裁判 */
+  source?: "judge" | "degraded";
 }
 
 /** 讲解文本增量（is_final=true 表示讲解结束） */
@@ -192,6 +235,12 @@ export interface VerdictEvent {
   user_fit: number;
   evidence_trace: string[];
   confidence: number;
+  /**
+   * E · 裁判来源（透明披露）：'degraded' = 离线启发式回退，缺省 = 外部 MiniCPM-o 裁判。
+   * verdict 是用户最当真的结论（MVP / 待观察 / You are fired），
+   * 哈希派生的 FIRED 与真裁判给的 FIRED 必须可区分。
+   */
+  source?: "judge" | "degraded";
 }
 
 /** 评估完成 */
@@ -425,6 +474,52 @@ export interface EvaluationProfile {
     reportId: string;
     ts: string;
   };
+  /**
+   * ③ 人格化评估套件（C · benchmark suite）：按 BossProfile.id 存六维雷达。
+   * 用于跨用户原型对比（维度×原型矩阵）与个性化增量（personalization delta）计算。
+   * 加法字段：无 persona 评估时保持 undefined，向后兼容既有落库数据。
+   */
+  radarByPersona?: Record<string, RadarScore>;
+  /**
+   * B · 个性化风险等级（personalization delta 接风险标红）：由 radarByPersona 的
+   * 跨原型最大漂移推导。'high' = 该 agent 表现随协作对象显著漂移（对谁说都不一样），
+   * 真实协作里风险更高，需额外把关。无足够数据时为 null。加法字段。
+   */
+  personalizationRisk?: PersonalizationRisk | null;
+  /**
+   * B · 状态化多轮会话（SP-History）：按 BossProfile.id 累积的历史会话摘要，
+   * 用于把「记忆」注入裁判上下文，使评估从离线/无状态升级为带历史的状态化评估
+   * （Wang 的 sock-puppet + 交互历史主张）。仅存摘要 + 可选 transcript，封顶 3 条。
+   * 加法字段。
+   */
+  sessionsByPersona?: Record<string, AgentSessionSummary[]>;
+  /**
+   * E · 透明披露：本次评估所用的老板原型 id（'neutral' = 无个性化基线）。
+   * 供评估卡披露「基于哪个 persona 得出此分」，与当前激活原型对照。
+   * 加法字段。
+   */
+  lastPersonaId?: string;
+  /**
+   * E · 透明披露：本次评估的裁判来源。'judge' = 全部维度来自外部 MiniCPM-o 裁判；
+   * 'degraded' = 全部回退客观 KPI 启发式（agentId 哈希派生）；
+   * 'mixed' = 部分维度真裁判、部分回退——此前被并入 'degraded'，
+   * 掩盖了「大部分维度其实是真裁判」的事实，故单列一态。
+   * 加法字段，缺省 null（历史数据无此标注）。
+   */
+  judgeSource?: "judge" | "mixed" | "degraded" | null;
+}
+
+/** 个性化风险等级（B · personalization delta 接风险标红） */
+export type PersonalizationRisk = 'high' | 'medium' | 'low';
+
+/** B · 单条历史会话摘要（SP-History 注入用） */
+export interface AgentSessionSummary {
+  /** ISO8601 UTC */
+  ts: string;
+  /** 对话摘要（前若干字符，注入裁判前缀用） */
+  summary: string;
+  /** 完整 transcript（多 session passK 复用；可选，体积敏感） */
+  transcript?: string;
 }
 
 /**

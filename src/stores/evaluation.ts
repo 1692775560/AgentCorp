@@ -27,6 +27,7 @@ import type {
   LeaderboardEntry,
   LeaderboardTier,
   Verdict,
+  BossProfile,
 } from '@/types/evaluation';
 import { verdictToLifecycleState, LIFECYCLE_TO_STATE } from '@/types/lifecycle';
 import { save as evalSave, list as evalList } from '@/services/evaluationStore';
@@ -35,8 +36,14 @@ import { zscore } from '@/engine/roiEngine';
 import { tokenUsageCollector } from '@/services/tokenUsageCollector';
 import { collectRunData } from '@/services/evaluationData';
 import { judgeClient, type JudgeRunInput } from '@/services/judgeClient';
-import { judgeChatEnsemble } from '@/services/judgeEnsemble';
-import type { PassKResult } from '@/engine/evaluation/passK';
+import {
+  judgeChatEnsemble,
+  allPassAcrossSessions,
+  type JudgeEnsembleResult,
+} from '@/services/judgeEnsemble';
+import { personalizationRiskFromRadarMap } from '@/engine/evaluation/evalSuite';
+import { getActiveBossProfile } from '@/stores/bossProfile';
+import { passK, type PassKResult } from '@/engine/evaluation/passK';
 import { linkRunToTask } from '@/services/evaluationRuntime';
 import { speech } from '@/services/speech';
 // 模块 B 增量（仅加法）：
@@ -56,6 +63,8 @@ export interface EvaluationRunInput {
   taskId?: string;
   task?: { title: string; description: string; weight: number };
   persona?: string;
+  /** A · 老板原型（用户个性化）：描述「正在评估/雇佣这位 agent 的人」，区别于 agent.persona */
+  bossProfile?: BossProfile;
 }
 
 const ZERO_RADAR: RadarScore = {
@@ -118,8 +127,14 @@ interface EvaluationState {
   selectAgent: (agentId: string | null) => void;
   clearError: () => void;
   toggleVoice: () => void;
-  /** 可靠性 pass^k 测算：复用 lastTranscript 重复裁判 k 次并聚合（默认流程不变，纯增量） */
-  runPassK: (agentId: string, k?: number) => Promise<void>;
+  /**
+   * 可靠性 pass^k 测算：
+   * - 默认（无 opts）：复用 lastTranscript 重复裁判 k 次并聚合（既有行为，纯增量）；
+   * - opts.useSessions=true：取该 agent 在「激活老板原型」下的多段历史会话，
+   *   逐段独立评判后用 allPassAcrossSessions 判定（B · 状态化多轮，升级语义：
+   *   同一原型下每一段会话都达标，才算「可靠」——避免把单次幸运达标当成稳健）。
+   */
+  runPassK: (agentId: string, k?: number, opts?: { useSessions?: boolean }) => Promise<void>;
 }
 
 /**
@@ -300,6 +315,8 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         agentId: input.agentId,
         agentName: input.agentName,
         persona: input.persona,
+        // A · 老板原型：把激活的用户个性化画像带给流式裁判（后端识别时注入评估上下文）
+        bossProfile: input.bossProfile,
         task: input.task ?? { title: 'Ad-hoc task', description: '', weight: 1 },
         transcript,
         usage: entries,
@@ -313,9 +330,16 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       let verdictUserFit = 0;
       let verdictEvidence: string[] = [];
       let sawAudio = false; // 本流出现过 audio 事件 → narration 只上屏（防双播）
+      // E · 透明披露：分别计数真裁判与回退的维度，据此区分 judge / mixed / degraded。
+      // 此前是「任一维降级即整体标 degraded」，会把 5 维真裁判 + 1 维回退
+      // 说成全盘不可信，与实际不符。
+      let judgeDims = 0;
+      let degradedDims = 0;
       for await (const ev of judgeClient.evaluate(judgeInput)) {
         if (ev.type === 'radar_update') {
           radar[ev.dim] = ev.score;
+          if (ev.source === 'degraded') degradedDims += 1;
+          else judgeDims += 1;
           set({ radarLatest: { ...ZERO_RADAR, ...radar } });
         } else if (ev.type === 'narration') {
           if (ev.delta) {
@@ -329,8 +353,21 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
           verdict = ev.verdict;
           verdictUserFit = ev.user_fit;
           verdictEvidence = ev.evidence_trace;
+          // verdict 自带来源：只有 radar_update 全被跳过时才靠它兜底标降级
+          if (ev.source === 'degraded') degradedDims += 1;
+          else judgeDims += 1;
         }
       }
+
+      // 无任何来源标注（如 mock 流）时保守记 null，不谎报 judge
+      const judgeSource: 'judge' | 'mixed' | 'degraded' | null =
+        judgeDims + degradedDims === 0
+          ? null
+          : degradedDims === 0
+            ? 'judge'
+            : judgeDims === 0
+              ? 'degraded'
+              : 'mixed';
 
       // 语音宣判：流中无 audio 宣判块时（fallbackMock / tts 不可用）合成文本兜底
       if (verdict && !sawAudio) {
@@ -369,6 +406,34 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         subjectiveHistory: prev?.subjectiveHistory,
         craftLatest: prev?.craftLatest,
         interviewBaseline,
+        // C · 基准套件：把本次（在某老板原型下）的六维雷达按原型 id 落入矩阵，
+        // 供维度×原型对比与 personalization delta 计算（中性基线写入 'neutral'）。
+        radarByPersona: {
+          ...(prev?.radarByPersona ?? {}),
+          [input.bossProfile?.id ?? 'neutral']: radarScore,
+        },
+        // B · 个性化风险：由本次写入后的 radarByPersona 推导跨原型最大漂移风险等级
+        // （'high' = 该 agent 表现随协作对象显著漂移，需额外把关）。
+        personalizationRisk: personalizationRiskFromRadarMap({
+          ...(prev?.radarByPersona ?? {}),
+          [input.bossProfile?.id ?? 'neutral']: radarScore,
+        }),
+        // B · 状态化多轮（SP-History）：把本次会话摘要（含完整 transcript，封顶 3 条）
+        // 按激活老板原型累积，供后续跨会话 pass^k 复用与「记忆」注入裁判上下文。
+        sessionsByPersona: {
+          ...(prev?.sessionsByPersona ?? {}),
+          [input.bossProfile?.id ?? 'neutral']: [
+            ...(prev?.sessionsByPersona?.[input.bossProfile?.id ?? 'neutral'] ?? []),
+            {
+              ts: new Date().toISOString(),
+              summary: transcript.slice(0, 200),
+              transcript,
+            },
+          ].slice(-3),
+        },
+        // E · 透明披露：记录本次评估所用的老板原型与裁判来源，供评估卡明示机制
+        lastPersonaId: input.bossProfile?.id ?? 'neutral',
+        judgeSource,
       };
       await evalSave(profile);
 
@@ -417,15 +482,86 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
     set({ voiceEnabled: next });
   },
 
-  runPassK: async (agentId, k = 3) => {
-    const transcript = get().lastTranscript;
-    if (!transcript) {
-      set({ error: '尚无转录文本，请先运行一次评估以采集对话。' });
-      return;
-    }
+  runPassK: async (agentId, k = 3, opts) => {
     set({ passKRunning: true, passKResult: null, error: null });
     try {
-      const result = await judgeChatEnsemble(agentId, transcript, { k });
+      // B · 状态化多轮（SP-History）：跨「同原型多 session」全对判定
+      if (opts?.useSessions) {
+        const activeId = getActiveBossProfile()?.id ?? 'neutral';
+        const sessions = get().profiles[agentId]?.sessionsByPersona?.[activeId] ?? [];
+        // 只保留有 transcript 的会话，transcript 与 summary 从同一份列表派生，
+        // 保证下标一一对应（否则 history 的 slice(0, i) 会错位到别的会话上）
+        const usable = sessions.filter(
+          (s): s is typeof s & { transcript: string } =>
+            typeof s.transcript === 'string' && s.transcript.length > 0,
+        );
+        const transcripts = usable.map((s) => s.transcript);
+        if (transcripts.length < 2) {
+          set({
+            passKRunning: false,
+            error: '状态化多轮测算需要同一原型下 ≥2 段历史会话，请先在该老板原型下运行多次评估。',
+          });
+          return;
+        }
+        const persona = getActiveBossProfile();
+        // 摘要按时间正序，与 transcripts 同下标，供逐段注入「此前发生过什么」
+        const summaries = usable.map((s) => s.summary ?? s.transcript.slice(0, 200));
+        // 每段独立会话各跑一次裁判。第 i 段带上前 i 段的摘要作为 SP-History，
+        // 使记忆真正累积——裁判评第 3 段时知道第 1、2 段发生过什么，
+        // 才能考察「是否前后一致、是否记得此前约定」。首段无历史 = 无状态基线。
+        const sessionResults = await Promise.all(
+          transcripts.map((t, i) =>
+            judgeChatEnsemble(agentId, t, {
+              k: 1,
+              persona,
+              history: summaries.slice(0, i),
+            }),
+          ),
+        );
+        const valid = sessionResults.filter(
+          (r): r is JudgeEnsembleResult => Boolean(r) && Boolean(r?.meanRadar),
+        );
+        if (valid.length < 2) {
+          set({
+            passKRunning: false,
+            error: '裁判服务不可用或部分会话评分失败，无法跨会话测算 pass^k。',
+          });
+          return;
+        }
+        const perSessionPass = valid.map((r) => r.passK.allPass);
+        const allRadars = valid.map((r) => r.meanRadar);
+        // 跨会话聚合：k = 会话数；allPass 升级为「每段都全过」；passRate 为全过会话占比。
+        // 标 mode='sessions'，因为 meanRadar/dimPassRate 仍是「各段均值雷达」派生的，
+        // 与 allPass/passRate 的会话级语义不同，必须让 UI 能分辨（详见 PassKMode 注释）。
+        const base = passK(allRadars, { k: allRadars.length });
+        const combined: PassKResult = {
+          ...base,
+          mode: 'sessions',
+          k: allRadars.length,
+          allPass: allPassAcrossSessions(perSessionPass),
+          passRate:
+            Math.round(
+              (perSessionPass.filter(Boolean).length / perSessionPass.length) * 100,
+            ) / 100,
+        };
+        set({ passKResult: combined, passKRunning: false });
+        return;
+      }
+
+      // 默认：单次 transcript 重复 k 次（既有行为不变）
+      const transcript = get().lastTranscript;
+      if (!transcript) {
+        set({
+          passKRunning: false,
+          error: '尚无转录文本，请先运行一次评估以采集对话。',
+        });
+        return;
+      }
+      const result = await judgeChatEnsemble(agentId, transcript, {
+        k,
+        // A · 人格化裁判：把激活的老板原型透传给 judgeChat（前缀注入「评估上下文」）
+        persona: getActiveBossProfile(),
+      });
       if (!result) {
         // 裁判服务不可用（离线/503）：优雅降级，不阻塞主流程
         set({

@@ -41,6 +41,7 @@ export function InterviewThread() {
   const plan = useInterviewStore((s) => s.plan);
   const turns = useInterviewStore((s) => s.turns);
   const askedQIds = useInterviewStore((s) => s.askedQIds);
+  const skippedQIds = useInterviewStore((s) => s.skippedQIds);
   const currentQuestion = useInterviewStore((s) => s.currentQuestion);
   const suggestions = useInterviewStore((s) => s.suggestions);
   const dispatching = useInterviewStore((s) => s.dispatching);
@@ -60,12 +61,15 @@ export function InterviewThread() {
   const finished = status === 'finished';
   const idle = status === 'idle';
 
-  /** 各阶段已问 / 总题（题序进度条） */
+  /** 各阶段已问 / 总题（题序进度条）。P2 修复：跳过不计入「已完成」，进度条单独区分。 */
   const phaseStats = PHASE_ORDER.map((phase) => {
     const total = plan.filter((q) => q.phase === phase).length;
-    const done = plan.filter((q) => q.phase === phase && askedQIds.includes(q.qId)).length;
+    const done = plan.filter(
+      (q) => q.phase === phase && askedQIds.includes(q.qId) && !skippedQIds.includes(q.qId),
+    ).length;
     return { phase, total, done };
   });
+  const skippedCount = skippedQIds.length;
 
   return (
     <div className="flex h-full flex-col">
@@ -90,7 +94,7 @@ export function InterviewThread() {
             );
           })}
           <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-            已完成 {turns.length} 轮
+            已完成 {turns.length} 轮{skippedCount > 0 ? ` · 跳过 ${skippedCount}` : ''}
           </span>
         </div>
       </div>

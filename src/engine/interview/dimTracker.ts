@@ -155,11 +155,11 @@ export function computeCoverage(
   targetDims: (RadarDim | CraftDim)[],
   judgeRadar?: RadarScore | null,
 ): DimCoverage[] {
-  // 汇总每维的 HR 评分（取最近一次非空评分）
-  const ratings: Partial<Record<RadarDim, number>> = {};
+  // 汇总每维的 HR 评分（取最近一次非空评分；含 craft 维，键为字符串）
+  const ratings: Record<string, number> = {};
   for (const turn of turns) {
     for (const [dim, value] of Object.entries(turn.hrRatings)) {
-      if (typeof value === 'number') ratings[dim as RadarDim] = value;
+      if (typeof value === 'number') ratings[dim] = value;
     }
   }
 
@@ -186,6 +186,13 @@ export function computeCoverage(
       if (answered === 0 && asked > 0) answered = asked;
     }
     const isRadar = (RADAR_DIMS as string[]).includes(dim);
+    // P1#8：craft 维人工评分优先驱动覆盖度（修复"只能被正则猜"）。
+    // 模型分与正则只对通用六维生效，craft 维此前纯靠 evidenceStrength 估算，
+    // 现在 HR 直接打分即按 rating/5 计算覆盖度，人工判断覆盖正则启发式。
+    if (!isRadar && typeof ratings[dim] === 'number' && ratings[dim] > 0) {
+      strength = ratings[dim] / 5;
+      if (answered === 0 && asked > 0) answered = asked;
+    }
     return {
       dim,
       label: dimLabel(dim),
@@ -193,7 +200,7 @@ export function computeCoverage(
       answered,
       strength: Math.round(strength * 100) / 100,
       coverage: Math.min(1, strength / EVIDENCE_TARGET),
-      rating: isRadar ? (ratings[dim as RadarDim] ?? null) : null,
+      rating: typeof ratings[dim] === 'number' ? ratings[dim] : null,
     } satisfies DimCoverage;
   });
 }
@@ -206,8 +213,9 @@ export function coverageRatio(coverage: DimCoverage[]): number {
 }
 
 /**
- * 追问建议：优先覆盖证据最薄弱的维度（默认至少 2 个）。
- * 已经充分覆盖（coverage ≥ 0.8）的维度不再建议。
+ * 追问建议：优先覆盖证据最薄弱的维度（低于 threshold 才算薄弱）。
+ * 已经充分覆盖（coverage ≥ 0.8）的维度不再建议——避免把已达标维以
+ * 「证据偏薄（覆盖 100%）」的矛盾文案推给 HR（P2 文案修正）。
  *
  * 预算控制（opts.budget）：当 `followupBudgetRemaining(turns, budget) <= 0` 时
  * 直接停发建议（返回空数组）——这是「证据充分度驱动 + 追问封顶」的落地点，
@@ -219,7 +227,6 @@ export function suggestFollowups(
   opts: { max?: number; min?: number; threshold?: number; budget?: number } = {},
 ): FollowupSuggestion[] {
   const max = opts.max ?? 3;
-  const min = opts.min ?? 2;
   const threshold = opts.threshold ?? 0.8;
 
   // 追问预算耗尽：不再建议
@@ -230,11 +237,11 @@ export function suggestFollowups(
   const coverage = computeCoverage(turns, targetDims);
   const weakFirst = [...coverage].sort((a, b) => (a.coverage - b.coverage) || (a.asked - b.asked));
 
+  // 只返回真正低于阈值的维度。全部达标即视为收敛，返回空——不再用 min 兜底
+  // 把已达标维说成"证据偏薄"塞给 HR（此前 min 兜底会返回覆盖 100% 的维）。
   const picked = weakFirst.filter((item) => item.coverage < threshold).slice(0, max);
-  // 即使全部达标，也保留最薄弱的 min 个，保证 HR 始终有可点的追问
-  const result = picked.length >= min ? picked : weakFirst.slice(0, Math.min(min, weakFirst.length));
 
-  return result.map((item) => ({
+  return picked.map((item) => ({
     dim: item.dim,
     label: item.label,
     reason:

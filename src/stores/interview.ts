@@ -45,6 +45,7 @@ import {
   renderPrompt,
   selectQuestions,
 } from '@/engine/interview/questionBank';
+import { getActiveBossProfile } from '@/stores/bossProfile';
 import {
   buildDimEvidence,
   buildMetrics,
@@ -53,6 +54,7 @@ import {
   coverageRatio,
   recommendationOf,
   suggestFollowups,
+  DEFAULT_FOLLOWUP_BUDGET,
   type DimCoverage,
   type FollowupSuggestion,
 } from '@/engine/interview/dimTracker';
@@ -63,6 +65,7 @@ import {
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { fetchCraftTasks, judgeCraftTask, tasksForJob } from '@/services/craftClient';
 import { askAgent as runnerAskAgent } from '@/services/interviewRunner';
+import { judgeChatEnsemble } from '@/services/judgeEnsemble';
 import { save as saveReport } from '@/services/interviewStore';
 import { useMarketplaceStore } from '@/stores/marketplace';
 import { useEvaluationStore } from '@/stores/evaluation';
@@ -101,8 +104,10 @@ interface InterviewState {
   taskRequirement: TaskRequirement;
   /** 本场题序（三阶段递进） */
   plan: InterviewQuestion[];
-  /** 已问过的题 id */
+  /** 已问过的题 id（含已跳过；nextQuestion 据此跳过不再问） */
   askedQIds: string[];
+  /** 被 HR 主动跳过的题 id（与已答区分，进度条单独统计，不计入"已完成"） */
+  skippedQIds: string[];
   /** 当前待问的题（可能是追问题） */
   currentQuestion: InterviewQuestion | null;
   /** 已完成的问答轮次 */
@@ -134,6 +139,21 @@ interface InterviewState {
   craftActiveTaskId: string | null;
   /** 试做题链路错误（题库拉取 / judge 不可用），不阻断面试主流程 */
   craftError: string | null;
+  /**
+   * 模型裁判对本场对话的六维评审（judgeChatEnsemble 聚合）。
+   * 这是 HR 面试的客观分主线：HR 手动打分只作为补充，不再是唯一来源。
+   */
+  judgeRadar: RadarScore | null;
+  /** 模型评审来源：judge = k 次全为真裁判，mixed = 部分降级，degraded = 全降级 */
+  judgeSource: 'judge' | 'mixed' | 'degraded' | null;
+  /** 模型评审引用的证据（checkpoint 引文 / 判据） */
+  judgeEvidence: string[];
+  /** 模型评审置信度（0–1） */
+  judgeConfidence: number | null;
+  /** 正在跑模型评审 */
+  judging: boolean;
+  /** 模型评审错误（后端不可用等），不阻断面试；有值时不造分 */
+  judgeError: string | null;
   /** 用户自定义题（P3 后可选环节，复用 Arena 通道；不进 turns/dimTracker/模型分） */
   userQuestionRound: UserQuestionRound | null;
   userQuestionStatus: 'idle' | 'comparing' | 'ready' | 'picked' | 'error';
@@ -148,8 +168,13 @@ interface InterviewState {
     replyText: string,
     meta?: { latencyMs?: number | null; tokensUsed?: number | null; runId?: string | null },
   ) => void;
-  /** HR 逐轮六维打分 */
-  rateTurn: (turn: number, dim: RadarDim, value: number) => void;
+  /**
+   * 让模型裁判评审当前已有对话（LLM-as-judge 主线）。
+   * 幂等可重跑；失败只置 judgeError，绝不补分。
+   */
+  runJudge: () => Promise<void>;
+  /** HR 逐轮打分（对模型分的人工修正，非唯一来源）。dim 可为通用六维或 craft 维（P1#8 起支持 craft 维） */
+  rateTurn: (turn: number, dim: string, value: number) => void;
   /** HR 逐轮证据备注 */
   noteTurn: (turn: number, note: string) => void;
   /** 采纳一条追问建议（生成追问题并设为当前题） */
@@ -199,6 +224,28 @@ function beliefVector(coverage: DimCoverage[]): number[] {
   });
 }
 
+/**
+ * 问答轮次 → 供 chat-judge 评审的 transcript。
+ *
+ * 与 evaluationStore 的 transcript 同口径（角色前缀 + 空行分隔），
+ * 使同一套 rubric 在 S2 面试与 S3 评估间可比。
+ */
+export function buildTranscript(turns: InterviewTurn[]): string {
+  return turns
+    .map((t) => `面试官：${t.question}\n候选：${t.replyText}`)
+    .join('\n\n');
+}
+
+/**
+ * 纯 HR 打分聚合（不回落任何基线）。
+ *
+ * 模型分不可用时，评分卡只能拿 HR 真实打过的分；缺维即缺证据，
+ * 宁可让评分卡看到「维度不全」，也不用 S1 印象分冒充面试结论。
+ */
+function hrRadarOnly(turns: InterviewTurn[]): RadarScore | null {
+  return aggregateHrRadar(turns, null);
+}
+
 /** 当前题所处阶段（无当前题时取题序最后一题的阶段） */
 export function phaseOf(question: InterviewQuestion | null, plan: InterviewQuestion[]): InterviewPhase {
   if (question) return question.phase;
@@ -214,10 +261,11 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   jobType: 'code',
   createdBy: 'default',
   taskRequirement: { ...EMPTY_REQUIREMENT },
-  plan: [],
-  askedQIds: [],
-  currentQuestion: null,
-  turns: [],
+      plan: [],
+      askedQIds: [],
+      skippedQIds: [],
+      currentQuestion: null,
+      turns: [],
   baselineRadar: null,
   coverage: [],
   suggestions: [],
@@ -232,6 +280,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   craftRunning: false,
   craftActiveTaskId: null,
   craftError: null,
+  judgeRadar: null,
+  judgeSource: null,
+  judgeEvidence: [],
+  judgeConfidence: null,
+  judging: false,
+  judgeError: null,
   userQuestionRound: null,
   userQuestionStatus: 'idle',
   userQuestionError: null,
@@ -248,6 +302,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       jobType,
       dimBoost: profile?.dimBoost,
       tags: requirement.tags,
+      // A · 人格化选题：把激活的老板原型喂入，使题序随「与谁协作」而变
+      persona: getActiveBossProfile(),
     }).map((q) => ({
       ...q,
       prompt: renderPrompt(q.prompt, {
@@ -275,6 +331,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       taskRequirement: requirement,
       plan,
       askedQIds: [],
+      skippedQIds: [],
       currentQuestion: plan[0] ?? null,
       turns: [],
       baselineRadar,
@@ -291,6 +348,12 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       craftRunning: false,
       craftActiveTaskId: null,
       craftError: null,
+      judgeRadar: null,
+      judgeSource: null,
+      judgeEvidence: [],
+      judgeConfidence: null,
+      judging: false,
+      judgeError: null,
       error: null,
     });
 
@@ -350,21 +413,71 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     };
 
     const turns = [...state.turns, turn];
-    const askedQIds = state.askedQIds.includes(question.qId)
-      ? state.askedQIds
-      : [...state.askedQIds, question.qId];
+
+    // P1#5 修复：追问轮（qId 含 `:fu`）把「本体题 qId」一并记入 askedQIds，
+    // 否则 nextQuestion(plan, …) 只会跳过追问自身的 qId，而本体题不在 askedQIds
+    // 中，会被重新问出（被顶掉的题重现）。这里把本体题与追问 qId 都记上。
+    const baseQId = question.qId.includes(':fu')
+      ? question.qId.split(':fu')[0]
+      : question.qId;
+    const askedQIds = [...new Set([...state.askedQIds, baseQId, question.qId])];
     const targetDims = planTargetDims(state.plan);
     const coverage = computeCoverage(turns, targetDims);
+    // P1#6：追问建议接入预算封顶，预算耗尽自动停发。
+    const suggestions = suggestFollowups(turns, targetDims, { budget: DEFAULT_FOLLOWUP_BUDGET });
+    // 题序按「已答 ∪ 已跳过」为已消耗，跳过过的题不再重问。
+    const consumed = [...new Set([...askedQIds, ...state.skippedQIds])];
 
     set({
       turns,
       askedQIds,
       coverage,
-      suggestions: suggestFollowups(turns, targetDims),
-      currentQuestion: pickNextQuestion(state.plan, askedQIds),
+      suggestions,
+      currentQuestion: pickNextQuestion(state.plan, consumed),
     });
 
     recordConvergenceTurn(state.agentId, state.jobType, turn, coverage);
+
+    // 每答完一轮就让模型裁判重评全场：HR 无需手动打分即可看到六维。
+    // fire-and-forget，失败只落 judgeError，不阻断问答节奏。
+    void get().runJudge();
+  },
+
+  runJudge: async () => {
+    const state = get();
+    if (!state.agentId || state.judging) return;
+    const transcript = buildTranscript(state.turns);
+    if (transcript.trim().length === 0) return;
+
+    set({ judging: true, judgeError: null });
+    const result = await judgeChatEnsemble(state.agentId, transcript, {
+      persona: getActiveBossProfile(),
+    }).catch(() => null);
+
+    // 期间可能已 reset 或换人，丢弃过期结果
+    if (get().agentId !== state.agentId) {
+      set({ judging: false });
+      return;
+    }
+
+    if (!result) {
+      set({
+        judging: false,
+        judgeError: '模型裁判暂不可用，本场六维暂无模型分（不会用估算值代替）',
+      });
+      return;
+    }
+
+    const targetDims = planTargetDims(get().plan);
+    set({
+      judging: false,
+      judgeRadar: result.meanRadar,
+      judgeSource: result.source,
+      judgeEvidence: result.evidence_trace,
+      judgeConfidence: result.confidence,
+      // 模型分接入覆盖度：通用六维不再由正则强度估算
+      coverage: computeCoverage(get().turns, targetDims, result.meanRadar),
+    });
   },
 
   rateTurn: (turn, dim, value) => {
@@ -374,7 +487,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     );
     const targetDims = planTargetDims(state.plan);
     const coverage = computeCoverage(turns, targetDims);
-    set({ turns, coverage, suggestions: suggestFollowups(turns, targetDims) });
+    // P1#6：打分后重算追问建议，同样受预算封顶约束。
+    const suggestions = suggestFollowups(turns, targetDims, { budget: DEFAULT_FOLLOWUP_BUDGET });
+    set({ turns, coverage, suggestions });
   },
 
   noteTurn: (turn, note) => {
@@ -385,24 +500,50 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
 
   applyFollowup: (suggestion) => {
     const state = get();
-    const base =
-      state.currentQuestion ??
-      state.plan.find((q) => q.qId === state.askedQIds[state.askedQIds.length - 1]) ??
-      state.plan[0];
+    const current = state.currentQuestion;
+    // 取本体题 qId（去掉可能的 `:fu{n}` 后缀），保证父题恒为 plan 中的本体题，
+    // 避免 `:fu:fu` 嵌套链，也避免追问挂在另一个追问上。
+    const stripFu = (qId: string) => qId.split(':fu')[0];
+
+    // P1#5 修复：父题优先取「覆盖该维、且不是追问轮」的本体题——
+    //   1) 当前待问题若直接考查该维（用户正盯着它），优先；
+    //   2) 否则取最近一次问过该维的本体题（= 该维的「证据缺口题」）；
+    //   3) 兜底当前待问题 / 题序首题。
+    // 这样追问始终挂在真实考过该维的本体题上，不会顶掉任何未问的题。
+    const fromCurrent =
+      current && !current.qId.includes(':fu') && current.targetDims.includes(suggestion.dim)
+        ? stripFu(current.qId)
+        : null;
+    const fromTurns = state.turns
+      .filter((t) => !t.qId.includes(':fu') && t.targetDims.includes(suggestion.dim))
+      .map((t) => stripFu(t.qId));
+    const baseQId =
+      fromCurrent ??
+      fromTurns[fromTurns.length - 1] ??
+      (current ? stripFu(current.qId) : null) ??
+      state.plan[0]?.qId;
+    if (!baseQId) return;
+    const base = state.plan.find((q) => q.qId === baseQId) ?? state.plan[0];
     if (!base) return;
-    const index = state.turns.filter((t) => t.qId.startsWith(`${base.qId}:fu`)).length + 1;
+
+    // 同一本体题已发起的追问序号（防 `:fu` 序号冲突）。
+    const index = state.turns.filter((t) => t.qId.startsWith(`${baseQId}:fu`)).length + 1;
     const followup = makeFollowupQuestion(base, suggestion.prompt, index);
-    // 追问题只考查被建议的那一维，保证证据精准落到缺口上
+    // 追问题只考查被建议的那一维，保证证据精准落到缺口上。
     set({ currentQuestion: { ...followup, targetDims: [suggestion.dim] } });
   },
 
   skipQuestion: () => {
     const state = get();
     if (!state.currentQuestion) return;
-    const askedQIds = state.askedQIds.includes(state.currentQuestion.qId)
-      ? state.askedQIds
-      : [...state.askedQIds, state.currentQuestion.qId];
-    set({ askedQIds, currentQuestion: pickNextQuestion(state.plan, askedQIds) });
+    const qId = state.currentQuestion.qId;
+    // P2 修复：跳过写 skippedQIds（与已答对账区分，进度条单独统计、不计入「已完成」），
+    // 但题序推进要把「已答 ∪ 已跳过」都视为已消耗，跳过的题不再重问。
+    const skippedQIds = state.skippedQIds.includes(qId)
+      ? state.skippedQIds
+      : [...state.skippedQIds, qId];
+    const consumed = [...new Set([...state.askedQIds, ...skippedQIds])];
+    set({ skippedQIds, currentQuestion: pickNextQuestion(state.plan, consumed) });
   },
 
   loadCraftTasks: async () => {
@@ -594,13 +735,27 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
 
     const targetDims: (RadarDim | CraftDim)[] = planTargetDims(state.plan);
     const metrics = buildMetrics(state.turns, targetDims);
-    const finalRadar = aggregateHrRadar(state.turns, state.baselineRadar);
+
+    // 收尾前补跑一次模型评审：最后几轮回答也要进模型分
+    if (state.turns.length > 0 && !state.judgeRadar) {
+      await get().runJudge();
+    }
+    const judgeRadar = get().judgeRadar;
+
+    // 面试后六维 = 模型分为底，HR 手动打过的维覆盖之（人工修正优先）
+    const hrRadar = aggregateHrRadar(state.turns, judgeRadar);
+    const finalRadar = hrRadar ?? judgeRadar;
     const dimEvidence = buildDimEvidence(state.turns);
 
-    // 客观项：面试期六维（HR 评分聚合）+ 试做题 craft 维（LLM-as-judge）
+    // 客观项：面试期六维（模型分 + HR 修正）+ 试做题 craft 维（LLM-as-judge）
+    //
+    // 只有真实评过的分能进评分卡。此前无人打分时 aggregateHrRadar 会回落
+    // baselineRadar（来源含 S1 star 印象分），等于把印象分当面试客观证据，
+    // 与「同题同 rubric、不受 star 影响」的立意冲突 —— 故这里显式排除。
     const objective: Record<string, number> = {};
-    if (finalRadar) {
-      for (const dim of RADAR_DIMS) objective[dim] = finalRadar[dim];
+    const radarForScore = judgeRadar ? finalRadar : hrRadarOnly(state.turns);
+    if (radarForScore) {
+      for (const dim of RADAR_DIMS) objective[dim] = radarForScore[dim];
     }
     const craft = aggregateCraftDims(state.craftTrials);
     for (const [dim, score] of Object.entries(craft.dims)) objective[dim] = score;
@@ -692,6 +847,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             ts: report.ts,
           },
         });
+      } else {
+        // P2 修复：此前无档案时静默丢失回灌，HR 以为基线已回灌实则没有。
+        // 这里显式提示，避免「面试已归档却查无基线」的困惑（不阻断收尾）。
+        set({
+          error:
+            '该 agent 尚未在绩效中心建档，面试基线暂未回灌（不影响本次面试归档）；若需回灌基线，请先在「评估中心」运行一次评估。',
+        });
       }
     } catch {
       // 档案不存在或落库失败不阻断面试收尾
@@ -718,6 +880,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       taskRequirement: { ...EMPTY_REQUIREMENT },
       plan: [],
       askedQIds: [],
+      skippedQIds: [],
       currentQuestion: null,
       turns: [],
       baselineRadar: null,
@@ -734,6 +897,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       craftRunning: false,
       craftActiveTaskId: null,
       craftError: null,
+      judgeRadar: null,
+      judgeSource: null,
+      judgeEvidence: [],
+      judgeConfidence: null,
+      judging: false,
+      judgeError: null,
+      createdBy: 'default',
       userQuestionRound: null,
       userQuestionStatus: 'idle',
       userQuestionError: null,

@@ -122,6 +122,8 @@ export interface MatchScoreBreakdown {
   perfBoost: number;
   /** 四项权重（默认 0.5 / 0.2 / 0.15 / 0.15） */
   weights: { fit: number; tag: number; cost: number; perf: number };
+  /** D · 个性化强调系数（老板原型 boost）；非空表示本次匹配按「与谁协作」个性化 */
+  personaBoost?: Partial<Record<RadarDim, number>>;
 }
 
 /** 市场候选统一视图（模板卡 / 已雇佣 agent / GitHub 导入 三源归一） */

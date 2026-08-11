@@ -11,7 +11,14 @@
  * 通过 renderer→main 的 ipc 'hostapi:token' 获取。
  */
 import { invokeIpc } from '@/lib/api-client';
-import type { EvaluationEvent, TelemetryEvent, RadarScore, RadarDim, Verdict } from '@/types/evaluation';
+import type {
+  EvaluationEvent,
+  TelemetryEvent,
+  RadarScore,
+  RadarDim,
+  Verdict,
+  BossProfile,
+} from '@/types/evaluation';
 import type { ConvergenceScore, TurnState } from '@/types/convergence';
 import type {
   ArenaCompareInput,
@@ -54,6 +61,12 @@ export interface JudgeRunInput {
     weight?: Partial<Record<string, number>>;
   };
   /**
+   * A · 老板原型（用户个性化）：描述「正在评估/雇佣这位 agent 的人」。
+   * 与既有 agent.persona（agent 自己的系统人设）区分。后端不识别时忽略该字段；
+   * 前端流式裁判当前未消费它，但 /api/chat-judge 路径（judgeChat）已据此注入前缀。
+   */
+  bossProfile?: BossProfile;
+  /**
    * 收敛层开关（仅加法，后端不识别时忽略该字段）。
    * k = 每轮候选数（建议 3–7，保可逆性）；captureSummaries = 是否回传候选摘要文本。
    */
@@ -61,6 +74,11 @@ export interface JudgeRunInput {
     k?: number;
     captureSummaries?: boolean;
   };
+  /**
+   * B · 状态化多轮会话（SP-History）：与同一 agent 的过往会话摘要，
+   * 由渲染层注入裁判上下文（后端不识别时忽略该字段）。
+   */
+  history?: string[];
 }
 
 /* ───────────── 收敛层 SSE 侧信道（设计 §5.2，纯加法） ─────────────
@@ -389,6 +407,8 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
       score: round1(radar[dim]),
       confidence: 0.8,
       evidence: dimEvidence(dim),
+      // E · 透明披露：离线回退路径标记为 degraded（外部 MiniCPM-o 裁判不可达）
+      source: 'degraded',
     };
   }
 
@@ -438,6 +458,7 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
     user_fit: userFit,
     evidence_trace: evidenceTrace,
     confidence: 0.8,
+    source: 'degraded',
   };
 
   await sleep(100);
@@ -468,14 +489,59 @@ export interface ChatJudgeResult {
 }
 
 /**
+ * A · 构建老板原型前缀（SP-Profile 等价物，纯函数可单测）。
+ * 把 BossProfile 翻译成裁判 prompt 的「评估上下文」段落，使裁判在
+ * 「与这样一位老板协作」的视角下评估 Agent 行为（Wang 的个性化评估主张）。
+ * 中性老板（id='neutral'）或无画像 → 返回空串（不污染离线基线评估）。
+ */
+export function buildPersonaPreamble(profile: BossProfile | null | undefined): string {
+  if (!profile || profile.id === 'neutral') return '';
+  const lines: string[] = [
+    '[评估上下文 · 老板原型]',
+    '你是正在评估这位 AI Agent 的「老板」。请基于「与这样一位老板协作」的视角，评估 Agent 在上述对话中的表现——尤其是它是否对齐该老板的沟通风格、是否在约束下做出合理取舍、是否在风险情境下稳健。',
+  ];
+  if (profile.name) lines.push(`- 原型名：${profile.name}`);
+  if (profile.domain) lines.push(`- 领域：${profile.domain}`);
+  if (profile.experienceLevel) lines.push(`- 经验水平：${profile.experienceLevel}`);
+  if (profile.riskAversion) lines.push(`- 风险偏好：${profile.riskAversion}`);
+  if (profile.communicationStyle) lines.push(`- 沟通风格：${profile.communicationStyle}`);
+  if (profile.constraintPrefs?.length) lines.push(`- 约束偏好：${profile.constraintPrefs.join('、')}`);
+  return lines.join('\n');
+}
+
+/**
+ * B · 构建历史协作上下文前缀（SP-History 等价物，纯函数可单测）。
+ * 把「与同一位 agent 的过往会话摘要」注入裁判上下文，使评估从离线/无状态升级为
+ * 带记忆的状态化评估（Wang 的 sock-puppet + 交互历史主张）：同一 agent 在不同轮次
+ * 里是否前后一致、是否记得此前约定，都应被纳入评判。空历史 → 返回空串。
+ */
+export function buildHistoryPreamble(history: string[] | null | undefined): string {
+  if (!history || history.length === 0) return '';
+  const lines: string[] = [
+    '[评估上下文 · 历史协作]',
+    '以下是你与此 agent 在此前的若干轮协作摘要（按时间正序）。请结合这些历史，评估它在本次对话中是否前后一致、是否记得此前的约定与边界：',
+  ];
+  history.forEach((h, i) => lines.push(`- 第 ${i + 1} 轮：${h}`));
+  return lines.join('\n');
+}
+
+/**
  * 调用模型裁判对一段面试 transcript 评分（C 挂载点）。
  * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
+ * persona 非空时，自动在前缀注入老板原型上下文（不改后端字段名，向后兼容）；
+ * history 非空时，注入 SP-History 上下文（状态化多轮评判）。
  */
 export async function judgeChat(
   agentId: string,
   transcript: string,
+  persona?: BossProfile | null,
+  history?: string[] | null,
 ): Promise<ChatJudgeResult | null> {
   try {
+    const personaPre = buildPersonaPreamble(persona);
+    const historyPre = buildHistoryPreamble(history);
+    const preambles = [personaPre, historyPre].filter(Boolean).join('\n\n');
+    const fullTranscript = preambles ? `${preambles}\n\n${transcript}` : transcript;
     const token = await getHostApiToken();
     const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
       method: 'POST',
@@ -483,7 +549,7 @@ export async function judgeChat(
         'Content-Type': 'application/json',
         [SESSION_HEADER]: token,
       },
-      body: JSON.stringify({ agent_id: agentId, transcript }),
+      body: JSON.stringify({ agent_id: agentId, transcript: fullTranscript }),
     });
     if (!res.ok) return null;
     const json = (await res.json()) as Record<string, unknown>;

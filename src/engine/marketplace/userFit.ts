@@ -66,26 +66,35 @@ export function normalizeWeight(
 }
 
 /**
- * 心智权重 × 任务强调 → 有效权重（Σ=1）。
+ * 心智权重 × 任务强调 × 老板原型强调 → 有效权重（Σ=1）。
  *
  * @param userWeight 用户心智权重（scoringStore.userWeight，允许未归一）
  * @param dimBoost   任务画像的维度强调系数（缺省视为 1）
+ * @param personaBoost D · 老板原型强调系数（bossPersonaBoost，缺省视为 1）。
+ *   使市场契合度按「与谁协作」个性化——同一候选对不同老板的匹配分不同
+ *   （Wang 的个性化评估主张在推荐层的落地）。
  */
 export function applyTaskBoost(
   userWeight: Partial<Record<RadarDim, number>> | null | undefined,
   dimBoost?: Partial<Record<RadarDim, number>> | null,
+  personaBoost?: Partial<Record<RadarDim, number>> | null,
 ): DimWeight {
   const base = normalizeWeight(userWeight);
-  if (!dimBoost) return base;
+  let weight: DimWeight = base;
 
-  const boosted: Partial<Record<RadarDim, number>> = {};
-  for (const dim of RADAR_DIMS) {
-    const factor = dimBoost[dim];
-    const safeFactor =
-      typeof factor === 'number' && Number.isFinite(factor) && factor > 0 ? factor : 1;
-    boosted[dim] = base[dim] * safeFactor;
+  // 任务强调、老板原型强调逐层相乘再归一（二者皆越大越优）
+  for (const boost of [dimBoost, personaBoost]) {
+    if (!boost) continue;
+    const next: Partial<Record<RadarDim, number>> = {};
+    for (const dim of RADAR_DIMS) {
+      const factor = boost[dim];
+      const safeFactor =
+        typeof factor === 'number' && Number.isFinite(factor) && factor > 0 ? factor : 1;
+      next[dim] = weight[dim] * safeFactor;
+    }
+    weight = normalizeWeight(next);
   }
-  return normalizeWeight(boosted);
+  return weight;
 }
 
 /**
