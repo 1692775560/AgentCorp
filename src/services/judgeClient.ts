@@ -27,6 +27,8 @@ import type {
   ArenaUserPickInput,
 } from '@/types/arena';
 import { computeKpi } from '@/engine/metricsEngine';
+import { RADAR_DIMS } from '@/engine/scoring/registry';
+import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
 
 // 与 src/lib/host-api.ts 保持一致
 const HOST_API_PORT = 3210;
@@ -526,21 +528,109 @@ export function buildHistoryPreamble(history: string[] | null | undefined): stri
 }
 
 /**
+ * C · 抗偏差评分准则前言（纯函数，可单测）。
+ *
+ * LLM-as-judge 存在位置/冗长/自我增强/权威等系统偏差（见 MT-Bench 2306.05685、
+ * CALM 2410.02736）。后端 /api/chat-judge 是黑盒，但本函数把「抗偏差锚定」指令
+ * 注入喂给裁判的 transcript 顶部（与 persona/history 前缀同机制），使裁判在评分时：
+ *   1) 只看质量不看长度（对抗冗长/verbosity 偏差）；
+ *   2) 每维独立判断、先理由后打分（对抗权威/锚定偏差）；
+ *   3) 按 0/5 双端锚定打分（Prometheus 式 rubric，降低主观漂移）；
+ *   4) 放弃自我增强偏好（不让"被评模型=裁判家族"抬高分数）。
+ *
+ * variant 用于维度顺序扰动：k 次 ensemble 各传不同 variant，使维度排列偏差被平均掉
+ * （对抗维度顺序偏差），属自洽扰动（self-consistency perturbation）。
+ */
+export const JUDGE_RUBRIC_ANCHORS: Record<RadarDim, { low: string; high: string }> = {
+  task: { low: '几乎没推进交付物', high: '清晰交付且可验收' },
+  quality: { low: '含明显错误/遗漏', high: '准确且经得起推敲' },
+  comm: { low: '答非所问/堆砌术语', high: '精准对齐老板意图' },
+  creativity: { low: '只有一种套路', high: '多路径且有取舍权衡' },
+  reliability: { low: '无失败预案', high: '有回滚与发现机制' },
+  cost: { low: '不计成本', high: '在约束内达到最优' },
+};
+
+/** 把维度顺序按 variant 旋转（variant=0 不旋转） */
+function rotateDims(dims: RadarDim[], variant: number): RadarDim[] {
+  if (variant <= 0) return dims;
+  const shift = ((variant % dims.length) + dims.length) % dims.length;
+  return [...dims.slice(shift), ...dims.slice(0, shift)];
+}
+
+export function buildJudgeRubricPreamble(variant = 0): string {
+  const ordered = rotateDims(RADAR_DIMS, variant);
+  const anchorLines = ordered.map(
+    (dim, i) =>
+      `   ${i + 1}. ${RADAR_DIM_LABELS[dim]}：0=${JUDGE_RUBRIC_ANCHORS[dim].low}；5=${JUDGE_RUBRIC_ANCHORS[dim].high}`,
+  );
+  return [
+    '[评分准则 · 抗偏差锚定]',
+    '你是严谨的面试官评委。请按以下准则独立给分：',
+    '1. 只看回答质量，不看长度——长回答不自动高分，短而精准也可满分（对抗冗长偏好）。',
+    '2. 先给理由后给分；每个维度独立判断，不要受其他维度牵连（对抗权威/锚定偏差）。',
+    '3. 评分锚定（0=最差，5=最佳）：',
+    ...anchorLines,
+    '4. 不要因为回答来自某个模型家族就偏高或偏低（放弃自我增强偏好）。',
+  ].join('\n');
+}
+
+/** 评委偏差审计结果（元评估的一部分，纯函数，可单测） */
+export interface JudgeBiasAudit {
+  /** 逐维 k 次评分极差（max−min），反映该维评委离散度 */
+  perDimSpread: Record<RadarDim, number>;
+  /** 各维极差均值 */
+  meanSpread: number;
+  /** 最大极差 */
+  maxSpread: number;
+  /** 是否存在任一维极差超过阈值（离散度过高→结论不稳定） */
+  unstable: boolean;
+}
+
+/**
+ * 审计 k 次重复裁判的离散度（对抗评委噪声/偏差的元评估）。
+ * 若某维极差过大，说明评委对该维判断不稳定（可能受提示/顺序/噪声影响），
+ * 调用方应下调置信并升级人工复核。
+ */
+export function auditJudgeBias(radars: RadarScore[], threshold = 1.5): JudgeBiasAudit {
+  const runs = radars.filter((r): r is RadarScore => Boolean(r) && typeof r === 'object');
+  const zero = RADAR_DIMS.reduce((acc, d) => {
+    acc[d] = 0;
+    return acc;
+  }, {} as Record<RadarDim, number>);
+  if (runs.length < 2) {
+    return { perDimSpread: zero, meanSpread: 0, maxSpread: 0, unstable: false };
+  }
+  const perDimSpread = {} as Record<RadarDim, number>;
+  for (const dim of RADAR_DIMS) {
+    const vals = runs.map((r) => r[dim] ?? 0);
+    const spread = Math.round((Math.max(...vals) - Math.min(...vals)) * 10) / 10;
+    perDimSpread[dim] = spread;
+  }
+  const spreads = RADAR_DIMS.map((d) => perDimSpread[d]);
+  const meanSpread = Math.round((spreads.reduce((a, b) => a + b, 0) / spreads.length) * 10) / 10;
+  const maxSpread = Math.max(...spreads);
+  return { perDimSpread, meanSpread, maxSpread, unstable: maxSpread > threshold };
+}
+
+/**
  * 调用模型裁判对一段面试 transcript 评分（C 挂载点）。
  * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
  * persona 非空时，自动在前缀注入老板原型上下文（不改后端字段名，向后兼容）；
- * history 非空时，注入 SP-History 上下文（状态化多轮评判）。
+ * history 非空时，注入 SP-History 上下文（状态化多轮评判）；
+ * rubricVariant 用于维度顺序扰动（ensemble 内各次传不同值以平均顺序偏差）。
  */
 export async function judgeChat(
   agentId: string,
   transcript: string,
   persona?: BossProfile | null,
   history?: string[] | null,
+  rubricVariant = 0,
 ): Promise<ChatJudgeResult | null> {
   try {
     const personaPre = buildPersonaPreamble(persona);
     const historyPre = buildHistoryPreamble(history);
-    const preambles = [personaPre, historyPre].filter(Boolean).join('\n\n');
+    const rubricPre = buildJudgeRubricPreamble(rubricVariant);
+    const preambles = [personaPre, historyPre, rubricPre].filter(Boolean).join('\n\n');
     const fullTranscript = preambles ? `${preambles}\n\n${transcript}` : transcript;
     const token = await getHostApiToken();
     const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {

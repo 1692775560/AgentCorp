@@ -21,9 +21,9 @@ vi.mock('@/lib/api-client', () => ({
   invokeIpc: vi.fn(async () => ''),
 }));
 
-import { fallbackMock } from '@/services/judgeClient';
+import { fallbackMock, buildJudgeRubricPreamble, auditJudgeBias } from '@/services/judgeClient';
 import { invokeIpc } from '@/lib/api-client';
-import type { JudgeRunInput } from '@/services/judgeClient';
+import type { JudgeRunInput, RadarScore } from '@/services/judgeClient';
 
 async function collect(input: JudgeRunInput): Promise<any[]> {
   const out: any[] = [];
@@ -185,5 +185,63 @@ describe('judgeClient.fallbackMock', () => {
     expect(task.score).toBe(2.5);
     const v = events.find((e: any) => e.type === 'verdict') as any;
     expect(v.evidence_trace.some((s: string) => s.includes('task_completion_rate=50%'))).toBe(true);
+  });
+});
+
+describe('judgeClient.buildJudgeRubricPreamble', () => {
+  it('包含抗冗长与抗自我增强指令', () => {
+    const p = buildJudgeRubricPreamble(0);
+    expect(p).toContain('只看回答质量，不看长度');
+    expect(p).toContain('对抗冗长偏好');
+    expect(p).toContain('放弃自我增强偏好');
+  });
+
+  it('逐维给出 0/5 双端锚定（Prometheus 式 rubric）', () => {
+    const p = buildJudgeRubricPreamble(0);
+    for (const label of ['任务', '质量', '沟通', '创意', '可靠', '性价比']) {
+      expect(p).toContain(label);
+    }
+    expect(p).toContain('0=');
+    expect(p).toContain('5=');
+  });
+
+  it('variant 旋转维度顺序（自洽扰动，对抗顺序偏差）', () => {
+    const a = buildJudgeRubricPreamble(0);
+    const b = buildJudgeRubricPreamble(1);
+    expect(a).not.toBe(b);
+    // 旋转后首个锚定维度从「任务」变为「质量」
+    expect(a).toContain('1. 任务：0=');
+    expect(b).toContain('1. 质量：0=');
+  });
+});
+
+describe('judgeClient.auditJudgeBias', () => {
+  const flat = (v: number): RadarScore => ({
+    task: v,
+    quality: v,
+    comm: v,
+    creativity: v,
+    reliability: v,
+    cost: v,
+  });
+
+  it('单一样本 → 非 unstable、零离散', () => {
+    const a = auditJudgeBias([flat(4)]);
+    expect(a.unstable).toBe(false);
+    expect(a.maxSpread).toBe(0);
+  });
+
+  it('离散度低 → 稳定', () => {
+    const a = auditJudgeBias([flat(4), flat(4.5)]);
+    expect(a.unstable).toBe(false);
+    expect(a.maxSpread).toBeLessThanOrEqual(1.5);
+  });
+
+  it('某维极差超阈值 → unstable 且 maxSpread 正确', () => {
+    // task 维 2 vs 5 → 极差 3 > 1.5
+    const a = auditJudgeBias([{ ...flat(3), task: 2 }, { ...flat(3), task: 5 }]);
+    expect(a.unstable).toBe(true);
+    expect(a.perDimSpread.task).toBe(3);
+    expect(a.maxSpread).toBe(3);
   });
 });

@@ -22,7 +22,7 @@
  */
 import type { BossProfile, RadarScore, Verdict } from '@/types/evaluation';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
-import { judgeChat } from '@/services/judgeClient';
+import { judgeChat, auditJudgeBias, type JudgeBiasAudit } from '@/services/judgeClient';
 import { passK, type PassKResult } from '@/engine/evaluation/passK';
 
 /** judge ensemble 选项 */
@@ -74,6 +74,8 @@ export interface JudgeEnsembleResult {
   passK: PassKResult;
   /** 去重后的证据留痕 */
   evidence_trace: string[];
+  /** 评委偏差审计（元评估）：k 次离散度；unstable 时结论置信已被下调 */
+  biasAudit?: JudgeBiasAudit;
 }
 
 /** 全零六维 */
@@ -143,7 +145,8 @@ export async function judgeChatEnsemble(
   let judgeCount = 0;
 
   for (let i = 0; i < k; i += 1) {
-    const res = await judgeChat(agentId, transcript, opts?.persona, opts?.history).catch(
+    // 每次重复用不同的 rubricVariant 旋转维度顺序，平均掉维度排列偏差（自洽扰动）
+    const res = await judgeChat(agentId, transcript, opts?.persona, opts?.history, i).catch(
       () => null,
     );
     if (!res || !res.radar) continue;
@@ -161,6 +164,19 @@ export async function judgeChatEnsemble(
   const confidence = confidences.length
     ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100) / 100
     : 0;
+
+  // 元评估：审计 k 次离散度，离散度过高说明评委对该维不稳定，下调置信并提示人工复核
+  const bias = auditJudgeBias(radars);
+  let adjustedConfidence = confidence;
+  let evidenceTrace = Array.from(new Set(evidence));
+  if (bias.unstable) {
+    adjustedConfidence = Math.round(confidence * 0.8 * 100) / 100;
+    evidenceTrace = [
+      ...evidenceTrace,
+      `⚠️ 评委离散度偏高（maxSpread=${bias.maxSpread}）：结论置信已下调，建议人工复核或增采 k`,
+    ];
+  }
+
   const pk = passK(radars, { k: radars.length, threshold });
 
   const source: EnsembleSource =
@@ -172,9 +188,10 @@ export async function judgeChatEnsemble(
     radars,
     meanRadar,
     verdict,
-    confidence,
+    confidence: adjustedConfidence,
     passK: pk,
-    evidence_trace: Array.from(new Set(evidence)),
+    evidence_trace: evidenceTrace,
+    biasAudit: bias,
   };
 }
 
