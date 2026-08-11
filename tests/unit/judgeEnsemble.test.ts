@@ -3,9 +3,13 @@ import { aggregateRadars, majorityVerdict, judgeChatEnsemble } from '@/services/
 import { judgeChat } from '@/services/judgeClient';
 import type { RadarScore, Verdict } from '@/types/evaluation';
 
-vi.mock('@/services/judgeClient', () => ({
-  judgeChat: vi.fn(),
-}));
+vi.mock('@/services/judgeClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/judgeClient')>();
+  return {
+    ...actual,
+    judgeChat: vi.fn(),
+  };
+});
 
 describe('aggregateRadars', () => {
   it('逐维平均', () => {
@@ -120,5 +124,20 @@ describe('judgeChatEnsemble 的 source 三态', () => {
     mocked.mockReset();
     mocked.mockRejectedValue(new Error('judge unreachable'));
     expect(await judgeChatEnsemble('a1', 'transcript', { k: 2 })).toBeNull();
+  });
+
+  it('k 次离散度过高 → 置信下调且 biasAudit.unstable + 提示人工复核', async () => {
+    mocked.mockReset();
+    const base = { ...flat, source: 'judge' as const, verdict: 'MVP' as Verdict, confidence: 0.9, evidence_trace: [] };
+    mocked
+      .mockResolvedValueOnce({ ...base, radar: { ...flat, task: 2 } })
+      .mockResolvedValueOnce({ ...base, radar: { ...flat, task: 5 } })
+      .mockResolvedValueOnce({ ...base, radar: { ...flat, task: 3 } });
+    const r = await judgeChatEnsemble('a1', 'transcript', { k: 3 });
+    expect(r?.biasAudit?.unstable).toBe(true);
+    expect(r?.biasAudit?.perDimSpread.task).toBe(3);
+    // 置信从 0.9 下调到 0.8×0.9=0.72
+    expect(r?.confidence).toBe(0.72);
+    expect(r?.evidence_trace.some((s) => s.includes('评委离散度偏高'))).toBe(true);
   });
 });

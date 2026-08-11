@@ -193,7 +193,7 @@ describe('judgeChat 接线（persona 注入裁判前缀）', () => {
     }
   });
 
-  it('persona 为空 → transcript 不加前缀', async () => {
+  it('persona 为空 → transcript 不加 persona/history 前缀（但抗偏差 rubric 锚定始终注入）', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({ source: 'degraded', radar: REAL_RADAR, confidence: 0.5 }),
@@ -205,8 +205,10 @@ describe('judgeChat 接线（persona 注入裁判前缀）', () => {
     try {
       await judgeChat('agent-x', '原始对话文本', null);
       const body = JSON.parse((fetchMock as any).mock.calls[0][1].body);
-      expect(body.transcript).toBe('原始对话文本');
+      expect(body.transcript).toContain('原始对话文本');
+      expect(body.transcript).toContain('[评分准则 · 抗偏差锚定]');
       expect(body.transcript).not.toContain('[评估上下文 · 老板原型]');
+      expect(body.transcript).not.toContain('[评估上下文 · 历史协作]');
     } finally {
       global.fetch = original;
     }
