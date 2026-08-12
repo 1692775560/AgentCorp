@@ -54,29 +54,8 @@ curl -s http://127.0.0.1:8000/health   # 应看到 judge_available:true
 
 ## 六、附录：Node PATH 乱码修复（Windows）
 
-**根因**：当 Windows 用户名含非 ASCII 字符时，PATH 里 `%USERPROFILE%\.trae\...` 的 UTF-8 字节可能被某工具按 GBK 解码后写回注册表，变成乱码路径；若该目录同时已不存在，PATH 里就没有任何可用 node。
+**根因**：当 Windows 用户名含非 ASCII 字符时，PATH 里某些 AI 编程工具安装目录（含中文用户名）的 UTF-8 字节可能被按 GBK 解码后写回注册表，变成乱码路径；若该目录同时已不存在，PATH 里就没有任何可用 node。
 
-**可用 node（已验证）**：`%USERPROFILE%\.workbuddy\binaries\node\versions\22.22.2\node.exe`（v22.22.2）
+**修复原则**：备份用户 PATH → 过滤掉已失效的工具目录条目 → 追加本机已验证可用的 node 路径 → 重开终端验证 `node -v`。改 PATH 一律用 `[Environment]::SetEnvironmentVariable`（.NET 写注册表是 Unicode 安全），避免第三方安装器或 `setx` 在 GBK 控制台里写 UTF-8 中文路径（`setx` 还会截断长 PATH）。
 
-**修复命令（以你的用户身份在 PowerShell 里执行；不要用 setx，setx 会截断长 PATH 且编码有坑）**：
-
-```powershell
-# 1) 备份
-$old = [Environment]::GetEnvironmentVariable('Path','User')
-$old | Out-File "$env:USERPROFILE\path-backup-20260808.txt" -Encoding UTF8
-
-# 2) 过滤掉所有 .trae\sdks 条目（含乱码与正确路径，目录已死）并追加可用 node
-$parts = $old -split ';' | Where-Object { $_ -and ($_ -notmatch '\.trae\\sdks') }
-$parts += "$env:USERPROFILE\.workbuddy\binaries\node\versions\22.22.2"
-[Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'User')
-
-# 3) 若 Machine PATH 也有乱码（需管理员 PowerShell），同样处理：
-# $m = [Environment]::GetEnvironmentVariable('Path','Machine')
-# $mp = $m -split ';' | Where-Object { $_ -and ($_ -notmatch '\.trae\\sdks') }
-# [Environment]::SetEnvironmentVariable('Path', ($mp -join ';'), 'Machine')
-
-# 4) 关闭并重开 Trae / 终端（环境变量在进程启动时读取），验证：
-node -v   # 期望 v22.22.2
-```
-
-**预防**：以后任何改 PATH 的操作一律用 `[Environment]::SetEnvironmentVariable`（.NET 写注册表是 Unicode 安全），避免第三方安装器/`setx` 在 GBK 控制台里写 UTF-8 中文路径。
+> 注：本附录原始版本含具体本机工具路径，已按隐私要求泛化；如需原始命令请查阅私有存档，参赛/公开材料一律使用本泛化版本。

@@ -10,18 +10,32 @@
  *    （aggregateRadars / majorityVerdict / passK / auditJudgeBias）。
  *  - 评委（judge）**可注入**：真实 judgeClient 或 mock 均可，网关不可用时降级 mock，
  *    保证闭环在沙箱/离线态也能跑通并可被 vitest 验证（eval-in-the-loop 实证）。
- *  - 每个阶段产出都带 `phase` 标签，直接对应 GOAI 附录 1.3 八步闭环，便于评审对照。
+ *  - 审批(approve)与经验沉淀(precipitate)由 **boss_review Skill** 产出
+ *    （SP-03：不再是内联逻辑）；Skill 降级时本地纯函数兜底同一语义，闭环不中断。
+ *  - 每个阶段产出都带 `phase` 标签（关键步骤另带 `skill` 标签），
+ *    直接对应 GOAI 附录 1.3 八步闭环 + 要求 2「Skill 真实调用」证据。
  *
  * 这是「数字员工招募与管理训练场」参赛作品的最小可运行证据：
  * boss（老板）→ recruiter（HR 面试）→ evaluator（评估中心）→ boss（拍板）端到端闭环。
  */
 import type { RadarScore, RadarDim, Verdict, BossProfile } from '@/types/evaluation';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
-import { aggregateRadars, majorityVerdict } from '@/services/judgeEnsemble';
+import { aggregateRadars } from '@/services/judgeEnsemble';
 import { passK, type PassKResult } from '@/engine/evaluation/passK';
 import { auditJudgeBias, type JudgeBiasAudit } from '@/services/judgeClient';
 import type { RoleCard, ClosedLoopPhase } from '@/engine/agents/roleCard';
 import { ROLE_CARD_BY_ID } from '@/engine/agents/roleCard';
+import { runSkill } from './skills/registry';
+import { latestRule } from './skills/experienceStore';
+import {
+  registerBuiltinSkills,
+  bossReviewDecision,
+  type PrecipitatedRule,
+  type BossReviewOutput,
+  type InterviewReport,
+  type CapabilityAssessment,
+  type ReliabilityAudit,
+} from './skills/handlers';
 
 /** 注入式评委：真实 judgeClient 或 mock 都实现此签名。 */
 export interface JudgeFnInput {
@@ -65,6 +79,8 @@ export interface LoopStep {
   phase: ClosedLoopPhase;
   agentRole: RoleCard['role'];
   agentName: string;
+  /** 该步实际调用的 Skill id（GOAI 要求 2：Skill 被真实调用的证据） */
+  skill?: string;
   summary: string;
   payload?: unknown;
   ts: number;
@@ -97,14 +113,18 @@ export interface ClosedLoopResult {
     biasAudit: JudgeBiasAudit;
     source: 'judge' | 'mixed' | 'degraded';
   };
-  /** boss 拍板（approve：高风险动作需人工确认） */
+  /** boss 拍板（approve：高风险动作需人工确认；由 boss_review Skill 产出） */
   bossDecision: {
     action: BossAction;
     reason: string;
     approvedBy: 'boss';
     requiresHumanAck: boolean;
+    /** 决策来源：boss_review Skill 或本地降级兜底 */
+    source: 'boss_review' | 'fallback';
   };
-  /** 经验沉淀（precipitate：可复用规则） */
+  /** 经验沉淀（precipitate：结构化可复用规则，由 boss_review Skill 产出） */
+  precipitatedRule: PrecipitatedRule;
+  /** 经验沉淀的人类可读文本（= precipitatedRule.rule，保留兼容旧 UI） */
   experience: string;
   /** 全链路轨迹（evidence：执行证据） */
   trace: LoopStep[];
@@ -131,11 +151,12 @@ const phaseLabel: Record<ClosedLoopPhase, string> = {
  * 但闭环不中断，最终由 bias/confidence 体现不确定性。
  */
 export async function runClosedLoop(req: ClosedLoopRequest): Promise<ClosedLoopResult> {
+  registerBuiltinSkills(); // 幂等：确保 Skill 注册表就绪
   const trace: LoopStep[] = [];
   const role = (id: string): RoleCard =>
     ROLE_CARD_BY_ID[id] ?? ROLE_CARD_BY_ID.dispatcher!;
-  const push = (phase: ClosedLoopPhase, agentId: string, summary: string, payload?: unknown) =>
-    trace.push({ phase, agentRole: role(agentId).role, agentName: role(agentId).name, summary, payload, ts: Date.now() });
+  const push = (phase: ClosedLoopPhase, agentId: string, summary: string, payload?: unknown, skill?: string) =>
+    trace.push({ phase, agentRole: role(agentId).role, agentName: role(agentId).name, skill, summary, payload, ts: Date.now() });
 
   const k = req.k ?? 3;
   const threshold = req.threshold ?? 3.5;
@@ -149,94 +170,105 @@ export async function runClosedLoop(req: ClosedLoopRequest): Promise<ClosedLoopR
     targetDims: RADAR_DIMS,
     steps: ['recruiter:结构化面试', 'evaluator:六维评估+pass^k审计', 'boss:审批拍板'],
   };
-  push('decompose', 'dispatcher', `编排主控拆解任务为 ${plan.steps.length} 步子任务，目标维度=${plan.targetDims.join('/')}`, plan);
+  push('decompose', 'dispatcher', `编排主控拆解任务为 ${plan.steps.length} 步子任务，目标维度=${plan.targetDims.join('/')}`, plan, 'orchestrate');
 
-  // ── Step 2 · context：recruiter 产出面试报告，向下游传递上下文 ──
-  const interviewReport = {
+  // ── Step 2 · context：recruiter → agent_interview Skill（降级则本地快照兜底） ──
+  // SP-08：读回上一次闭环沉淀的经验规则，注入 interviewer/evaluator 上下文
+  const priorRule = latestRule(req.candidateId);
+  const interviewRes = await runSkill('agent_interview', {
     candidateId: req.candidateId,
-    transcriptLen: req.transcript.length,
-    targetDims: RADAR_DIMS,
-    note: `基于候选 persona 完成结构化面试，转录长度 ${req.transcript.length} 字符，交接至评估中心。`,
+    candidateName: req.candidateName,
+    transcript: req.transcript,
+    priorExperience: priorRule ?? undefined,
+  });
+  const interviewReport: InterviewReport = interviewRes.ok && interviewRes.data
+    ? (interviewRes.data as InterviewReport)
+    : {
+        candidateId: req.candidateId,
+        transcriptLen: req.transcript.length,
+        targetDims: RADAR_DIMS,
+        note: `agent_interview 降级（${interviewRes.reason ?? '未知'}），以原始转录快照交接。`,
+      };
+  push(
+    'context',
+    'recruiter',
+    priorRule
+      ? `${interviewReport.note}（已注入历史经验规则：训练重点=${priorRule.weakestDim}）`
+      : interviewReport.note,
+    { ...interviewReport, injectedRule: priorRule ?? undefined },
+    'agent_interview',
+  );
+
+  // ── Step 3 · tool：evaluator → capability_assessment Skill（k 次 ensemble + 聚合） ──
+  const assessRes = await runSkill('capability_assessment', {
+    candidateId: req.candidateId,
+    transcript: req.transcript,
+    k,
+    judge: req.judge,
+    bossProfile: req.bossProfile ?? null,
+    interviewReport,
+  });
+  const assess: CapabilityAssessment = (assessRes.data as CapabilityAssessment | undefined) ?? {
+    radars: [],
+    meanRadar: aggregateRadars([]),
+    verdict: null,
+    confidence: 0,
+    evidence: [],
+    source: 'degraded',
   };
-  push('context', 'recruiter', interviewReport.note, interviewReport);
-
-  // ── Step 3 · tool + verify：evaluator 重复评分并聚合（真实评估科学）──
-  const radars: RadarScore[] = [];
-  const verdicts: (Verdict | null)[] = [];
-  const confidences: number[] = [];
-  const evidence: string[] = [];
-  let judgeCount = 0;
-
-  for (let i = 0; i < k; i += 1) {
-    // 每次 variant=i 旋转维度顺序（对抗位置偏差，自洽扰动）
-    const out = await req.judge({ agentId: req.candidateId, transcript: req.transcript, variant: i, bossProfile: req.bossProfile }).catch(() => null);
-    if (!out) continue;
-    radars.push(out.radar);
-    verdicts.push(out.verdict);
-    confidences.push(out.confidence);
-    judgeCount += 1;
-    evidence.push(...out.evidence);
-  }
-
-  const source: 'judge' | 'mixed' | 'degraded' =
-    judgeCount === 0 ? 'degraded' : judgeCount === radars.length ? 'judge' : 'mixed';
-  const meanRadar = aggregateRadars(radars);
-  const verdict = majorityVerdict(verdicts);
-  const confidence = confidences.length
-    ? Math.round((confidences.reduce((a, b) => a + b, 0) / confidences.length) * 100) / 100
-    : 0;
-  const bias = auditJudgeBias(radars);
-  const pk = passK(radars, { k: radars.length, threshold });
+  const { radars, meanRadar, verdict, confidence, source } = assess;
 
   push('tool', 'evaluator', `评估中心调用评委 ${radars.length}/${k} 次成功（source=${source}），逐维均值雷达已聚合`, {
     meanRadar,
-  });
+  }, 'capability_assessment');
+
+  // ── Step 3b · verify：evaluator → reliability_audit Skill（降级则本地复算） ──
+  const auditRes = await runSkill('reliability_audit', { radars, threshold });
+  const audit: ReliabilityAudit = auditRes.ok && auditRes.data
+    ? (auditRes.data as ReliabilityAudit)
+    : { passK: passK(radars, { k: radars.length, threshold }), biasAudit: auditJudgeBias(radars) };
+  const pk = audit.passK;
+  const bias = audit.biasAudit;
   push('verify', 'evaluator', `pass^k(allPass=${pk.allPass}, passRate=${pk.passRate})；偏差审计 unstable=${bias.unstable}(maxSpread=${bias.maxSpread})`, {
     passK: pk,
     biasAudit: bias,
-  });
+  }, 'reliability_audit');
 
-  // ── Step 4 · approve：boss 拍板（高风险动作需人工确认）──
-  let action: BossAction = 'reject';
-  let reason = '';
-  let requiresHumanAck = false;
-  if (bias.unstable) {
-    action = 'rollback';
-    requiresHumanAck = true;
-    reason = `评委离散度偏高（maxSpread=${bias.maxSpread} > 阈值）：结论不稳定，触发回滚并要求人工复核。`;
-  } else if (pk.allPass && verdict === 'MVP' && confidence >= 0.7) {
-    action = 'hire';
-    requiresHumanAck = true; // 录用是高风险写动作，需人类二次确认
-    reason = `六维全达标（pass^k allPass=true）且判定为 ${verdictLabel.MVP}、置信度 ${confidence}：建议录用。`;
-  } else if (pk.passRate >= 0.6 && (verdict === 'MVP' || verdict === 'OBSERVE')) {
-    action = 'observe';
-    reason = `通过率 ${pk.passRate}、判定 ${verdict ? verdictLabel[verdict] : '未知'}：暂观察，不立即录用。`;
-  } else {
-    action = 'reject';
-    reason = `通过率 ${pk.passRate} 不足或其他未达标：执行 You are fired。`;
-  }
-  push('approve', 'boss', `老板决策：${action.toUpperCase()}。${reason}（需人工确认=${requiresHumanAck}）`, {
+  // ── Step 4 · approve：boss 拍板——由 boss_review Skill 产出（高风险动作需人工确认）──
+  const reviewRes = await runSkill('boss_review', {
+    evaluation: { passK: pk, biasAudit: bias, verdict, confidence, meanRadar, source },
+    candidateName: req.candidateName,
+    candidateId: req.candidateId,
+  });
+  // 失败兜底：Skill 降级时本地纯函数复算同一语义，闭环不中断
+  const review: BossReviewOutput = reviewRes.ok && reviewRes.data
+    ? (reviewRes.data as BossReviewOutput)
+    : bossReviewDecision({ passK: pk, biasAudit: bias, verdict, confidence, meanRadar, candidateName: req.candidateName });
+  const reviewSource: 'boss_review' | 'fallback' = reviewRes.ok && reviewRes.data ? 'boss_review' : 'fallback';
+  const { action, reason, requiresHumanAck } = review;
+  push('approve', 'boss', `老板决策：${action.toUpperCase()}。${reason}（需人工确认=${requiresHumanAck}，来源=${reviewSource}）`, {
     action,
     requiresHumanAck,
-  });
+    source: reviewSource,
+  }, 'boss_review');
 
   // ── Step 5 · evidence：轨迹留痕（执行证据）──
   push('evidence', 'dispatcher', `已沉淀 ${trace.length} 步执行轨迹（Trace/Metrics），可供观测与复盘。`, {
     traceLen: trace.length,
   });
 
-  // ── Step 6 · precipitate：经验沉淀（可复用规则）──
-  const weakest = RADAR_DIMS.reduce((a, b) => ((meanRadar[a] ?? 0) <= (meanRadar[b] ?? 0) ? a : b));
-  const strongest = RADAR_DIMS.reduce((a, b) => ((meanRadar[a] ?? 0) >= (meanRadar[b] ?? 0) ? a : b));
-  const experience = `经验规则：对「${req.candidateName}」类候选，优先考察最强维「${strongest}」的复用价值；最弱维「${weakest}」需在下一轮面试定向追问（pass^k 未全达标的维度=训练重点）。`;
-  push('precipitate', 'boss', experience);
+  // ── Step 6 · precipitate：经验沉淀（结构化可复用规则，由 boss_review Skill 产出）──
+  const precipitatedRule = review.precipitatedRule;
+  const experience = precipitatedRule.rule;
+  push('precipitate', 'boss', experience, precipitatedRule, 'boss_review');
 
   return {
     request: req,
     plan,
     interviewReport,
     evaluation: { radars, meanRadar, verdict, confidence, passK: pk, biasAudit: bias, source },
-    bossDecision: { action, reason, approvedBy: 'boss', requiresHumanAck },
+    bossDecision: { action, reason, approvedBy: 'boss', requiresHumanAck, source: reviewSource },
+    precipitatedRule,
     experience,
     trace,
   };

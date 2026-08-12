@@ -55,4 +55,24 @@ describe('ClosedLoop orchestrator（GOAI 八步闭环实证）', () => {
     expect(res.bossDecision.action).toBe('rollback');
     expect(res.bossDecision.requiresHumanAck).toBe(true);
   });
+
+  it('SP-03：approve/precipitate 由 boss_review Skill 产出，经验沉淀为结构化规则', async () => {
+    const res = await runClosedLoop({ ...SAMPLE, judge: mockJudge });
+    // 决策来源 = boss_review Skill（非内联逻辑）
+    expect(res.bossDecision.source).toBe('boss_review');
+    // precipitatedRule 是结构化对象而非纯字符串
+    expect(res.precipitatedRule).toBeTypeOf('object');
+    expect(res.precipitatedRule.source).toBe('boss_review');
+    expect(res.precipitatedRule.weakestDim).toBeTypeOf('string');
+    expect(res.precipitatedRule.trainingFocus).toContain(res.precipitatedRule.weakestDim);
+    // experience 保持与结构化规则文本一致（向后兼容）
+    expect(res.experience).toBe(res.precipitatedRule.rule);
+    // trace 关键步骤带 skill 标签（Skill 真实调用证据）
+    const skillByPhase = Object.fromEntries(res.trace.map((t) => [t.phase, t.skill]));
+    expect(skillByPhase.context).toBe('agent_interview');
+    expect(skillByPhase.tool).toBe('capability_assessment');
+    expect(skillByPhase.verify).toBe('reliability_audit');
+    expect(skillByPhase.approve).toBe('boss_review');
+    expect(skillByPhase.precipitate).toBe('boss_review');
+  });
 });

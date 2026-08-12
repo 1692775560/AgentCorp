@@ -7,13 +7,12 @@ import { judgeChat } from '@/services/judgeClient';
 import type { JudgeFn, JudgeFnInput, JudgeFnOutput } from './closedLoop';
 
 export const liveJudge: JudgeFn = async (input: JudgeFnInput): Promise<JudgeFnOutput | null> => {
-  const res = await judgeChat(
-    input.agentId,
-    input.transcript,
-    input.bossProfile ?? null,
-    null,
-    input.variant,
-  );
+  // M3 修复：judgeChat 的 fetch 无超时，网关端口黑洞时会永久挂起——
+  // 在 demo 适配层加 8s 兜底超时，超时即降级 mock，闭环不中断。
+  const res = await Promise.race([
+    judgeChat(input.agentId, input.transcript, input.bossProfile ?? null, null, input.variant),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+  ]);
   if (!res || !res.radar) return null;
   return {
     radar: res.radar,

@@ -35,6 +35,14 @@ type RouteHandler = (
   ctx: HostApiContext,
 ) => Promise<boolean>;
 
+/**
+ * MCP 等价契约（SP-13）：本 route 表即 AgentCorp 的「MCP 等价层」——
+ * 每个 handler 对应契约文档中的一组 tool（evaluate.run / judge.chat / craft.judge /
+ * arena.compare / arena.userPick / agents.* / eval.* / gateway.* …），
+ * 统一鉴权 x-clawx-host-session，错误约定 { success:false, error }。
+ * 迁移真 MCP = 把各 tool 的 params 包成 MCP tool schema 后原样转发到此表，
+ * 调用链不变。完整契约：docs/artifacts/mcp-equivalent-contract.md。
+ */
 const routeHandlers: RouteHandler[] = [
   handleAppRoutes,
   handleGatewayRoutes,
