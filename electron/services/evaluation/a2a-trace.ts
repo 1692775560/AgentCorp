@@ -9,6 +9,14 @@
  *
  * 容错原则：trace 是评估证据的旁路采集，读写任一步失败都绝不抛出、
  * 绝不影响委派主流程（spawn/steer/kill）与评估采集（collectRunData）。
+ *
+ * 两路 Trace 对齐（SP-11）：本文件（Electron 委派链路）与 web demo 闭环的
+ * `src/demo/observability/traceSink.ts`（run-<id>.jsonl）是同级 Trace 证据，
+ * 字段映射——
+ *   trace_id ↔ runId（根关联）      delegator/delegatee ↔ agent
+ *   state ↔ status                  summary ↔ steps[].summary
+ * 统一迁移路径：两者均可经 `src/demo/observability/otelGenai.ts` 投影为
+ * OTel GenAI span（gen_ai.agent.name / gen_ai.conversation.id / gen_ai.skill.id）。
  */
 import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';

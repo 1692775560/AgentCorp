@@ -56,6 +56,13 @@ export default defineConfig(() => {
     build: {
       outDir: 'dist-web',
       emptyOutDir: true,
+      rollupOptions: {
+        // 主应用 + GOAI 闭环 Demo 双入口（SP-07 验收：产物含 demo.html）
+        input: {
+          index: resolve(__dirname, 'index.html'),
+          demo: resolve(__dirname, 'demo.html'),
+        },
+      },
     },
   };
 });
