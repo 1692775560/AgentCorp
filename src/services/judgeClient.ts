@@ -29,6 +29,7 @@ import type {
 import { computeKpi } from '@/engine/metricsEngine';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
+import { traceEmitter } from '@/engine/trace/traceEmitter';
 
 // 与 src/lib/host-api.ts 保持一致
 const HOST_API_PORT = 3210;
@@ -195,6 +196,57 @@ export interface TokenUsageHistoryEntryLike {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/* ───────────── G10 trace-first 评委埋点（设计 §7 · 可溯源/可归因） ─────────────
+ * 用统一 trace 模型的 correlationId 把分散的评委调用串成链，emit span 记录
+ * 时延，并可在调用后把 token / cost 归属到 span（接 tokenUsageCollector）。 */
+
+/** 一次评委 trace 的上下文。 */
+export interface JudgeTraceContext {
+  /** 端到端运行 id（如面试 interviewId / 评估 runId）；缺省内部派生。 */
+  runId: string;
+  agentId: string;
+  /** 跨进程/跨调用关联键；缺省回退 runId。 */
+  correlationId?: string;
+  kind?: string;
+  name?: string;
+  attributes?: Record<string, string | number | boolean | null>;
+}
+
+/**
+ * 包裹任意异步函数为一次评委 trace：开启 span → 执行 → 关闭 span（记录时延）。
+ * 异常会照常抛出，但 span 仍被关闭（status='error'），保证 trace 完整可追溯。
+ * 返回值允许调用方在成功后用 `traceEmitter.endSpan` 补 cost/tokens 完成成本归因。
+ */
+export async function withTrace<T>(
+  ctx: JudgeTraceContext,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const correlationId = ctx.correlationId ?? ctx.runId;
+  const spanId = traceEmitter.startSpan({
+    runId: ctx.runId,
+    kind: ctx.kind ?? 'judge',
+    name: ctx.name ?? 'judge',
+    agentId: ctx.agentId,
+    correlationId,
+    attributes: ctx.attributes,
+  });
+  const started = Date.now();
+  try {
+    const result = await fn();
+    traceEmitter.endSpan(spanId, {
+      status: 'ok',
+      latencyMs: Date.now() - started,
+    });
+    return result;
+  } catch (err) {
+    traceEmitter.endSpan(spanId, {
+      status: 'error',
+      latencyMs: Date.now() - started,
+    });
+    throw err;
+  }
+}
 
 /** 获取 Host API 会话 token（renderer → main ipc） */
 async function getHostApiToken(): Promise<string> {
@@ -625,34 +677,42 @@ export async function judgeChat(
   persona?: BossProfile | null,
   history?: string[] | null,
   rubricVariant = 0,
+  traceCtx?: { correlationId?: string; runId?: string },
 ): Promise<ChatJudgeResult | null> {
+  const runId = traceCtx?.runId ?? `judge-${agentId}-${Date.now()}`;
+  const correlationId = traceCtx?.correlationId ?? runId;
   try {
     const personaPre = buildPersonaPreamble(persona);
     const historyPre = buildHistoryPreamble(history);
     const rubricPre = buildJudgeRubricPreamble(rubricVariant);
     const preambles = [personaPre, historyPre, rubricPre].filter(Boolean).join('\n\n');
     const fullTranscript = preambles ? `${preambles}\n\n${transcript}` : transcript;
-    const token = await getHostApiToken();
-    const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [SESSION_HEADER]: token,
+    return await withTrace(
+      { runId, correlationId, agentId, kind: 'judge', name: 'chat-judge' },
+      async () => {
+        const token = await getHostApiToken();
+        const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            [SESSION_HEADER]: token,
+          },
+          body: JSON.stringify({ agent_id: agentId, transcript: fullTranscript }),
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as Record<string, unknown>;
+        const radar = json.radar;
+        return {
+          source: json.source === 'judge' ? 'judge' : 'degraded',
+          radar: radar && typeof radar === 'object' ? (radar as RadarScore) : null,
+          verdict: json.verdict as Verdict | undefined,
+          confidence: Number(json.confidence ?? 0),
+          evidence_trace: Array.isArray(json.evidence_trace)
+            ? (json.evidence_trace as unknown[]).map(String)
+            : [],
+        };
       },
-      body: JSON.stringify({ agent_id: agentId, transcript: fullTranscript }),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as Record<string, unknown>;
-    const radar = json.radar;
-    return {
-      source: json.source === 'judge' ? 'judge' : 'degraded',
-      radar: radar && typeof radar === 'object' ? (radar as RadarScore) : null,
-      verdict: json.verdict as Verdict | undefined,
-      confidence: Number(json.confidence ?? 0),
-      evidence_trace: Array.isArray(json.evidence_trace)
-        ? (json.evidence_trace as unknown[]).map(String)
-        : [],
-    };
+    );
   } catch {
     return null;
   }

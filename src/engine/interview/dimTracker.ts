@@ -225,7 +225,8 @@ function dimResponses(turns: InterviewTurn[], dim: RadarDim | CraftDim): IrtResp
   const responses: IrtResponse[] = [];
   for (const turn of turns) {
     if (!turn.targetDims.includes(dim)) continue;
-    const rating = turn.hrRatings[dim];
+    // hrRatings 仅按 RadarDim 建键；CraftDim 在运行时恒为 undefined → 回落 evidenceStrength 启发式。
+    const rating = turn.hrRatings[dim as RadarDim];
     const correct =
       typeof rating === 'number'
         ? rating >= 3

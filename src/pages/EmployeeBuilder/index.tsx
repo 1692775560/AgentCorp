@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { cn } from '@/lib/utils';
+import { agentToRoleCard, type AgentFunction } from '@/engine/agents/roleCard';
 
 type BuildMode = 'select' | 'single' | 'team';
 
@@ -17,6 +18,13 @@ export function EmployeeBuilder() {
   const [agentName, setAgentName] = useState('');
   const [agentPersona, setAgentPersona] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // G8 角色卡字段（结构化角色定义）
+  const [agentRole, setAgentRole] = useState<AgentFunction>('specialist');
+  const [agentGoal, setAgentGoal] = useState('');
+  const [agentBackstory, setAgentBackstory] = useState('');
+  const [agentBoundedTools, setAgentBoundedTools] = useState('');
+  const [agentAuthorityScope, setAgentAuthorityScope] = useState('');
 
   const { fetchTeams } = useTeamsStore();
   const { fetchAgents, createAgent } = useAgentsStore();
@@ -34,14 +42,33 @@ export function EmployeeBuilder() {
     if (!agentName.trim()) return;
     setCreating(true);
     try {
+      const boundedTools = agentBoundedTools
+        .split(/[,\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const roleCard = agentToRoleCard({
+        name: agentName.trim(),
+        persona: agentPersona.trim() || undefined,
+        role: agentRole,
+        goal: agentGoal.trim() || undefined,
+        backstory: agentBackstory.trim() || undefined,
+        boundedTools: boundedTools.length > 0 ? boundedTools : undefined,
+        authorityScope: agentAuthorityScope.trim() || undefined,
+      });
       await createAgent({
         name: agentName.trim(),
         persona: agentPersona.trim() || undefined,
         teamRole: 'worker',
+        roleCard,
       });
       toast.success(`已成功创建员工「${agentName.trim()}」`);
       setAgentName('');
       setAgentPersona('');
+      setAgentGoal('');
+      setAgentBackstory('');
+      setAgentBoundedTools('');
+      setAgentAuthorityScope('');
+      setAgentRole('specialist');
       setBuildMode('select');
       void fetchAgents();
       navigate('/team-overview');
@@ -183,6 +210,76 @@ export function EmployeeBuilder() {
                       onChange={(e) => setAgentPersona(e.target.value)}
                       placeholder="描述这个员工的专业领域、工作风格和行为准则..."
                       rows={4}
+                      className="w-full resize-none rounded-2xl border border-gray-100 bg-[#F2F0E9] px-5 py-3 text-sm font-medium text-[#1A1C1E] outline-none transition-all focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/10"
+                    />
+                  </div>
+
+                  {/* G8 结构化角色卡字段 */}
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-gray-400">
+                      职能角色 <span className="font-normal normal-case tracking-normal text-gray-400">(角色卡)</span>
+                    </label>
+                    <select
+                      value={agentRole}
+                      onChange={(e) => setAgentRole(e.target.value as AgentFunction)}
+                      className="w-full rounded-2xl border border-gray-100 bg-[#F2F0E9] px-5 py-3 text-sm font-medium text-[#1A1C1E] outline-none transition-all focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/10"
+                    >
+                      <option value="specialist">通用专家（默认）</option>
+                      <option value="boss">老板 / 管理者</option>
+                      <option value="recruiter">HR 面试官</option>
+                      <option value="evaluator">评估中心</option>
+                      <option value="dispatcher">编排主控</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-gray-400">
+                      工作目标 <span className="font-normal normal-case tracking-normal text-gray-400">(可选)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={agentGoal}
+                      onChange={(e) => setAgentGoal(e.target.value)}
+                      placeholder="这个员工被雇佣来达成的核心目标"
+                      className="w-full rounded-2xl border border-gray-100 bg-[#F2F0E9] px-5 py-3 text-sm font-medium text-[#1A1C1E] outline-none transition-all focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-gray-400">
+                      背景设定 <span className="font-normal normal-case tracking-normal text-gray-400">(可选)</span>
+                    </label>
+                    <textarea
+                      value={agentBackstory}
+                      onChange={(e) => setAgentBackstory(e.target.value)}
+                      placeholder="这个员工的背景故事 / 立场设定"
+                      rows={2}
+                      className="w-full resize-none rounded-2xl border border-gray-100 bg-[#F2F0E9] px-5 py-3 text-sm font-medium text-[#1A1C1E] outline-none transition-all focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-gray-400">
+                      授权工具 <span className="font-normal normal-case tracking-normal text-gray-400">(逗号/换行分隔，可选)</span>
+                    </label>
+                    <textarea
+                      value={agentBoundedTools}
+                      onChange={(e) => setAgentBoundedTools(e.target.value)}
+                      placeholder="例如：search, calendar, code-runner"
+                      rows={2}
+                      className="w-full resize-none rounded-2xl border border-gray-100 bg-[#F2F0E9] px-5 py-3 text-sm font-medium text-[#1A1C1E] outline-none transition-all focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-gray-400">
+                      职责范围 <span className="font-normal normal-case tracking-normal text-gray-400">(可选)</span>
+                    </label>
+                    <textarea
+                      value={agentAuthorityScope}
+                      onChange={(e) => setAgentAuthorityScope(e.target.value)}
+                      placeholder="描述这个员工被授权的工作边界与范围"
+                      rows={2}
                       className="w-full resize-none rounded-2xl border border-gray-100 bg-[#F2F0E9] px-5 py-3 text-sm font-medium text-[#1A1C1E] outline-none transition-all focus:border-[#FF6B4A] focus:ring-2 focus:ring-[#FF6B4A]/10"
                     />
                   </div>
