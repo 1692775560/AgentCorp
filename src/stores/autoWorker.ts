@@ -1,0 +1,508 @@
+/**
+ * src/stores/autoWorker.ts
+ * Agent Office · 自动任务 worker（S8/S9/S10，真实消费循环，非 mock）。
+ *
+ * 合并说明（以远程主干为主干、只叠加差异能力）：
+ * 本文件不引入任何新表 / 新看板 / 新数据库。它完全构建在主干既有的
+ * 任务 + execution 系统之上：
+ *   - 任务读写走 useApprovalsStore（/api/tasks，文件存储的 KanbanTask）。
+ *   - 派活走 useGatewayStore.rpc（真实网关 RPC）+ startTaskExecution（写 canonicalExecution）。
+ *   - agent 会话键取 useAgentsStore 的 AgentSummary.mainSessionKey。
+ *
+ * 提供三项主干原本没有的能力：
+ *   S8 自动 worker：网关连上后，自动领取 status='todo' 且 workState='idle' 的任务并派活。
+ *   S9 自动重试：任务 workState 变 'failed' 且未达 maxAttempts 时，自动复位为可重跑并再次派活。
+ *   S10 并发度控制：同时最多执行 N 条（默认 2，可 1..8 调节），claim 时防重复领取。
+ *
+ * 真实约束（诚实、不假装）：
+ * - 只有网关真正连上（GatewayStatus.state === 'running'）才会投递；未连上则待命。
+ * - 每个任务按 assigneeId 反查该 agent 的 mainSessionKey；无 sessionKey →
+ *   updateTask 置 workState='failed' 并写明原因，绝不静默成功，也不对其自动重试
+ *   （结构性失败重试也会一直缺 key，避免死循环）。
+ */
+import { create } from 'zustand';
+
+import { useGatewayStore } from '@/stores/gateway';
+import { useAgentsStore } from '@/stores/agents';
+import { useApprovalsStore } from '@/stores/approvals';
+import { useTeamsStore } from '@/stores/teams';
+import { useEvaluationStore } from '@/stores/evaluation';
+import type { KanbanTask } from '@/types/task';
+import {
+  routeBySquadLeader,
+  type RoutingCandidate,
+} from '@/engine/squad/squadRouting';
+import { runRealExecution, runRealChat, isRealExecutorAvailable } from '@/engine/llm/realExecutor';
+import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
+import type { A2aTraceRecord } from '@/types/evaluation';
+import type { TaskExecutionEvent } from '@/types/task';
+
+/** 领取任务的轮询间隔（ms）。 */
+const POLL_INTERVAL_MS = 3_000;
+/** 网关 RPC 派活的默认超时（ms）。 */
+const DISPATCH_TIMEOUT_MS = 120_000;
+/** 并发度上限。 */
+const MAX_CONCURRENCY = 8;
+/** 默认最大尝试次数（含首次）。主干任务本身无此字段，由 worker 会话内跟踪。 */
+const DEFAULT_MAX_ATTEMPTS = 3;
+
+/** 网关是否真正连上（真实判断）。 */
+function gatewayConnected(): boolean {
+  return useGatewayStore.getState().status.state === 'running';
+}
+
+/**
+ * 真实执行后端是否就绪（缓存）。首次探测由 syncWithGateway/_tick 触发。
+ * 就绪后即使网关未连上，worker 也可跑真实 LLM 执行。
+ */
+let realExecutorReady = false;
+let realExecutorProbed = false;
+async function probeRealExecutor(): Promise<boolean> {
+  if (realExecutorProbed) return realExecutorReady;
+  realExecutorProbed = true;
+  try {
+    realExecutorReady = await isRealExecutorAvailable();
+  } catch {
+    realExecutorReady = false;
+  }
+  return realExecutorReady;
+}
+
+/** worker 是否有可用的执行通道（真实 LLM 或已连网关）。 */
+function canDispatch(): boolean {
+  return realExecutorReady || gatewayConnected();
+}
+
+/** 按 agentId 反查真实 mainSessionKey；查不到返回 null。 */
+function sessionKeyForAgent(agentId: string | undefined): string | null {
+  if (!agentId) return null;
+  const agent = useAgentsStore.getState().agents.find((a) => a.id === agentId);
+  return agent?.mainSessionKey || null;
+}
+
+/**
+ * worker 会话内的重试计数（taskId → 已尝试次数）。用模块级 Map 跟踪，
+ * 不侵入主干 KanbanTask 的 schema / 文件存储。进程重启即清零，符合
+ * “自动重试是运行期行为”的预期。
+ */
+const attemptCount = new Map<string, number>();
+
+interface AutoWorkerState {
+  /** 用户是否开启了自动执行（开关意图）。 */
+  enabled: boolean;
+  /** worker 是否正在循环中（enabled 且已启动定时器）。 */
+  running: boolean;
+  /** 并发度：同时最多执行多少条任务。 */
+  concurrency: number;
+  /** 每个任务的最大尝试次数（含首次）。 */
+  maxAttempts: number;
+  /** 当前在执行中的任务 id 集合（并发）。 */
+  activeTaskIds: string[];
+  /** 累计已处理任务数（本次会话）。 */
+  processed: number;
+  /** 最近一次说明（供 UI 显示）。 */
+  note: string;
+  enable: () => void;
+  disable: () => void;
+  /** 设置并发度（1..8）。 */
+  setConcurrency: (n: number) => void;
+  /** 内部：根据网关状态启动/暂停循环。 */
+  syncWithGateway: () => void;
+  /** 内部：跑一次「补满并发槽位」的 tick。 */
+  _tick: () => Promise<void>;
+}
+
+let timer: ReturnType<typeof setInterval> | null = null;
+let ticking = false;
+/** 当前在途执行数（模块级，避免并发 tick 之间竞态）。 */
+let inFlight = 0;
+/** 本轮 tick 已在途 / 刚领取的任务 id，避免并发 claim 领到同一条。 */
+const claimed = new Set<string>();
+
+function clearTimer() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+export const useAutoWorkerStore = create<AutoWorkerState>((set, get) => ({
+  enabled: false,
+  running: false,
+  concurrency: 2,
+  maxAttempts: DEFAULT_MAX_ATTEMPTS,
+  activeTaskIds: [],
+  processed: 0,
+  note: '未开启',
+
+  enable: () => {
+    set({ enabled: true });
+    get().syncWithGateway();
+  },
+
+  disable: () => {
+    set({ enabled: false, running: false, note: '已关闭' });
+    clearTimer();
+  },
+
+  setConcurrency: (n) => {
+    const clamped = Math.max(1, Math.min(MAX_CONCURRENCY, Math.floor(n)));
+    set({ concurrency: clamped });
+  },
+
+  syncWithGateway: () => {
+    const { enabled } = get();
+    if (!enabled) {
+      clearTimer();
+      set({ running: false });
+      return;
+    }
+    // 首次探测真实执行后端；探测完成后再次同步（异步，不阻塞）。
+    if (!realExecutorProbed) {
+      void probeRealExecutor().then(() => get().syncWithGateway());
+    }
+    if (!canDispatch()) {
+      clearTimer();
+      set({ running: false, note: '无可用执行通道，待命中（真实 LLM 或网关就绪后自动开始）' });
+      return;
+    }
+    if (!timer) {
+      set({
+        running: true,
+        note: realExecutorReady ? '运行中：真实 LLM 执行已就绪，自动领取待办任务' : '运行中：自动领取待办任务',
+      });
+      void get()._tick();
+      timer = setInterval(() => void get()._tick(), POLL_INTERVAL_MS);
+    }
+  },
+
+  _tick: async () => {
+    if (ticking) return; // tick 自身不重入
+    if (!get().enabled) return;
+    if (!canDispatch()) {
+      get().syncWithGateway(); // 执行通道全部不可用 → 暂停
+      return;
+    }
+    ticking = true;
+    try {
+      const { concurrency } = get();
+      const approvals = useApprovalsStore.getState();
+      // 拉最新任务快照（真实读主干 /api/tasks）。
+      await approvals.fetchTasks();
+
+      while (inFlight < concurrency) {
+        const tasks = useApprovalsStore.getState().tasks;
+        // 可领取：todo 且 idle，且未被本轮领取 / 未在途。
+        const next = tasks.find(
+          (t) =>
+            t.status === 'todo' &&
+            t.workState === 'idle' &&
+            !claimed.has(t.id),
+        );
+        if (!next) {
+          if (inFlight === 0) set({ note: '运行中：暂无待办任务，等待新任务' });
+          break;
+        }
+        // 逻辑 claim：标记后立即占槽，避免并发 tick / 并发循环重复领取。
+        claimed.add(next.id);
+        inFlight += 1;
+        set((s) => ({
+          activeTaskIds: [...s.activeTaskIds, next.id],
+          note: `执行中 ${inFlight} 条（并发 ${concurrency}）`,
+        }));
+        void runOne(next, set, get);
+      }
+    } catch (e) {
+      set({ note: `出错：${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      ticking = false;
+    }
+  },
+}));
+
+/**
+ * 决策对接层 · Squad Leader 路由（creator 选定）。
+ *
+ * 任务先给团队 leader，leader 依据成员真实画像决定分给哪个成员或自己做。
+ * 仅当任务带 teamId、能定位到团队、且团队有 leader 时才触发；否则原样返回，
+ * 沿用任务既有 assigneeId（不改变主干默认行为）。
+ *
+ * 决策落地：把选中的 assigneeId 写回任务，并把 leader 决策理由写入 workResult，
+ * 使其在看板与 execution 事件流中可见（诚实留痕，非 mock）。
+ *
+ * 返回决策后应使用的 assigneeId、团队 leaderId，以及是否应走多 agent A2A 协作
+ * （团队任务且 leader 与被指派成员不同）。
+ */
+interface LeaderRouting {
+  assigneeId?: string;
+  leaderId?: string;
+  /** 是否满足多 agent 协作条件（leader ≠ 成员，且二者均为真实 agent）。 */
+  collaborate: boolean;
+}
+
+async function resolveAssigneeViaLeader(task: KanbanTask): Promise<LeaderRouting> {
+  if (!task.teamId) return { assigneeId: task.assigneeId, collaborate: false };
+
+  const team = useTeamsStore.getState().teams.find((t) => t.id === task.teamId);
+  if (!team || !team.leaderId) return { assigneeId: task.assigneeId, collaborate: false };
+
+  const agents = useAgentsStore.getState().agents;
+  const profiles = useEvaluationStore.getState().profiles;
+
+  // 候选 = 团队成员并集 leader，投影成路由所需的最简画像（真实数据）。
+  const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
+  const candidates: RoutingCandidate[] = memberIds
+    .map((id): RoutingCandidate | null => {
+      const agent = agents.find((a) => a.id === id);
+      if (!agent) return null;
+      const profile = profiles[id];
+      // retired（软退休/淘汰）不参与路由；缺省 lifecycleStatus 视为在职。
+      const active = (agent.lifecycleStatus ?? 'active') !== 'retired';
+      return {
+        agentId: id,
+        active,
+        jobType: profile?.jobType ?? null,
+        radar: profile?.radarLatest ?? null,
+        userFit: profile?.userFitLatest ?? null,
+      };
+    })
+    .filter((c): c is RoutingCandidate => c !== null);
+
+  const decision = routeBySquadLeader({
+    taskText: [task.title, task.description].filter(Boolean).join('\n\n'),
+    leaderId: team.leaderId,
+    candidates,
+  });
+
+  const resolved = decision.assigneeId || task.assigneeId;
+  // 只有决策结果与任务当前 assignee 不同（或原本未分配）时才回写，避免无谓写入。
+  if (resolved && resolved !== task.assigneeId) {
+    const assigneeAgent = agents.find((a) => a.id === resolved);
+    await useApprovalsStore.getState().updateTask(task.id, {
+      assigneeId: resolved,
+      ...(assigneeAgent?.teamRole ? { assigneeRole: assigneeAgent.teamRole } : {}),
+      workResult: `[Squad Leader 路由] ${decision.reason}`,
+    });
+  }
+  // 多 agent 协作条件：leader 未自留（成员 ≠ leader）且成员真实存在。
+  const collaborate =
+    !decision.leaderKept &&
+    !!resolved &&
+    resolved !== team.leaderId &&
+    agents.some((a) => a.id === resolved);
+  return { assigneeId: resolved, leaderId: team.leaderId, collaborate };
+}
+
+/** 把一条 A2A trace 转成任务执行事件（供看板时间线渲染）。 */
+function traceToEvent(t: A2aTraceRecord): TaskExecutionEvent {
+  const status: TaskExecutionEvent['status'] =
+    t.state === 'completed' ? 'done' : t.state === 'failed' ? 'failed' : 'working';
+  return {
+    type: `a2a:${t.delegator} → ${t.delegatee}`,
+    createdAt: t.sent_at,
+    status,
+    content: `【第${t.round}轮】${t.summary}`,
+    actorId: t.delegator,
+  };
+}
+
+/**
+ * 执行单条任务：（可选）leader 路由 → 反查 sessionKey → 网关真实派活 →
+ * startTaskExecution 记录 → 轮询 workState 终态 → done 流转 review / failed 走 S9 自动重试。
+ */
+async function runOne(
+  task: KanbanTask,
+  set: (partial: Partial<AutoWorkerState> | ((s: AutoWorkerState) => Partial<AutoWorkerState>)) => void,
+  get: () => AutoWorkerState,
+): Promise<void> {
+  const approvals = useApprovalsStore.getState();
+  const gateway = useGatewayStore.getState();
+
+  const release = () => {
+    inFlight = Math.max(0, inFlight - 1);
+    claimed.delete(task.id);
+    set((s) => ({
+      activeTaskIds: s.activeTaskIds.filter((id) => id !== task.id),
+      processed: s.processed + 1,
+    }));
+  };
+
+  try {
+    // 0. 决策对接层：若为团队任务，先由 leader 路由决定 assignee（可能自留）。
+    const routing = await resolveAssigneeViaLeader(task);
+    const resolvedAssigneeId = routing.assigneeId;
+
+    // 真实执行是否就绪（复用缓存，避免重复探测）。
+    const realAvailable = realExecutorReady || (await probeRealExecutor());
+
+    // 1. 反查真实 sessionKey。网关模式下无 key → failed（不自动重试，避免死循环）；
+    //    真实 LLM 模式不依赖网关会话，用合成 key 兜底，保证任务可执行。
+    let sessionKey = task.runtimeSessionKey || sessionKeyForAgent(resolvedAssigneeId);
+    if (!sessionKey) {
+      if (realAvailable) {
+        sessionKey = `local:${resolvedAssigneeId ?? task.id}`;
+      } else {
+        await approvals.updateTask(task.id, {
+          workState: 'failed',
+          workError: '任务未分配 agent 或该 agent 未在网关注册会话（缺 mainSessionKey），无法自动执行',
+        });
+        release();
+        return;
+      }
+    }
+
+    const attempts = (attemptCount.get(task.id) ?? 0) + 1;
+    attemptCount.set(task.id, attempts);
+
+    const prompt = [task.title, task.description].filter(Boolean).join('\n\n');
+    let sessionId = task.runtimeSessionId || sessionKey;
+    let runId: string | undefined;
+    let realOutput: string | null = null;
+
+    // 2. 真实执行优先：若真实 LLM 后端在线（Vite 代理已配置 key）：
+    //    - 团队任务且 leader≠成员 → 走多 agent A2A 协作（leader↔成员真实往返）；
+    //    - 否则 → 单 agent 真实执行。
+    //    非真实模式回退到网关 RPC。
+    if (realAvailable) {
+      await approvals.updateTask(task.id, { status: 'in-progress', workState: 'working' });
+      try {
+        if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
+          // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
+          const events: TaskExecutionEvent[] = [];
+          const collab = await runSquadCollaboration({
+            taskId: task.id,
+            taskTitle: task.title,
+            taskDescription: task.description,
+            leaderId: routing.leaderId,
+            memberId: resolvedAssigneeId,
+            maxRounds: 2,
+            // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
+            chat: (_agentId, messages) => runRealChat(messages, 2048),
+            // 每产生一条 A2A 消息，实时 append 成执行事件并写回任务（看板即时可见）。
+            onTrace: (t) => {
+              events.push(traceToEvent(t));
+              void approvals.updateTask(task.id, { executionEvents: [...events] });
+            },
+          });
+          realOutput = collab.approved
+            ? `【A2A 协作完成·${collab.rounds}轮·Leader PASS】\n${collab.deliverable}`
+            : `【A2A 协作未通过·已达${collab.rounds}轮】最后产出：\n${collab.deliverable}\n\nLeader 意见：${collab.verdict}`;
+        } else {
+          // —— 单 agent 真实执行 ——
+          const system = [
+            '你是 AgentCorp 中的一名专业执行 agent。',
+            resolvedAssigneeId ? `你的 agentId 是 ${resolvedAssigneeId}。` : '',
+            '请直接完成下面这条任务，给出可交付的真实产出（结论/代码/文案/方案），不要只复述任务。',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          const result = await runRealExecution({ message: prompt, system, maxTokens: 2048 });
+          realOutput = result.content;
+        }
+      } catch (execErr) {
+        // 真实执行失败 → failed，交给 S9 判断是否重试。
+        await approvals.updateTask(task.id, {
+          workState: 'failed',
+          workError: `真实执行失败：${execErr instanceof Error ? execErr.message : String(execErr)}`,
+        });
+        await maybeAutoRetry(task, get, set);
+        release();
+        return;
+      }
+    } else {
+      // 回退：网关真实派活（复用主干标准 RPC 通道 chat.send）。
+      try {
+        const rpcResult = await gateway.rpc<{ runId?: string; sessionId?: string }>(
+          'chat.send',
+          { sessionKey, message: prompt },
+          DISPATCH_TIMEOUT_MS,
+        );
+        runId = rpcResult?.runId;
+        if (rpcResult?.sessionId) sessionId = rpcResult.sessionId;
+      } catch (rpcErr) {
+        await approvals.updateTask(task.id, {
+          workState: 'failed',
+          workError: `网关派活失败：${rpcErr instanceof Error ? rpcErr.message : String(rpcErr)}`,
+        });
+        await maybeAutoRetry(task, get, set);
+        release();
+        return;
+      }
+    }
+
+    // 3. 记录 execution（写 canonicalExecution）。
+    await approvals.startTaskExecution(task.id, {
+      sessionId,
+      sessionKey,
+      ...(resolvedAssigneeId ? { agentId: resolvedAssigneeId } : {}),
+      ...(runId ? { entrySessionKey: sessionKey } : {}),
+    });
+
+    // 4. 落终态并写入真实产出，流转 review。
+    //    - 真实执行：workResult = 模型真实产出（截断存储，避免过长）。
+    //    - 网关回退：仍是“已派发执行”，真实产出由主干事件流后续推进。
+    await approvals.updateTask(task.id, {
+      status: 'review',
+      workState: 'done',
+      workResult: realOutput
+        ? realOutput.slice(0, 4000)
+        : runId
+          ? `已派发执行（runId=${runId}）`
+          : '已派发执行',
+    });
+    attemptCount.delete(task.id); // 成功后清计数
+    set({ note: realOutput ? `已完成：${task.title.slice(0, 24)}` : `已派发：${task.title.slice(0, 24)}` });
+    release();
+    void get()._tick(); // 立即补槽
+  } catch (e) {
+    // 兜底：任何异常都落 failed 并释放槽位，避免卡在 idle 反复领取。
+    try {
+      await approvals.updateTask(task.id, {
+        workState: 'failed',
+        workError: e instanceof Error ? e.message : String(e),
+      });
+      await maybeAutoRetry(task, get, set);
+    } catch {
+      /* 落库失败忽略 */
+    }
+    release();
+  }
+}
+
+/**
+ * S9 自动重试：若该任务尝试次数未达 maxAttempts，则把它复位为可重跑
+ * （status='todo', workState='idle'），下一轮 tick 会再次领取；达上限则终止。
+ */
+async function maybeAutoRetry(
+  task: KanbanTask,
+  get: () => AutoWorkerState,
+  set: (partial: Partial<AutoWorkerState>) => void,
+): Promise<void> {
+  const attempts = attemptCount.get(task.id) ?? 1;
+  const max = get().maxAttempts;
+  if (attempts >= max) {
+    set({ note: `任务失败且已达重试上限（${attempts}/${max}），终止：${task.title.slice(0, 20)}` });
+    attemptCount.delete(task.id);
+    return;
+  }
+  // 复位为待办，等待下一轮自动领取重跑。计数保留（下次进入 runOne 再 +1）。
+  await useApprovalsStore.getState().updateTask(task.id, {
+    status: 'todo',
+    workState: 'idle',
+  });
+  set({ note: `失败自动重试：第 ${attempts + 1}/${max} 次已重排队：${task.title.slice(0, 20)}` });
+}
+
+/**
+ * 仅供单测使用：重置 worker 的模块级运行期状态（重试计数、在途槽位、claim 集合）。
+ * 生产代码不应调用。
+ */
+export function __resetAutoWorkerForTest(): void {
+  attemptCount.clear();
+  claimed.clear();
+  inFlight = 0;
+  ticking = false;
+  realExecutorReady = false;
+  realExecutorProbed = false;
+  clearTimer();
+}

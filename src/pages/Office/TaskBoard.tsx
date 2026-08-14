@@ -12,6 +12,7 @@ import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert 
 
 import { useApprovalsStore } from '@/stores/approvals';
 import type { KanbanTask, TaskStatus } from '@/types/task';
+import { AutoWorkerBar } from './AutoWorkerBar';
 
 const COLUMNS: Array<{ key: TaskStatus; label: string; accent: string }> = [
   { key: 'todo', label: '待办', accent: '#9ca3af' },
@@ -71,6 +72,9 @@ export function TaskBoard() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden px-6 py-5">
+      {/* 自动任务 worker 控制条（S8/S9/S10） */}
+      <AutoWorkerBar />
+
       {/* 待审批 list */}
       {approvals.length > 0 && (
         <section className="neu-inset shrink-0 rounded-2xl px-4 py-3">
@@ -130,6 +134,7 @@ export function TaskBoard() {
                       </div>
                       <div className="flex items-center gap-2 text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
                         {t.assigneeRole && <span className="truncate">{t.assigneeRole}</span>}
+                        {t.isTeamTask && <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#6366f122', color: '#6366f1' }}>A2A协作</span>}
                         {waiting && <span className="flex items-center gap-0.5" style={{ color: '#f59e0b' }}><Clock className="h-3 w-3" />待审批</span>}
                         <span className="ml-auto flex items-center gap-0.5"><ChevronRight className="h-3 w-3" /></span>
                       </div>
@@ -156,14 +161,26 @@ export function TaskBoard() {
               <ol className="relative flex flex-col gap-3 border-l pl-4" style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 20%, transparent)' }}>
                 {(selected.executionEvents ?? []).length === 0 ? (
                   <li className="text-[12px]" style={{ color: 'var(--neu-ink-soft)' }}>尚未开始执行</li>
-                ) : (selected.executionEvents ?? []).map((e, i) => (
+                ) : (selected.executionEvents ?? []).map((e, i) => {
+                  const isA2a = typeof e.type === 'string' && e.type.startsWith('a2a:');
+                  const route = isA2a ? e.type.slice(4) : '';
+                  const isReview = isA2a && (e.content?.includes('PASS') || e.content?.includes('REWORK'));
+                  const passed = !!e.content?.includes('PASS');
+                  return (
                   <li key={i} className="relative">
                     <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full"
                       style={{ background: e.status === 'done' ? '#22c55e' : e.status === 'waiting_approval' ? '#f59e0b' : e.status === 'failed' ? '#ef4444' : '#3b82f6' }} />
+                    {isA2a && (
+                      <div className="mb-0.5 flex items-center gap-1 text-[9.5px] font-semibold" style={{ color: isReview ? (passed ? '#22c55e' : '#f59e0b') : '#6366f1' }}>
+                        <span className="rounded px-1 py-px" style={{ background: isReview ? (passed ? '#22c55e22' : '#f59e0b22') : '#6366f122' }}>A2A</span>
+                        <span className="truncate">{route}</span>
+                      </div>
+                    )}
                     <p className="text-[12px] leading-snug" style={{ color: 'var(--neu-ink)' }}>{e.content}</p>
                     <p className="text-[10px]" style={{ color: 'var(--neu-ink-soft)' }}>{timeAgo(e.createdAt)}</p>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
               {selected.workResult && (
                 <div className="mt-3 rounded-xl px-3 py-2 text-[12px] leading-relaxed" style={{ background: '#22c55e14', color: 'var(--neu-ink)' }}>
