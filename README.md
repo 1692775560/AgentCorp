@@ -2,6 +2,8 @@
 
 > 面向职场普通人的 Agent 评测服务：把「该信哪个 Agent」这件事，
 > 从凭感觉和看 star 数，变成可测量、可复现、可解释的工程问题。
+> <img width="2940" height="1742" alt="a4fb087985edc41368b563a83f790dbd" src="https://github.com/user-attachments/assets/3399d589-4ed5-4b41-a201-0dedc258ad32" />
+
 
 ---
 
