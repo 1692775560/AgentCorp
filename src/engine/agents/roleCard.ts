@@ -1,17 +1,18 @@
 /**
- * Agent 角色卡 Schema（Phase 6 草案）
+ * Agent 角色卡 Schema（Phase 6 · 规范真相源 / canonical schema）
  * --------------------------------------------------------------------------
  * 设计来源：采纳 CrewAI「角色卡」思想（role / goal / backstory / tools / boundaries）
  *          + AgentCorp 既有 `AgentSummary` / A2A `AgentCard` 字段，
  *          自研轻量结构，**不引入 langgraph / crewai / autogen 等第三方运行时**
- *          （架构决策见 MEMORY.md「架构与技术栈决策」）。
+ *          （架构决策见项目 MEMORY.md「架构与技术栈决策」）。
  *
  * 双重用途：
  *  1. AgentCorp 内部的「Agent 即员工」角色定义 / 编排状态机输入。
  *  2. 阿里 GOAI 大赛「Agent Identity 清单（附录A）」——身份属性 +
  *     能力边界 + 协同关系在此结构里一一对应。
  *
- * 本文件自包含（不 import 外部模块），保证 tsc 编译隔离、可独立演进。
+ * 本文件自包含（除 `RoleCardDraft` 的归一化辅助外不 import 任何外部模块），
+ * 保证 tsc 编译隔离、可独立演进、可在渲染层与主进程两侧直接 type-only import。
  */
 
 /** 职能分类：身份核心。前四种对应 GOAI 3+ 异构 Agent 要求。 */
@@ -50,7 +51,7 @@ export interface RoleCardSkill {
 
 /** 能力边界——GOAI 1.2「能力边界」要求 + 1.3「审批与回滚」高风险动作约束。 */
 export interface CapabilityBoundary {
-  allowed: string[]; // 允许动作
+  allowed: string[]; // 允许动作 / 授权工具
   forbidden: string[]; // 禁止动作
   riskLevel: 'low' | 'medium' | 'high';
   requiresApproval: boolean; // 高风险动作需人工确认 / 审批
@@ -79,6 +80,10 @@ export interface RoleCard {
   model: string; // 绑定模型
   channels: string[]; // 接入通道
   ownsPhases: ClosedLoopPhase[]; // 该 Agent 主导的闭环阶段
+  /** 该 Agent 被授权使用的结构化工具清单（≈ CrewAI tools / 白名单）。 */
+  boundedTools?: string[];
+  /** 职责授权的自然语言范围声明（与上方结构化 boundaries 互补）。 */
+  authorityScope?: string;
   skills: RoleCardSkill[]; // 能力（=A2A skills + GOAI Skill 清单）
   /** 兼容 A2A AgentCard.capabilities（google-a2a/1.0）。 */
   capabilities: {
@@ -93,6 +98,137 @@ export interface RoleCard {
     agentSummaryField?: string; // 对应 AgentSummary 字段
     a2aCard?: boolean; // 是否已有 A2A AgentCard
     module?: string; // 落地模块路径
+  };
+}
+
+/**
+ * 从极简草稿构造一张完整角色卡（EmployeeBuilder 表单 → 角色卡）。
+ * 仅填充表单直接对应的字段；其余用 GOAI 兼容的安全默认值补全，
+ * 不臆造 skills / collaborators。
+ */
+export interface RoleCardDraft {
+  id?: string;
+  name: string;
+  role?: AgentFunction;
+  goal?: string;
+  backstory?: string;
+  persona?: string;
+  responsibility?: string;
+  reportsTo?: string;
+  teamRole?: 'leader' | 'worker';
+  model?: string;
+  channels?: string[];
+  boundedTools?: string[];
+  authorityScope?: string;
+}
+
+/** 由名称派生稳定 id（与 agent-config.slugifyAgentId 同思路，纯前端可复现）。 */
+function slugifyRoleId(name: string): string {
+  const normalized = name
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return normalized || 'agent';
+}
+
+export function agentToRoleCard(d: RoleCardDraft): RoleCard {
+  const boundedTools = d.boundedTools ?? [];
+  return {
+    id: (d.id ?? '').trim() || slugifyRoleId(d.name),
+    role: d.role ?? 'specialist',
+    name: d.name.trim(),
+    goal: (d.goal ?? '').trim(),
+    backstory: (d.backstory ?? '').trim(),
+    persona: (d.persona ?? '').trim(),
+    responsibility: (d.responsibility ?? '').trim(),
+    reportsTo: d.reportsTo,
+    teamRole: d.teamRole ?? 'worker',
+    lifecycleStatus: 'active',
+    model: (d.model ?? '').trim() || 'inherited',
+    channels: d.channels ?? [],
+    ownsPhases: [],
+    boundedTools,
+    authorityScope: (d.authorityScope ?? '').trim() || undefined,
+    skills: [],
+    capabilities: { streaming: true, pushNotifications: false, stateTransitionHistory: true },
+    boundaries: {
+      allowed: boundedTools,
+      forbidden: [],
+      riskLevel: 'low',
+      requiresApproval: false,
+    },
+    collaborators: [],
+    impl: {},
+  };
+}
+
+/** 把角色卡映射到既有 `AgentSummary` 的兼容子集（用于 createAgent 透传）。 */
+export interface RoleCardAgentSummary {
+  id: string;
+  name: string;
+  persona: string;
+  teamRole: 'leader' | 'worker';
+  responsibility: string;
+  reportsTo?: string | null;
+  lifecycleStatus: RoleCard['lifecycleStatus'];
+  model: string;
+}
+
+export function roleCardToAgentSummary(card: RoleCard): RoleCardAgentSummary {
+  return {
+    id: card.id,
+    name: card.name,
+    persona: card.persona,
+    teamRole: card.teamRole,
+    responsibility: card.responsibility,
+    reportsTo: card.reportsTo,
+    lifecycleStatus: card.lifecycleStatus,
+    model: card.model,
+  };
+}
+
+/**
+ * 合并两张角色卡（override 覆盖 base）。纯函数。
+ * 嵌套对象（capabilities / boundaries / impl）浅合并；数组（skills /
+ * collaborators / ownsPhases / channels / boundedTools）整体替换，不拼接。
+ */
+export function mergeRoleCard(base: RoleCard, override: Partial<RoleCard>): RoleCard {
+  return {
+    ...base,
+    ...override,
+    capabilities: { ...base.capabilities, ...(override.capabilities ?? {}) },
+    boundaries: { ...base.boundaries, ...(override.boundaries ?? {}) },
+    impl: { ...base.impl, ...(override.impl ?? {}) },
+    skills: override.skills ?? base.skills,
+    collaborators: override.collaborators ?? base.collaborators,
+    ownsPhases: override.ownsPhases ?? base.ownsPhases,
+    channels: override.channels ?? base.channels,
+    boundedTools: override.boundedTools ?? base.boundedTools,
+  };
+}
+
+/**
+ * 把角色卡映射到 A2A `AgentCard`（google-a2a/1.0），供跨进程/跨框架协同。
+ * skills 由 RoleCardSkill 投影为 A2ASkill（id/name/description）。
+ */
+export function toA2aAgentCard(card: RoleCard): {
+  role: string;
+  protocol: 'google-a2a/1.0';
+  capabilities: RoleCard['capabilities'];
+  skills: { id: string; name: string; description: string }[];
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+} {
+  return {
+    role: card.role,
+    protocol: 'google-a2a/1.0',
+    capabilities: card.capabilities,
+    skills: card.skills.map((s) => ({ id: s.id, name: s.name, description: s.purpose })),
+    defaultInputModes: ['text/plain', 'application/json'],
+    defaultOutputModes: ['text/plain', 'application/json'],
   };
 }
 
@@ -318,49 +454,9 @@ export const ROLE_CARD_BY_ID: Record<string, RoleCard> = Object.fromEntries(
 );
 
 /**
- * 把角色卡映射到既有 `AgentSummary`（兼容现有 agents store / OpenClaw 运行时）。
- * 仅抽取字段，不触发副作用。
+ * 兼容导出：main 版 `toAgentSummary` 的别名（本版本以 roleCardToAgentSummary 为准，
+ * 保留此导出避免破坏外部引用；返回类型与 roleCardToAgentSummary 一致）。
  */
-export function toAgentSummary(card: RoleCard): {
-  id: string;
-  name: string;
-  persona: string;
-  teamRole: 'leader' | 'worker';
-  responsibility: string;
-  reportsTo?: string;
-  lifecycleStatus: RoleCard['lifecycleStatus'];
-  model: string;
-} {
-  return {
-    id: card.id,
-    name: card.name,
-    persona: card.persona,
-    teamRole: card.teamRole,
-    responsibility: card.responsibility,
-    reportsTo: card.reportsTo,
-    lifecycleStatus: card.lifecycleStatus,
-    model: card.model,
-  };
-}
-
-/**
- * 把角色卡映射到 A2A `AgentCard`（google-a2a/1.0），供跨进程/跨框架协同。
- * skills 由 RoleCardSkill 投影为 A2ASkill（id/name/description）。
- */
-export function toA2aAgentCard(card: RoleCard): {
-  role: string;
-  protocol: 'google-a2a/1.0';
-  capabilities: RoleCard['capabilities'];
-  skills: { id: string; name: string; description: string }[];
-  defaultInputModes: string[];
-  defaultOutputModes: string[];
-} {
-  return {
-    role: card.role,
-    protocol: 'google-a2a/1.0',
-    capabilities: card.capabilities,
-    skills: card.skills.map((s) => ({ id: s.id, name: s.name, description: s.purpose })),
-    defaultInputModes: ['text/plain', 'application/json'],
-    defaultOutputModes: ['text/plain', 'application/json'],
-  };
+export function toAgentSummary(card: RoleCard): RoleCardAgentSummary {
+  return roleCardToAgentSummary(card);
 }

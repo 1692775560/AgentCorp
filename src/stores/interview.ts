@@ -37,6 +37,7 @@ import type {
 import type { CraftTask } from '@/types/craft';
 import type { CandidateEmbedding, TurnState } from '@/types/convergence';
 import type { CandidateRef } from '@/types/arena';
+import type { RoleCard } from '@/engine/agents/roleCard';
 
 import {
   makeFollowupQuestion,
@@ -88,6 +89,8 @@ export interface StartSessionInput {
   taskRequirement?: TaskRequirement;
   /** 显式任务画像；缺省时直读 marketplaceStore（★通道①） */
   taskProfile?: TaskProfile;
+  /** G8 目标角色卡：作为本场面试的「岗位画像」上下文（HR 面板/建议可引用 role.goal） */
+  roleCard?: RoleCard;
   /** 面试官（owner id） */
   createdBy?: string;
 }
@@ -125,6 +128,8 @@ interface InterviewState {
   lastMode: 'agent' | 'manual' | null;
   /** 最近一次调度返回的 runId */
   lastRunId: string | null;
+  /** G8 本场面试的目标角色卡（消费角色卡作上下文） */
+  targetRole: RoleCard | null;
   /** 面试报告（finishSession 产出） */
   report: InterviewReport | null;
   /** 最近一张 S2 评分卡 */
@@ -273,6 +278,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   dispatching: false,
   lastMode: null,
   lastRunId: null,
+  targetRole: null,
   report: null,
   stageScore: null,
   craftTasks: [],
@@ -339,6 +345,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       suggestions: suggestFollowups([], targetDims),
       status: 'running',
       dispatching: false,
+      targetRole: input.roleCard ?? null,
       lastMode: null,
       lastRunId: null,
       report: null,

@@ -24,6 +24,7 @@ import {
 } from '../../utils/channel-config';
 import { logger } from '../../utils/logger';
 import { syncAllProviderAuthToRuntime } from '../../services/providers/provider-runtime-sync';
+import type { RoleCard } from '../../../src/engine/agents/roleCard';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
 import { transformCronJob } from '../../utils/cron-transform';
@@ -200,12 +201,14 @@ export async function handleAgentRoutes(
         persona?: string;
         teamRole?: 'leader' | 'worker';
         model?: string;
+        roleCard?: RoleCard;
       }>(req);
       const result = await createAgent({
         name: body.name,
         ...(body.persona !== undefined ? { persona: body.persona } : {}),
         ...(body.teamRole !== undefined ? { teamRole: body.teamRole } : {}),
         ...(body.model !== undefined ? { model: body.model } : {}),
+        ...(body.roleCard !== undefined ? { roleCard: body.roleCard } : {}),
       });
       // Sync provider API keys to the new agent's auth-profiles.json so the
       // embedded runner can authenticate with LLM providers when messages
@@ -241,6 +244,7 @@ export async function handleAgentRoutes(
           teamRole?: 'leader' | 'worker';
           chatAccess?: 'direct' | 'leader_only';
           responsibility?: string;
+          roleCard?: RoleCard;
         }>(req);
         const agentId = decodeURIComponent(parts[0]);
         const snapshot = await updateAgentProfile(agentId, {
@@ -252,6 +256,7 @@ export async function handleAgentRoutes(
           ...(body.teamRole !== undefined ? { teamRole: body.teamRole } : {}),
           ...(body.chatAccess !== undefined ? { chatAccess: body.chatAccess } : {}),
           ...(body.responsibility !== undefined ? { responsibility: body.responsibility } : {}),
+          ...(body.roleCard !== undefined ? { roleCard: body.roleCard } : {}),
         });
         scheduleGatewayReload(ctx, 'update-agent');
         sendJson(res, 200, { success: true, ...snapshot });

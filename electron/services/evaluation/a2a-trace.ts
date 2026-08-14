@@ -23,6 +23,7 @@ import { join } from 'node:path';
 
 import { getOpenClawConfigDir } from '../../utils/paths';
 import type { A2aTraceRecord } from '../../../src/types/evaluation';
+import type { TraceSpan, TraceStatus } from '../../../src/engine/trace/traceModel';
 
 /** trace 落盘目录（~/.openclaw/a2a-traces） */
 export function getA2aTracesDir(): string {
@@ -153,4 +154,105 @@ export async function loadA2aTracesForRun(
   } catch {
     return [];
   }
+}
+
+/* ===================== G10 桥接：统一 trace 模型 ↔ A2aTraceRecord =====================
+ * 复用既有 A2A trace 落盘（appendA2aTrace / readA2aTraces），不 fork 一套新落盘。
+ * 通过投影把统一 TraceSpan（含 correlation_id / agent_id / cost_usd / tokens / latency_ms）
+ * 写入 A2aTraceRecord 的 G10 扩展字段，使跨进程 trace 与主进程 trace 共用同一回放/归因口径。 */
+
+/** A2A 侧状态 → 统一 trace 状态。 */
+function a2aStateToTraceStatus(state: A2aTraceRecord['state']): TraceStatus {
+  switch (state) {
+    case 'completed':
+      return 'ok';
+    case 'failed':
+      return 'error';
+    case 'canceled':
+      return 'canceled';
+    case 'working':
+    case 'input-required':
+    case 'submitted':
+    default:
+      return 'started';
+  }
+}
+
+/** 统一 trace 状态 → A2A 侧状态。 */
+function traceStatusToA2aState(status: TraceStatus): A2aTraceRecord['state'] {
+  switch (status) {
+    case 'ok':
+      return 'completed';
+    case 'error':
+      return 'failed';
+    case 'canceled':
+      return 'canceled';
+    case 'started':
+    default:
+      return 'working';
+  }
+}
+
+/** 把统一 TraceSpan 投影为落盘用 A2aTraceRecord（补全 A2A 既有字段的默认值）。 */
+export function toA2aTraceRecord(
+  span: TraceSpan,
+  opts: {
+    delegator?: string;
+    delegatee?: string;
+    sessionKey?: string;
+    rootSessionId?: string;
+    trigger?: A2aTraceRecord['trigger'];
+  } = {},
+): A2aTraceRecord {
+  return {
+    trace_id: span.spanId,
+    task_id: span.runId,
+    parent_task_id: span.parentSpanId ?? null,
+    delegator: opts.delegator ?? 'unknown',
+    delegatee: opts.delegatee ?? `agent:${span.agentId ?? 'unknown'}`,
+    round: 1,
+    // A2A kind 仅 message/status/artifact；统一 trace 的细分 kind 保留在 attributes
+    kind: 'status',
+    state: traceStatusToA2aState(span.status),
+    rework_of: null,
+    channel: 'internal-rpc',
+    sent_at: span.startedAt,
+    completed_at: span.endedAt ?? null,
+    summary: span.name,
+    session_key: opts.sessionKey ?? '',
+    root_session_id: opts.rootSessionId ?? span.runId,
+    trigger: opts.trigger ?? 'spawn',
+    // G10 扩展字段
+    correlation_id: span.correlationId,
+    parent_span_id: span.parentSpanId ?? null,
+    agent_id: span.agentId ?? null,
+    cost_usd: span.costUsd ?? null,
+    tokens: span.tokens ?? null,
+    latency_ms: span.latencyMs ?? null,
+  };
+}
+
+/** 把落盘 A2aTraceRecord 反向投影为统一 TraceSpan（G10 扩展字段缺失时安全兜底）。 */
+export function fromA2aTraceRecord(record: A2aTraceRecord): TraceSpan {
+  return {
+    spanId: record.trace_id,
+    parentSpanId: record.parent_span_id ?? record.parent_task_id ?? null,
+    correlationId: record.correlation_id ?? record.root_session_id,
+    runId: record.task_id || record.root_session_id,
+    traceId: record.trace_id,
+    agentId: record.agent_id ?? null,
+    kind: record.kind,
+    name: record.summary,
+    status: a2aStateToTraceStatus(record.state),
+    startedAt: record.sent_at,
+    endedAt: record.completed_at ?? null,
+    costUsd: record.cost_usd ?? null,
+    tokens: record.tokens ?? null,
+    latencyMs: record.latency_ms ?? null,
+    attributes: {
+      sessionKey: record.session_key,
+      rootSessionId: record.root_session_id,
+      channel: record.channel,
+    },
+  };
 }

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
 import type { ChannelType } from '@/types/channel';
-import type { AgentChatAccess, AgentLifecycleStatus, AgentSummary, AgentsSnapshot, AgentTeamRole } from '@/types/agent';
+import type { AgentChatAccess, AgentLifecycleStatus, AgentRoleCardInput, AgentSummary, AgentsSnapshot, AgentTeamRole } from '@/types/agent';
 
 interface AgentsState {
   agents: AgentSummary[];
@@ -19,6 +19,7 @@ interface AgentsState {
     persona?: string;
     teamRole?: AgentTeamRole;
     model?: string;
+    roleCard?: AgentRoleCardInput;
   }) => Promise<{ createdAgentId: string }>;
   updateAgent: (
     agentId: string,
@@ -31,6 +32,7 @@ interface AgentsState {
       teamRole?: AgentTeamRole;
       chatAccess?: AgentChatAccess;
       responsibility?: string;
+      roleCard?: AgentRoleCardInput;
     },
   ) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
@@ -135,6 +137,7 @@ export const useAgentsStore = create<AgentsState>((set) => ({
       teamRole?: AgentTeamRole;
       chatAccess?: AgentChatAccess;
       responsibility?: string;
+      roleCard?: AgentRoleCardInput;
     },
   ) => {
     set({ error: null });

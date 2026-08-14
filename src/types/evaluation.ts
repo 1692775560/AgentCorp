@@ -417,6 +417,15 @@ export interface A2aTraceRecord {
   session_key: string; // 子会话完整 sessionKey
   root_session_id: string; // 根会话 ID（trace 文件名 / 评估关联键）
   trigger: "spawn" | "steer" | "kill"; // 埋点来源
+
+  /** —— G10 扩展：与统一 trace 模型对齐（trace-first 跨进程关联 + 成本归因）——
+   *  全部 optional，向后兼容既有落盘 JSONL（旧记录缺这些字段仍可 parse）。 */
+  correlation_id?: string | null; // 跨进程/跨调用关联键（≈ TraceSpan.correlationId）
+  parent_span_id?: string | null; // 父 span id（≈ TraceSpan.parentSpanId）
+  agent_id?: string | null; // 执行主体（≈ TraceSpan.agentId）
+  cost_usd?: number | null; // 该 trace 产生的成本（美元）
+  tokens?: number | null; // 消耗的 token 数
+  latency_ms?: number | null; // 时延（ms）
 }
 
 /* ===================== 评估档案落库（T03 · 阶段 A 持久化契约） ===================== */

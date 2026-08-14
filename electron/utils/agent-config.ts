@@ -6,6 +6,7 @@ import { withConfigLock } from './config-mutex';
 import { expandPath, getOpenClawConfigDir, getResourcesDir } from './paths';
 import { readStoredAgentMetadata, writeStoredAgentMetadata } from './openclaw-runtime-metadata';
 import * as logger from './logger';
+import type { RoleCard } from '../../src/engine/agents/roleCard';
 
 const MAIN_AGENT_ID = 'main';
 const MAIN_AGENT_NAME = 'Main';
@@ -53,6 +54,8 @@ interface AgentListEntry extends Record<string, unknown> {
   chatAccess?: AgentChatAccess;
   responsibility?: string;
   reportsTo?: string | null;
+  /** G8 结构化角色卡（规范化 Agent 身份/边界/协同）；缺省无。 */
+  roleCard?: RoleCard;
 }
 
 interface AgentsConfig extends Record<string, unknown> {
@@ -104,6 +107,8 @@ export interface AgentSummary {
   responsibility: string;
   reportsTo: string | null;
   directReports: string[];
+  /** G8 结构化角色卡（与前端 AgentSummary.roleCard 对齐，靠 HTTP JSON 序列化）。 */
+  roleCard?: RoleCard;
 }
 
 export interface AgentsSnapshot {
@@ -531,6 +536,7 @@ async function buildSnapshotFromConfig(config: AgentConfigDocument): Promise<Age
       responsibility: normalizeAgentResponsibility(metadata.responsibility ?? entry.responsibility),
       reportsTo: metadata.reportsTo ?? entry.reportsTo ?? (entry.id !== defaultAgentId ? defaultAgentId : null),
       directReports: [],
+      roleCard: entry.roleCard,
     };
   });
 
@@ -621,6 +627,7 @@ export async function createAgent(input: {
   persona?: string;
   teamRole?: AgentTeamRole;
   model?: string;
+  roleCard?: RoleCard;
 }): Promise<{ snapshot: AgentsSnapshot; createdAgentId: string }> {
   return withConfigLock(async () => {
     const config = await readOpenClawConfig() as AgentConfigDocument;
@@ -644,6 +651,7 @@ export async function createAgent(input: {
       workspace: `~/.openclaw/workspace-${nextId}`,
       agentDir: getDefaultAgentDirPath(nextId),
       teamRole: normalizeAgentTeamRole(input.teamRole, false),
+      ...(input.roleCard ? { roleCard: input.roleCard } : {}),
     };
 
     if (typeof input.model === 'string' && input.model.trim()) {
@@ -682,6 +690,7 @@ export async function updateAgentProfile(
     teamRole?: AgentTeamRole;
     chatAccess?: AgentChatAccess;
     responsibility?: string;
+    roleCard?: RoleCard;
   },
 ): Promise<AgentsSnapshot> {
   return withConfigLock(async () => {
@@ -746,6 +755,10 @@ export async function updateAgentProfile(
       } else {
         delete updatedEntry.responsibility;
       }
+    }
+
+    if (updates.roleCard !== undefined) {
+      updatedEntry.roleCard = updates.roleCard;
     }
 
     entries[index] = updatedEntry;
