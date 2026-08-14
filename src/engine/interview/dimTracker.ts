@@ -248,12 +248,12 @@ function dimResponses(turns: InterviewTurn[], dim: RadarDim | CraftDim): IrtResp
  *
  * 已经充分覆盖（coverage ≥ 0.8）的维度不再建议——避免把已达标维以
  * 「证据偏薄」的矛盾文案推给 HR（P2 文案修正）。
- * 即使全部维度均已达标，也保留最薄弱的 min 个（按 EIG），保证 HR 始终有可点的追问。
+ * 全部维度均已达标 = 收敛完成 → 返回空（不保底兜底，不臆造追问）。
  */
 export function suggestFollowups(
   turns: InterviewTurn[],
   targetDims: (RadarDim | CraftDim)[],
-  opts: { max?: number; min?: number; threshold?: number; budget?: number } = {},
+  opts: { max?: number; threshold?: number; budget?: number } = {},
 ): FollowupSuggestion[] {
   const max = opts.max ?? 3;
   const threshold = opts.threshold ?? 0.8;
@@ -272,14 +272,12 @@ export function suggestFollowups(
     if (Math.abs(ga - gb) > 1e-9) return gb - ga;
     return a.asked - b.asked;
   });
-  // 仅取未充分覆盖（coverage < threshold）的维作为候选追问
+  // 仅取未充分覆盖（coverage < threshold）的维作为候选追问；
+  // 全部达标 = 收敛完成 → 返回空，不把已达标维说成「证据偏薄」（main P2 语义）
   const weakByInfoGain = allByInfoGain.filter((item) => item.coverage < threshold);
-
   const picked = weakByInfoGain.slice(0, max);
-  // 即使全部达标，也保留最薄弱的 min 个（按 EIG），保证 HR 始终有可点的追问
-  const result = picked.length >= min ? picked : allByInfoGain.slice(0, Math.min(min, allByInfoGain.length));
 
-  return result.map((item) => ({
+  return picked.map((item) => ({
     dim: item.dim,
     label: item.label,
     reason:

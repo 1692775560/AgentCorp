@@ -8,7 +8,7 @@
  *   2. suggestFollowups 在 G1 重构后的可观察行为：
  *      - 零证据维 EIG 最大 → 永远最优先（即使其 coverage 也是 0）；
  *      - 已积累证据的维 EIG 递减 → 排在零证据维之后；
- *      - min 保底兜底保留（即使全部达标也有可点追问）。
+ *      - 全部达标 → 返回空（收敛完成；对齐 main P2 语义，不保底兜底）。
  *
  * 运行：env -u NODE_OPTIONS npx vitest run tests/unit/dimTracker-infogain.test.ts
  */
@@ -106,12 +106,20 @@ describe('G1 · suggestFollowups（EIG 降序重排的可观察行为）', () =>
     const targetDims: (RadarDim | CraftDim)[] = ['task', 'comm', 'cost', 'quality'];
     const suggestions = suggestFollowups(turns, targetDims).map((s) => s.dim);
     // task / comm 已高覆盖（coverage=1≥0.8）→ 不出现；
-    // 剩余 zero-evidence 的 cost / quality 进入建议（min=2 保底已满，不触发 fallback）
+    // 剩余 zero-evidence 的 cost / quality 均 < 0.8 → 进入建议
     expect(suggestions).not.toContain('task');
     expect(suggestions).not.toContain('comm');
     expect(suggestions).toHaveLength(2);
     expect(suggestions).toContain('cost');
     expect(suggestions).toContain('quality');
+  });
+
+  it('★ 全部维度均已高覆盖 → 返回空（收敛完成，不臆造追问；main P2 语义）', () => {
+    const allCovered: InterviewTurn[] = [
+      turnOf({ turn: 1, targetDims: ['task', 'comm'], replyText: RICH_REPLY }),
+    ];
+    const suggestions = suggestFollowups(allCovered, ['task', 'comm']);
+    expect(suggestions).toHaveLength(0);
   });
 
   it('★ 边际递减可观察：同是薄弱维，证据更少者排在证据更多者之前', () => {
@@ -127,14 +135,6 @@ describe('G1 · suggestFollowups（EIG 降序重排的可观察行为）', () =>
     // cost 零证据最前；其后 reliability（1 条证据）应排在 quality（3 条证据）之前
     expect(suggestions[0]).toBe('cost');
     expect(suggestions.indexOf('reliability')).toBeLessThan(suggestions.indexOf('quality'));
-  });
-
-  it('★ min 保底：即使全部维度均已高覆盖，仍保留最薄弱的 min 条（HR 始终有可点追问）', () => {
-    const allCovered: InterviewTurn[] = [
-      turnOf({ turn: 1, targetDims: ['task', 'comm'], replyText: RICH_REPLY }),
-    ];
-    const suggestions = suggestFollowups(allCovered, ['task', 'comm']);
-    expect(suggestions).toHaveLength(2);
   });
 
   it('★ HR 评分路径（radar 维）：评分≥3 累积证据，证据更多者 EIG 更低、排得更后', () => {
