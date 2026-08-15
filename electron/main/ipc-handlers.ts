@@ -32,7 +32,7 @@ import {
 } from '../utils/channel-config';
 import { checkUvInstalled, installUv, setupManagedPython } from '../utils/uv-setup';
 import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/skill-config';
-import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate } from '../utils/openclaw-workspace';
+import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate, readAgentPersona } from '../utils/openclaw-workspace';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { getProviderConfig } from '../utils/provider-registry';
 import { deviceOAuthManager, OAuthProviderType } from '../utils/device-oauth';
@@ -2620,6 +2620,16 @@ function registerWorkspaceHandlers(): void {
     try {
       const result = await hireTeamFromMarketplaceTemplate(templateId, teamName, capabilities);
       return { success: true, ...result };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 读取 agent 人格文本（SOUL.md），不存在时返回 null，由调用方兜底
+  ipcMain.handle('agent:getPersona', async (_event, agentId: string) => {
+    try {
+      const persona = await readAgentPersona(agentId);
+      return { success: true, persona };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

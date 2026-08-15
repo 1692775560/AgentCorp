@@ -1,7 +1,12 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
+import { invokeIpc } from '@/lib/api-client';
 import type { ChannelType } from '@/types/channel';
 import type { AgentChatAccess, AgentLifecycleStatus, AgentRoleCardInput, AgentSummary, AgentsSnapshot, AgentTeamRole } from '@/types/agent';
+
+// agentId → 人格文本（null 表示该 agent 没有 SOUL.md 或读取失败）。
+// 模块级缓存：同一 agentId 只走一次 IPC，避免重复读盘。
+const personaCache = new Map<string, string | null>();
 
 interface AgentsState {
   agents: AgentSummary[];
@@ -40,6 +45,7 @@ interface AgentsState {
   removeChannel: (agentId: string, channelType: ChannelType) => Promise<void>;
   updateAgentStatus: (agentId: string, status: 'online' | 'offline' | 'busy') => void;
   fetchAgentStatuses: () => Promise<void>;
+  getAgentPersona: (agentId: string) => Promise<string | null>;
   clearError: () => void;
 }
 
@@ -231,6 +237,24 @@ export const useAgentsStore = create<AgentsState>((set) => ({
       }
       return { agentStatuses: statuses };
     });
+  },
+
+  getAgentPersona: async (agentId: string) => {
+    // 命中缓存直接返回（包括已确认的 null）
+    if (personaCache.has(agentId)) {
+      return personaCache.get(agentId) ?? null;
+    }
+    try {
+      const res = await invokeIpc<{ success?: boolean; persona?: string | null }>('agent:getPersona', agentId);
+      const persona = res?.success ? (res.persona ?? null) : null;
+      personaCache.set(agentId, persona);
+      return persona;
+    } catch (error) {
+      // IPC 失败同样按「无人格」处理并缓存，不向上抛错
+      console.warn(`[agents] getAgentPersona(${agentId}) failed:`, error);
+      personaCache.set(agentId, null);
+      return null;
+    }
   },
 
   clearError: () => set({ error: null }),

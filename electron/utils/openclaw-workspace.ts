@@ -706,6 +706,52 @@ export async function hireTeamFromMarketplaceTemplate(
   return { leaderId, workerIds, teamId: team.id, teamName };
 }
 
+// ── Agent persona 读取 ────────────────────────────────────────────
+
+/** 人格文本最大返回长度，避免把超长 SOUL.md 塞进 system prompt */
+const PERSONA_MAX_CHARS = 2000;
+
+/**
+ * 根据 agentId 解析其 workspace 目录。
+ * 优先查 openclaw.json 里 agents.list 声明的 workspace 字段（权威映射），
+ * 找不到时回退到约定的 ~/.openclaw/workspace-<agentId> 路径模式。
+ */
+async function resolveWorkspaceDirForAgent(agentId: string): Promise<string> {
+  const config = await readOpenclawConfig();
+  const agentsSection = config.agents;
+  const agentList = (agentsSection && typeof agentsSection === 'object' && !Array.isArray(agentsSection) && Array.isArray((agentsSection as Record<string, unknown>).list))
+    ? (agentsSection as Record<string, unknown>).list as Array<Record<string, unknown>>
+    : [];
+
+  for (const agent of agentList) {
+    if (agent?.id !== agentId) continue;
+    const ws = agent?.workspace;
+    if (typeof ws === 'string' && ws.trim()) {
+      return ws.replace(/^~/, homedir());
+    }
+  }
+
+  return join(OPENCLAW_DIR, `workspace-${agentId}`);
+}
+
+/**
+ * 读取某个 agent 的人格文本（SOUL.md 前 2000 个字符）。
+ * 文件不存在或读取失败时返回 null——由调用方自行兜底，
+ * 这里绝不编造人格内容。
+ */
+export async function readAgentPersona(agentId: string): Promise<string | null> {
+  try {
+    const workspaceDir = await resolveWorkspaceDirForAgent(agentId);
+    const soulPath = join(workspaceDir, 'SOUL.md');
+    if (!(await fileExists(soulPath))) return null;
+    const content = await readFile(soulPath, 'utf-8');
+    return content.slice(0, PERSONA_MAX_CHARS);
+  } catch (err) {
+    logger.warn(`[agent:persona] Failed to read SOUL.md for ${agentId}: ${String(err)}`);
+    return null;
+  }
+}
+
 // ── Team hire utilities ──────────────────────────────────────────
 
 function buildLeaderSoulContent(teamName: string, capabilities: string[]): string {

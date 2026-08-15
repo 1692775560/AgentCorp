@@ -238,13 +238,12 @@ export function Sidebar() {
     //   path: '/agents',
     //   icon: Bot,
     // },
-    // 任务看板（/kanban）尚是占位页，暂不进导航，避免用户点进空白页。
-    // 数据层（approvals store 的 createTask / updateTaskStatus）已就绪，页面做完即可放回。
-    // {
-    //   label: tSidebar('taskBoard', 'Task board'),
-    //   path: '/kanban',
-    //   icon: LayoutDashboard,
-    // },
+    // 任务看板（/kanban）
+    {
+      label: tSidebar('taskBoard', 'Task board'),
+      path: '/kanban',
+      icon: LayoutDashboard,
+    },
     // 模块 B：HR 面试（S2）—— 位于市场初审与评估中心（S3）之间
     {
       label: tSidebar('interview', 'Interview'),
