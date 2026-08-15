@@ -177,11 +177,14 @@ export async function judgeChatEnsemble(
 
   // 元评估：审计 k 次离散度，离散度过高说明评委对该维不稳定，下调置信并提示人工复核
   const bias = auditJudgeBias(radars);
-  // G4：跨评委一致性 α（k 次重复 = k 个评委副本）；低 α 且低离散度 = 整体偏移，
-  // 追加「建议人工复核」证据（与 biasAudit 互补，覆盖不同失败模式）
+  // G4：跨评委一致性 α（k 次重复 = k 个评委副本）。
+  // 矩阵朝向必须严格匹配 krippendorffAlphaMulti 契约（ranking.ts:44）：
+  //   rows = 候选(N) = 6 个雷达维，cols = 评委(K) = k 次重复运行。
+  // 故按维度投影：每个维度一行，该维在 k 次运行下的取值作为 k 个评委评分。
+  // 转置错误（行=运行、列=维）会让稳定 agent 算出负 α，误触发人工复核。
   const agreementAlpha =
     radars.length >= 2
-      ? krippendorffAlphaMulti(radars.map((r) => RADAR_DIMS.map((d) => r[d] ?? 0)))
+      ? krippendorffAlphaMulti(RADAR_DIMS.map((d) => radars.map((r) => r[d] ?? 0)))
       : null;
   let adjustedConfidence = confidence;
   let evidenceTrace = Array.from(new Set(evidence));
