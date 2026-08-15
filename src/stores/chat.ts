@@ -2071,7 +2071,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const clearPendingImages = { pendingToolImages: [] as AttachedFileMeta[] };
 
             // Check if message already exists (prevent duplicates)
-            const alreadyExists = s.messages.some(m => m.id === msgId);
+            // 兜底: loadHistory 整体替换进来的历史消息没有本地合成 id,
+            // 迟到的 final 事件按 id 查重会落空, 导致同一条回复被 append 两次;
+            // 因此对 assistant 消息再按 内容+时间窗口 查重
+            const alreadyExists = s.messages.some(m => m.id === msgId) || (
+              !toolOnly && s.messages.some(m => {
+                if (m.role !== 'assistant') return false;
+                const text = getMessageText(m.content);
+                if (!text || text !== getMessageText(finalMsg.content)) return false;
+                if (m.timestamp && finalMsg.timestamp) {
+                  return Math.abs(toMs(m.timestamp) - toMs(finalMsg.timestamp)) < 120_000;
+                }
+                return true;
+              })
+            );
             if (alreadyExists) {
               return toolOnly ? {
                 streamingText: '',
