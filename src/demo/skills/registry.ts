@@ -10,8 +10,14 @@
  *  - handler 统一返回 `SkillResult`，**失败不抛**——异常在此层被捕获并降级为
  *    `{ ok:false, degraded:true }`，对应赛题「失败处理机制」要求。
  *  - 本模块零 Electron/IPC 副作用，可在 vitest 与 web demo 中直接运行。
+ *
+ * 2026-08-15（Option 1 · T1-T3）：全部运行时 API 委托给可逆内核 `ctx`
+ * （src/demo/plugins/context.ts），保证单一真相源、可释放（Disposable）、可 patch。
+ * 内核与 registry 之间仅存在「registry 值导入 ctx / context 类型导入 SkillDefinition」
+ * 的单向依赖，无模块初始化环。
  */
 import type { RoleCard, RoleCardSkill } from '@/engine/agents/roleCard';
+import { ctx, type PluginPatch, type Disposable } from '../plugins/context';
 
 /** Skill 调用结果：失败降级语义内建（ok=false + degraded=true + reason）。 */
 export interface SkillResult<T = unknown> {
@@ -45,26 +51,35 @@ export interface SkillDefinition {
   handler: SkillHandler;
 }
 
-const registry = new Map<string, SkillDefinition>();
-
-/** 注册 Skill（同 id 后注册覆盖先注册，便于 mock 替换真实 handler）。 */
-export function registerSkill(def: SkillDefinition): void {
-  registry.set(def.id, def);
+/** 注册 Skill（委托内核 ctx；同 id 后注册覆盖先注册，便于 mock 替换真实 handler）。
+ *  返回 Disposable，dispose 时自动注销（unwind）。 */
+export function registerSkill(def: SkillDefinition): Disposable {
+  return ctx.register(def);
 }
 
 /** 按 id 查询 Skill 定义。 */
 export function getSkill(id: string): SkillDefinition | undefined {
-  return registry.get(id);
+  return ctx.get(id);
 }
 
 /** 列出全部已注册 Skill（按 id 排序，输出稳定）。 */
 export function listSkills(): SkillDefinition[] {
-  return [...registry.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return ctx.list();
 }
 
-/** 清空注册表（仅测试用）。 */
+/** 显式注销（等价于 dispose 该 Skill 的句柄）。 */
+export function unregister(id: string): boolean {
+  return ctx.unregister(id);
+}
+
+/** 注册一行 patch 覆盖层；priority 越大越晚应用 = 覆盖优先级越高。 */
+export function applyPatch(patch: PluginPatch): Disposable {
+  return ctx.applyPatch(patch);
+}
+
+/** 清空注册表（委托内核 ctx.clear；仅测试用）。 */
 export function resetSkills(): void {
-  registry.clear();
+  ctx.clear();
 }
 
 /**
@@ -76,7 +91,7 @@ export async function runSkill(
   id: string,
   args: Record<string, unknown> = {},
 ): Promise<SkillResult> {
-  const def = registry.get(id);
+  const def = ctx.get(id);
   if (!def) {
     return { ok: false, degraded: true, reason: `skill 未注册: ${id}` };
   }

@@ -1,0 +1,21 @@
+# scripts/eval/dsh/profile.probe.yml
+# 最小 dsh profile（Option 2 探针用）。
+# 作用：仅启用 agentcorp eval provider + 一个本地 mock agent，跑通 eval loop。
+#
+# 真实接入（当 dsh 已安装时）：
+#   dsh eval --profile profile.probe.yml
+# dsh 负责把 task 喂给被测 agent（沙箱内）、收集 transcript、调用 AgentCorpEvalProvider.run_sample；
+# AgentCorp 负责评分科学（pass^k / 多数裁决 / Krippendorff α），二者零耦合。
+profile:
+  name: agentcorp-probe
+  bundles:
+    - core
+    - eval
+  patches:
+    - eval.provider: agentcorp                 # 指向 agentcorp_eval_provider.py
+    - eval.judge_base: http://127.0.0.1:3210  # model-service / Host API
+    - eval.k: 5
+    - eval.threshold: 3.5
+  mock_agent:
+    id: agent-probe-mock
+    task: "对候选人做一次结构化面试并产出评估"
