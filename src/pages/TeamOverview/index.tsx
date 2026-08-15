@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useTeamsStore } from '@/stores/teams';
 import { useAgentsStore } from '@/stores/agents';
+import { useApprovalsStore } from '@/stores/approvals';
 import { useChatStore } from '@/stores/chat';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
@@ -408,24 +409,43 @@ interface ActionModalProps {
 function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }: ActionModalProps) {
   const [taskContent, setTaskContent] = useState('');
   const [sending, setSending] = useState(false);
+  const createTask = useApprovalsStore((s) => s.createTask);
 
   const handleAssignTask = async () => {
     if (!asset || !taskContent.trim()) return;
     setSending(true);
     try {
-      // Find the actual agent ID — for teams use leaderId, for employees use agent.id
-      const agentId = asset.type === 'team' ? asset.team?.leaderId : asset.agent?.id;
-      if (!agentId) {
-        toast.error('无法确定目标 Agent');
-        return;
+      // 走看板链路：创建 KanbanTask（团队任务带 teamId，AutoWorker 开启后自动接管）。
+      // 后端落 status:'todo'，isTeamTask = Boolean(teamId)（electron/utils/task-config.ts）。
+      const text = taskContent.trim();
+      const title = (text.split('\n')[0] ?? text).slice(0, 50);
+      if (asset.type === 'team') {
+        if (!asset.team) {
+          toast.error('无法确定目标团队');
+          return;
+        }
+        await createTask({
+          title,
+          description: text,
+          priority: 'medium',
+          teamId: asset.team.id,
+          teamName: asset.team.name,
+        });
+      } else {
+        // For employees use agent.id as assignee
+        const agentId = asset.agent?.id;
+        if (!agentId) {
+          toast.error('无法确定目标 Agent');
+          return;
+        }
+        await createTask({
+          title,
+          description: text,
+          priority: 'medium',
+          assigneeId: agentId,
+          assigneeRole: asset.agent?.persona ?? asset.agent?.responsibility,
+        });
       }
-      const sessionKey = `agent:${agentId}:main`;
-      await window.electron.ipcRenderer.invoke('gateway:rpc', 'chat.send', {
-        sessionKey,
-        message: `[系统指令] 请完成以下任务并汇报结果：\n\n${taskContent.trim()}`,
-        deliver: false,
-        idempotencyKey: crypto.randomUUID(),
-      });
       toast.success(`已向「${asset.name}」下达任务`);
       setTaskContent('');
       onClose();

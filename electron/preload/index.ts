@@ -145,6 +145,8 @@ const electronAPI = {
         'marketplace:listTemplates',
         'marketplace:hireSingle',
         'marketplace:hireTeam',
+        // Agent persona
+        'agent:getPersona',
       ];
 
       if (validChannels.includes(channel)) {

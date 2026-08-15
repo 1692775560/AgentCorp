@@ -34,6 +34,8 @@ import {
 } from '@/engine/squad/squadRouting';
 import { runRealExecution, runRealChat, isRealExecutorAvailable } from '@/engine/llm/realExecutor';
 import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
+import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
+import type { Team } from '@/types/team';
 import type { A2aTraceRecord } from '@/types/evaluation';
 import type { TaskExecutionEvent } from '@/types/task';
 
@@ -240,18 +242,12 @@ interface LeaderRouting {
   collaborate: boolean;
 }
 
-async function resolveAssigneeViaLeader(task: KanbanTask): Promise<LeaderRouting> {
-  if (!task.teamId) return { assigneeId: task.assigneeId, collaborate: false };
-
-  const team = useTeamsStore.getState().teams.find((t) => t.id === task.teamId);
-  if (!team || !team.leaderId) return { assigneeId: task.assigneeId, collaborate: false };
-
+/** 把团队成员（含 leader）投影成路由所需的最简画像（真实数据，离职/淘汰标 inactive）。 */
+function projectRoutingCandidates(team: Team): RoutingCandidate[] {
   const agents = useAgentsStore.getState().agents;
   const profiles = useEvaluationStore.getState().profiles;
-
-  // 候选 = 团队成员并集 leader，投影成路由所需的最简画像（真实数据）。
   const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
-  const candidates: RoutingCandidate[] = memberIds
+  return memberIds
     .map((id): RoutingCandidate | null => {
       const agent = agents.find((a) => a.id === id);
       if (!agent) return null;
@@ -267,6 +263,16 @@ async function resolveAssigneeViaLeader(task: KanbanTask): Promise<LeaderRouting
       };
     })
     .filter((c): c is RoutingCandidate => c !== null);
+}
+
+async function resolveAssigneeViaLeader(task: KanbanTask): Promise<LeaderRouting> {
+  if (!task.teamId) return { assigneeId: task.assigneeId, collaborate: false };
+
+  const team = useTeamsStore.getState().teams.find((t) => t.id === task.teamId);
+  if (!team || !team.leaderId) return { assigneeId: task.assigneeId, collaborate: false };
+
+  const agents = useAgentsStore.getState().agents;
+  const candidates = projectRoutingCandidates(team);
 
   const decision = routeBySquadLeader({
     taskText: [task.title, task.description].filter(Boolean).join('\n\n'),
@@ -328,12 +334,22 @@ async function runOne(
   };
 
   try {
-    // 0. 决策对接层：若为团队任务，先由 leader 路由决定 assignee（可能自留）。
-    const routing = await resolveAssigneeViaLeader(task);
-    const resolvedAssigneeId = routing.assigneeId;
-
     // 真实执行是否就绪（复用缓存，避免重复探测）。
     const realAvailable = realExecutorReady || (await probeRealExecutor());
+
+    // 0. 团队任务判定：真实 LLM 可用时走多成员编排（leader 拆解 → 成员并行执行 →
+    //    leader 审阅/返工 → 汇总），assignee 由编排器内部 ASSIGN 决定，不再预选；
+    //    否则沿用原 leader 路由预选 assignee 的逻辑。
+    const team = task.teamId
+      ? useTeamsStore.getState().teams.find((t) => t.id === task.teamId)
+      : undefined;
+    const orchestrate = Boolean(team && team.leaderId && realAvailable);
+    const routing = orchestrate
+      ? { assigneeId: task.assigneeId, leaderId: team!.leaderId, collaborate: false }
+      : await resolveAssigneeViaLeader(task);
+    const resolvedAssigneeId = orchestrate
+      ? task.assigneeId || team!.leaderId
+      : routing.assigneeId;
 
     // 1. 反查真实 sessionKey。网关模式下无 key → failed（不自动重试，避免死循环）；
     //    真实 LLM 模式不依赖网关会话，用合成 key 兜底，保证任务可执行。
@@ -360,13 +376,49 @@ async function runOne(
     let realOutput: string | null = null;
 
     // 2. 真实执行优先：若真实 LLM 后端在线（Vite 代理已配置 key）：
-    //    - 团队任务且 leader≠成员 → 走多 agent A2A 协作（leader↔成员真实往返）；
+    //    - 团队任务 → 多成员编排（leader 拆解 → 并行执行 → 审阅/返工 → 汇总）；
+    //    - 二人协作条件 → leader↔单成员 A2A 往返；
     //    - 否则 → 单 agent 真实执行。
     //    非真实模式回退到网关 RPC。
     if (realAvailable) {
       await approvals.updateTask(task.id, { status: 'in-progress', workState: 'working' });
       try {
-        if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
+        if (orchestrate && team) {
+          // —— 多成员编排：leader 拆解 → 成员并行执行 → leader 审阅/返工 → 汇总 ——
+          const events: TaskExecutionEvent[] = [];
+          const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
+          // 注入各成员 persona（SOUL.md 摘要）；读不到为 null，编排器退回纯身份说明。
+          const personas: Record<string, string | null> = {};
+          await Promise.all(
+            memberIds.map(async (aid) => {
+              personas[aid] = await useAgentsStore
+                .getState()
+                .getAgentPersona(aid)
+                .catch(() => null);
+            }),
+          );
+          const orch = await runSquadOrchestration({
+            taskId: task.id,
+            taskTitle: task.title,
+            taskDescription: task.description,
+            team,
+            candidates: projectRoutingCandidates(team),
+            personas,
+            maxRounds: 2,
+            // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
+            chat: (_agentId, messages) => runRealChat(messages, 2048),
+            // 每产生一条 A2A 消息，实时 append 成执行事件并写回任务（看板即时可见）。
+            onTrace: (t) => {
+              events.push(traceToEvent(t));
+              void approvals.updateTask(task.id, { executionEvents: [...events] });
+            },
+          });
+          const passed = orch.subtasks.filter((s) => s.approved).length;
+          const failedCount = orch.subtasks.filter((s) => s.error).length;
+          realOutput =
+            `【团队协同·${team.name}·${orch.subtasks.length} 个子任务：${passed} 通过` +
+            `${failedCount ? `，${failedCount} 失败` : ''}】\n${orch.deliverable}`;
+        } else if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
           // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
           const events: TaskExecutionEvent[] = [];
           const collab = await runSquadCollaboration({

@@ -8,10 +8,12 @@
  * 点击任一任务卡 → 右侧展开执行过程时间线（executionEvents）。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
+import { useTeamsStore } from '@/stores/teams';
 import type { KanbanTask, TaskStatus } from '@/types/task';
+import type { TeamSummary } from '@/types/team';
 import { AutoWorkerBar } from './AutoWorkerBar';
 
 const COLUMNS: Array<{ key: TaskStatus; label: string; accent: string }> = [
@@ -38,6 +40,126 @@ function timeAgo(iso?: string): string {
   return `${Math.round(h / 24)} 天前`;
 }
 
+/**
+ * 新建团队任务弹窗：选择团队 + 标题 + 描述，提交后进入看板「待办」列，
+ * AutoWorker 开启时由团队 leader 自动接管多 agent 协作。
+ */
+function CreateTeamTaskModal({ teams, onClose }: { teams: TeamSummary[]; onClose: () => void }) {
+  const createTask = useApprovalsStore((s) => s.createTask);
+  const [teamId, setTeamId] = useState(teams[0]?.id ?? '');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    const team = teams.find((t) => t.id === teamId);
+    if (!team || !title.trim() || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      // createTask 后端落 status:'todo'，且 isTeamTask = Boolean(teamId)
+      // （见 electron/utils/task-config.ts），这里只需带上团队元信息。
+      await createTask({
+        title: title.trim(),
+        description: description.trim(),
+        priority: 'medium',
+        teamId: team.id,
+        teamName: team.name,
+      });
+      onClose();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="neu-inset flex w-full max-w-md flex-col gap-4 rounded-2xl p-5"
+        style={{ background: 'var(--neu-bg, #f1f3f8)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-[15px] font-bold" style={{ color: 'var(--neu-ink)' }}>新建团队任务</h3>
+          <button type="button" onClick={onClose}
+            className="neu-btn flex h-7 w-7 items-center justify-center rounded-lg" style={{ color: 'var(--neu-ink-soft)' }}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {teams.length === 0 ? (
+          <p className="text-[12.5px] leading-relaxed" style={{ color: 'var(--neu-ink-soft)' }}>
+            暂无可下发任务的团队。团队需要有负责人（leader）且至少 1 名成员，请先在「人力资产」页创建团队。
+          </p>
+        ) : (
+          <>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>选择团队</span>
+              <select
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+                className="neu-inset w-full rounded-xl px-3 py-2 text-[13px] outline-none"
+                style={{ color: 'var(--neu-ink)' }}
+              >
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}（leader：{t.leaderName}，{t.memberIds.length} 名成员）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>任务标题</span>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="例如：整理本周销售数据报告"
+                className="neu-inset w-full rounded-xl px-3 py-2 text-[13px] outline-none"
+                style={{ color: 'var(--neu-ink)' }}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>任务描述</span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="补充任务背景、交付要求等（可选）"
+                rows={4}
+                className="neu-inset w-full resize-none rounded-xl px-3 py-2 text-[13px] outline-none"
+                style={{ color: 'var(--neu-ink)' }}
+              />
+            </label>
+            {error && (
+              <p className="text-[12px]" style={{ color: '#ef4444' }}>创建失败：{error}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={onClose}
+                className="neu-btn rounded-lg px-3.5 py-1.5 text-[12px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={submitting || !title.trim() || !teamId}
+                className="neu-btn rounded-lg px-3.5 py-1.5 text-[12px] font-semibold disabled:opacity-50"
+                style={{ color: '#6366f1' }}
+              >
+                {submitting ? '创建中…' : '创建任务'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TaskBoard() {
   const tasks = useApprovalsStore((s) => s.tasks);
   const fetchTasks = useApprovalsStore((s) => s.fetchTasks);
@@ -45,13 +167,23 @@ export function TaskBoard() {
   const fetchApprovals = useApprovalsStore((s) => s.fetchApprovals);
   const approveItem = useApprovalsStore((s) => s.approveItem);
   const rejectItem = useApprovalsStore((s) => s.rejectItem);
+  const teams = useTeamsStore((s) => s.teams);
+  const fetchTeams = useTeamsStore((s) => s.fetchTeams);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
 
   useEffect(() => {
     void fetchTasks();
     void fetchApprovals();
-  }, [fetchTasks, fetchApprovals]);
+    void fetchTeams();
+  }, [fetchTasks, fetchApprovals, fetchTeams]);
+
+  // 只列出可下发任务的团队：有 leader 且至少 1 名成员
+  const eligibleTeams = useMemo(
+    () => teams.filter((t) => t.leaderId && t.memberIds.length >= 1),
+    [teams],
+  );
 
   const byStatus = useMemo(() => {
     const map: Record<TaskStatus, KanbanTask[]> = { todo: [], 'in-progress': [], review: [], done: [] };
@@ -72,8 +204,20 @@ export function TaskBoard() {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden px-6 py-5">
-      {/* 自动任务 worker 控制条（S8/S9/S10） */}
-      <AutoWorkerBar />
+      {/* 自动任务 worker 控制条（S8/S9/S10）+ 团队任务发起入口 */}
+      <div className="flex shrink-0 items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <AutoWorkerBar />
+        </div>
+        <button type="button" onClick={() => setTeamModalOpen(true)}
+          className="neu-btn flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold" style={{ color: '#6366f1' }}>
+          <Plus className="h-3.5 w-3.5" /> 新建团队任务
+        </button>
+      </div>
+
+      {teamModalOpen && (
+        <CreateTeamTaskModal teams={eligibleTeams} onClose={() => setTeamModalOpen(false)} />
+      )}
 
       {/* 待审批 list */}
       {approvals.length > 0 && (
