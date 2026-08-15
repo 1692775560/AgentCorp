@@ -18,7 +18,8 @@ import { aggregateRadars, majorityVerdict } from '@/services/judgeEnsemble';
 import { passK, type PassKResult } from '@/engine/evaluation/passK';
 import { auditJudgeBias, type JudgeBiasAudit } from '@/services/judgeClient';
 import { ROLE_CARDS } from '@/engine/agents/roleCard';
-import { registerSkill, getSkill, projectSkill, type SkillResult } from './registry';
+import { ctx } from '../plugins/context';
+import { projectSkill, type SkillResult } from './registry';
 import { saveRule } from './experienceStore';
 import type { JudgeFn, BossAction, ClosedLoopRequest, ClosedLoopResult } from '../closedLoop';
 
@@ -308,7 +309,7 @@ export async function orchestrateHandler(
 
 /* ─────────────────────── 注册（模块加载即生效） ─────────────────────── */
 
-const BUILTIN_HANDLERS = {
+export const BUILTIN_HANDLERS = {
   agent_interview: agentInterviewHandler,
   capability_assessment: capabilityAssessmentHandler,
   reliability_audit: reliabilityAuditHandler,
@@ -322,7 +323,7 @@ export function registerBuiltinSkills(): void {
   for (const card of ROLE_CARDS) {
     for (const skill of card.skills) {
       const handler = BUILTIN_HANDLERS[skill.id as keyof typeof BUILTIN_HANDLERS];
-      if (handler && !getSkill(skill.id)) registerSkill(projectSkill(card, skill, handler));
+      if (handler && !ctx.has(skill.id)) ctx.register(projectSkill(card, skill, handler));
     }
   }
 }
