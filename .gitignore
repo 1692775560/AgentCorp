@@ -116,3 +116,6 @@ _downloads/
 
 # 本地工作目录：阶段性交付物汇总，不入仓
 update/
+
+# PPT 交付以 pptx 为准，PDF 由本地导出，不入仓
+方案PPT/*.pdf
