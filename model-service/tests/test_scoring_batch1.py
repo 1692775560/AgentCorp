@@ -61,7 +61,7 @@ def test_registry_job_craft_dims_prefix_and_count():
 
 
 def test_registry_subjective_dims_complete():
-    """三阶段各自主观维齐全（与 PRD §2.4 一致）。"""
+    """三阶段各自主观维齐全（与  一致）。"""
     assert SUBJECTIVE_DIMS["preScreen"] == ["sub_potential", "sub_aesthetic_lean"]
     assert SUBJECTIVE_DIMS["interview"] == [
         "sub_task_feel",

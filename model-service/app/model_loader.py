@@ -1,6 +1,6 @@
 """
 model-service/app/model_loader.py
-全模态裁判模型加载（支持 cuda / cpu / 异构加速卡，自动降级；架构 §2）。
+全模态裁判模型加载（支持 cuda / cpu / 异构加速卡，自动降级。
 
 关键设计：
 - 惰性依赖：torch / transformers / torch_npu / flag_gems 一律经 optional_import()

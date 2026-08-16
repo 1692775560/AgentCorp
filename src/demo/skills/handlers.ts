@@ -180,7 +180,7 @@ export interface BossReviewInput {
   confidence: number;
   meanRadar: RadarScore;
   candidateName?: string;
-  /** 评估来源；'degraded' 时决策照常产出但**不沉淀经验规则**（垃圾进垃圾出防线） */
+  /** 评估来源；'degraded' 时决策照常产出，但不沉淀经验规则，避免低质量结论污染后续判断 */
   source?: 'judge' | 'mixed' | 'degraded';
 }
 

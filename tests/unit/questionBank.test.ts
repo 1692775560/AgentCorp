@@ -1,7 +1,7 @@
 /**
  * tests/unit/questionBank.test.ts
  *
- * 面试题库与选题引擎单测（模块 B · 设计 §5.3 / §7 通道①）：
+ * 面试题库与选题引擎单测（模块 B ·  / §7 通道①）：
  *  - questionsOf         —— 按阶段 + 工种筛选题池（'any' 题恒可用）
  *  - selectQuestions     —— P1/P2/P3 三阶段递进题序 + 通道① dimBoost 影响
  *  - boostedDims / questionBoostWeight —— 强调维抽取与选题权重

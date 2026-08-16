@@ -66,7 +66,7 @@ async def api_evaluate(req: EvaluationRequest):
 @router.post("/api/evaluate-run")
 async def api_evaluate_run(req: JudgeRunRequest):
     """
-    运行期裁判端点（T07）：接收 JudgeRunInput（transcript + usage + task），
+    运行期裁判端点：接收 JudgeRunInput（transcript + usage + task），
     产出与 /api/evaluate 同构的 SSE 事件流（radar_update ×6 + verdict + done）。
     无 NPU / MOCK=true 时走 Mock 派生；模型可用时走真实推理。
     """

@@ -20,7 +20,7 @@ const tmpFile = join(root, 'node_modules/.cache/agentcorp-hiclaw-export.mjs');
 
 mkdirSync(dirname(tmpFile), { recursive: true });
 
-// 打成单文件 ESM（把 @/ alias 解析到 src/）
+// 打成单文件 ESM（把 @/ alias 解析到 src）
 await build({
   entryPoints: [join(root, 'src/demo/agentteams/hiclawCrd.ts')],
   bundle: true,

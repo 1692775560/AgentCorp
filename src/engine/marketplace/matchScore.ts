@@ -1,6 +1,6 @@
 /**
  * src/engine/marketplace/matchScore.ts
- * 智能匹配排序引擎（模块 A · 设计 §6 Step 3）。
+ * 智能匹配排序引擎（模块 A）。
  *
  * 公式（严格照搬设计文档）：
  *
@@ -22,7 +22,7 @@ import type { MatchScoreBreakdown, TaskProfile } from '@/types/marketplace';
 import { applyTaskBoost, computeUserFit } from '@/engine/marketplace/userFit';
 import { radarMean } from '@/engine/marketplace/radarSource';
 
-/** 四项加权系数（设计 §6 默认值，主理人可在验收时微调） */
+/** 四项加权系数 */
 export interface MatchWeights {
   fit: number;
   tag: number;
@@ -166,7 +166,7 @@ export function matchScore(
   // ③ 性价比
   const costPerf = computeCostPerf(candidate.radar, candidate.budgetNum, ctx.budgetRef);
 
-  // ④ 绩效回流（S3 → 市场，设计 §7.3 通道 B）
+  // ④ 绩效回流（S3 → 市场
   const perfBoost = computePerfBoost(candidate.stageScoreTotal);
 
   const weightSum = weights.fit + weights.tag + weights.cost + weights.perf;

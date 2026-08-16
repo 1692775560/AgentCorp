@@ -1,6 +1,6 @@
 /**
  * src/services/reactionStore.ts
- * 小红心点赞 + BossFavorite 本地落库（electron-store，模块 Arena · 设计 §4/§5）。
+ * 小红心点赞 + BossFavorite 本地落库（electron-store，模块 Arena · /§5）。
  *
  * 命名空间：`agentcorp.reactions`（默认落盘 <userData>/agentcorp.reactions.json）。
  * 存储结构：

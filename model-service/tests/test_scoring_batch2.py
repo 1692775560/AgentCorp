@@ -335,7 +335,7 @@ def test_api_evaluate_run_with_task_set_id():
 
 
 # ======================================================================
-# T19：双 Leaderboard 拖拽锚点回填契约（后端 Layer3 锚点端点接受新来源）
+# 双 Leaderboard 拖拽锚点回填契约（后端 Layer3 锚点端点接受新来源）
 # ======================================================================
 def test_api_convergence_anchor_accepts_dual_leaderboard_drag():
     """POST /api/convergence/anchor 接受 source='dual_leaderboard_drag'。

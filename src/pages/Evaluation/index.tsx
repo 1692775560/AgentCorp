@@ -8,7 +8,7 @@
  *
  * 数据流（评估契约）：用户选定 agent（+ 可选 task / runId）→ 本地编排
  * store.runEvaluation（真实 KPI/ROI + MiniCPM-o 裁判）→ 落库 EvaluationProfile
- * 并将 runId↔task 关联写入（T06）。捕获 runId 的入口即在本页（来自
+ * 并将 runId↔task 关联写入。捕获 runId 的入口即在本页（来自
  * gateway.rpc('chat.send') 返回值，可由调用方注入）。
  *
  * i18n：用户可见文案走 common:evaluation.*（含面板标签 / 表单 / 空态）。

@@ -1,6 +1,6 @@
 /**
  * src/components/marketplace/MatchScoreBadge.tsx
- * 匹配分徽章 + 四项分解 tooltip（模块 A · 设计 §3.1）。
+ * 匹配分徽章 + 四项分解 tooltip（模块 A）。
  *
  * 复用项目既有 Radix tooltip（src/components/ui/tooltip），零新增依赖。
  */

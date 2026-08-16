@@ -1,10 +1,10 @@
 """
 model-service/app/scoring/__init__.py
-评估层扩展核心包（架构 §1.3 / T0–T3 / T13–T18）。
+评估层扩展核心包。
 
 本批次在批次 1（registry / rules_engine）之上，追加 Layer3 收敛类模块：
-- encoder：确定性投影编码器 + 纯 Python PCA + ConvergenceConfig（T14）
-- convergence：收敛数据模型 + ConvergenceEngine（T13 / T15）
+- encoder：确定性投影编码器 + 纯 Python PCA + ConvergenceConfig
+- convergence：收敛数据模型 + ConvergenceEngine
 
 零新增运行时依赖（纯 Python + pydantic）。
 """

@@ -25,7 +25,7 @@ import type { JudgeFn } from '@/demo/closedLoop';
 registerBuiltinSkills();
 
 beforeEach(() => {
-  // QA-8：经验 Store 是模块级单例，每个用例前重置，避免跨用例累积
+  // 经验 Store 是模块级单例，每个用例前重置，避免跨用例累积
   setExperiencePersister(createMemoryPersister());
   clearRules();
 });

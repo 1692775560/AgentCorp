@@ -1,6 +1,6 @@
 /**
  * electron/api/routes/reactions.ts
- * 小红心点赞 + BossFavorite 的 Host API 本地实现（T01 / 契约 §1.4/§1.5）。
+ * 小红心点赞 + BossFavorite 的 Host API 本地实现。
  *
  * 路由：
  *   GET  /api/likes/:agentId        → LikeRecord（无记录 count=0）

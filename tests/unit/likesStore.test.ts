@@ -1,7 +1,7 @@
 /**
  * tests/unit/likesStore.test.ts
  *
- * 小红心点赞 store 单测（T05）：
+ * 小红心点赞 store 单测：
  * - hydrate 从 reactionStore 加载点赞状态
  * - toggle 乐观更新：立即翻转个人态 + 计数 ±1，落库失败回滚
  * - 防连点：toggle 进行中重复调用返回当前状态

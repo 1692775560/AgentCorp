@@ -238,7 +238,7 @@ export function Sidebar() {
     //   path: '/agents',
     //   icon: Bot,
     // },
-    // 任务看板（/kanban）
+    // 任务看板（kanban）
     {
       label: tSidebar('taskBoard', 'Task board'),
       path: '/kanban',

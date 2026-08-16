@@ -1,6 +1,6 @@
 /**
  * src/stores/likesStore.ts
- * 小红心点赞内存镜像 + 乐观更新（T05 / 设计 §5）。
+ * 小红心点赞内存镜像 + 乐观更新。
  *
  * - 内存镜像：likes[agentId] = LikeRecord（渲染层即时反馈）
  * - 乐观更新：toggle 立即翻转个人态与计数，落库失败回滚

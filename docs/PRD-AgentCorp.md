@@ -1,9 +1,7 @@
 # AgentCorp 产品需求文档（PRD / 产品白皮书）
 
-> 文档定位：以**本地工作树**为准的产品现状白皮书（非纯规划）。
-> 基线：`EriXPsy/AgentCorp`（`main` 分支，已叠 T03–T08 评分层）。
-> 所有技术/功能断言均附 `文件:行号` 或 `git log` 证据；与上游状态文档不一致处已单列纠偏。
-> 最后更新：2026-08-05
+> 产品说明文档：描述 AgentCorp 的定位、架构与已实现能力。
+> 文中技术断言均可回溯到具体源码位置。
 
 ---
 
@@ -162,7 +160,7 @@ stateDiagram-v2
 
 五态：`onboarding / active / training / maintenance / retired`（`:15-20`）；`LIFECYCLE_TRANSITIONS` 完整转移表（`:36` 起）；软退休约定 `verdict FIRED→retired`，可经 `Unretire` 回 `maintenance`（`:9, :34`）。
 
-### 6.4 任务-运行 归因关联（T06，已落地）
+### 6.4 任务-运行 归因关联
 
 `src/services/runLinkStore.ts` 存在并被 `evaluationRuntime` 调用（git log `b6c7904 feat: T06 runId↔task association`）。把 `runId↔taskId↔agentId` 焊死，保证评分能精确归因到「哪个 Agent 在哪次运行完成了哪单任务」，避免下游张冠李戴。
 
@@ -239,7 +237,7 @@ A 卖家 Agent 做一半交给 B 卖家 Agent：顺着 A2A 的设计——Agent 
 
 ### 9.3 与上游状态文档的偏差（已核对，重要）
 用户此前收到的 `agentcorp-codebase-status-and-roadmap.md` 基于 GitHub **上游**克隆，落后本地 fork，列出三个「缺口」——经核对，其中两个在本地**已 Done**：
-- **「runId↔taskId 没关联」** → 错。本地 `runLinkStore.ts`（T06）已合。
+- **「runId↔taskId 没关联」** → 错。本地 `runLinkStore.ts`已合。
 - **「AgentLifecycleStatus 有概念没类型、类型检查过不了」** → 错。本地 `lifecycle.ts` 已是 5 态正式类型机，且本仓库 tsc **0 错误**。
 - **「可靠性两种方差混用」** → 部分属实，但已被 `stability()`(候选信号) 与 `judgeClient.reliability`(裁判派生) 分离，优先级应低于文档暗示。
 
@@ -257,4 +255,3 @@ A 卖家 Agent 做一半交给 B 卖家 Agent：顺着 A2A 的设计——Agent 
 
 ---
 
-*（本文档由主理人齐活林基于本地工作树代码核实事实录制；产品经理角色产出因当前会话团队协调工具不可用，由主理人代笔汇编，所有断言均可在前述 `文件:行号` 处复核。）*

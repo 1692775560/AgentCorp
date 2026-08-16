@@ -1,6 +1,6 @@
 """
 model-service/tests/test_convergence_layer3_qa.py
-QA（严过关）独立边界验证 —— Layer3 收敛层（T13/T14/T15）。
+QA（严过关）独立边界验证 —— Layer3 收敛层。
 
 本文件由 QA 独立编写，覆盖**工程师 test_convergence_layer3.py 未直接覆盖**的边界：
   1. K=1（仅 S₀ + 末轮）CR/R/St/CQ 行为合理不崩溃（含锚定 / 未锚定兜底）；
@@ -207,7 +207,7 @@ def test_reversibility_multi_collapse_single_penalty():
     """
     多轮连续坍缩（turn1、turn2 均 1 候选）的惩罚验证。
 
-    设计 §3.3 构件 2：「对'在末轮前就坍缩到 1 个候选'施加惩罚」——表述为单数「施加惩罚」。
+     构件 2：「对'在末轮前就坍缩到 1 个候选'施加惩罚」——表述为单数「施加惩罚」。
     实现与前端均用 `break` 只施加**一次** COLLAPSE_PENALTY(=0.5)（无论坍缩 1 轮还是多轮），
     即惩罚为「flat-once」而非按坍缩次数累乘。本测试锁定该行为：
       - 无坍缩 rev=1.0

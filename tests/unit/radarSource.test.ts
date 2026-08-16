@@ -1,7 +1,7 @@
 /**
  * tests/unit/radarSource.test.ts
  *
- * 六维三源解析层单测（模块 A · 设计 §5.1）：
+ * 六维三源解析层单测（模块 A）：
  *  - resolveAgentRadar   —— 优先级 evaluation → prescreen → heuristic → none
  *  - latestStageScore    —— 按 stage 过滤 + 按 ts 择新
  *  - radarFromStageScore —— StageScore.objective → 六维（craft 维忽略）

@@ -113,7 +113,7 @@ export function loadRules(candidateId?: string): ExperienceRecord[] {
 /**
  * 取最近一条经验规则，供下一次闭环注入。
  * 传 candidateId 时**只**看该候选的沉淀（不做跨候选兜底——
- * 把别的候选的规则注入当前候选属于错配，review H3）；不传时返回全局最近。
+ * 把别的候选的规则注入当前候选属于错配）；不传时返回全局最近。
  */
 export function latestRule(candidateId?: string): PrecipitatedRule | null {
   if (candidateId !== undefined) {

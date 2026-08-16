@@ -1,6 +1,6 @@
 /**
  * src/engine/interview/dimTracker.ts
- * 维度证据追踪与追问建议引擎（模块 B · 设计 §5.3 / §3.2）。
+ * 维度证据追踪与追问建议引擎（模块 B ·  / §3.2）。
  *
  * 「对话式收敛」的收敛度量在这里：每一轮回答都会被折算成对应维度的**证据强度**，
  * 覆盖度（coverage）就是「模糊 → 清晰」的进度条；证据最薄弱的维度会被翻译成
@@ -238,7 +238,7 @@ function dimResponses(turns: InterviewTurn[], dim: RadarDim | CraftDim): IrtResp
 
 /**
  * 追问建议：在证据薄弱的维度里，按**期望信息增益(EIG) 降序**排序优先追问，
- * 而非原「覆盖度升序」的贪心排序（G1）。
+ * 而非原「覆盖度升序」的贪心排序。
  *
  * 信息增益视角：哪维「再问一题能削减的不确定性最大」就先问哪维。
  * - 零证据维：后验=先验（最不确定，EIG 最大）→ 自然最优先；
@@ -352,7 +352,7 @@ export function aggregateHrRadar(
       const dim = key as RadarDim;
       sums[dim] = (sums[dim] ?? 0) + value;
       counts[dim] = (counts[dim] ?? 0) + 1;
-      // craft 维证据经 CRAFT_LINKS 回灌通用六维（PRD §2.2）
+      // craft 维证据经 CRAFT_LINKS 回灌通用六维
       for (const target of turn.targetDims) {
         const links = (CRAFT_LINKS as Record<string, RadarDim[]>)[target];
         if (!links) continue;

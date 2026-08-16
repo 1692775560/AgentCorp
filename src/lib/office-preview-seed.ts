@@ -3,7 +3,7 @@
  * Web 预览种子数据（仅在 isBrowserPreviewMode() 下注入）。
  *
  * 背景：web 预览没有 Electron 主进程 / gateway，agents 与评估档案的真实来源
- * （/api/agents、electron-store）都拿不到数据，导致人才市集「加载失败」、
+ * （api/agents、electron-store）都拿不到数据，导致人才市集「加载失败」、
  * Agent Office「还没有员工」。本模块在预览模式下给 useAgentsStore 与
  * useEvaluationStore 直接灌入一批合法的种子 agent + 评估档案，使：
  *   - 人才市集有可浏览的 agent；

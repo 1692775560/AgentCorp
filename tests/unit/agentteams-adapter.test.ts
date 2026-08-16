@@ -12,7 +12,7 @@ import { mockJudge } from '@/demo/mockJudge';
 import { clearRules, setExperiencePersister, createMemoryPersister } from '@/demo/skills/experienceStore';
 
 beforeEach(() => {
-  // 经验 Store 是模块级单例，逐用例重置避免跨用例注入污染（QA-8）
+  // 经验 Store 是模块级单例，逐用例重置避免跨用例注入污染
   setExperiencePersister(createMemoryPersister());
   clearRules();
 });

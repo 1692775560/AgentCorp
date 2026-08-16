@@ -1,6 +1,6 @@
 """
 model-service/app/prompt_templates.py
-系统提示与评估 prompt 构造（架构 §2.3 / PRD §5）。
+系统提示与评估 prompt 构造。
 
 强制模型输出六维 JSON，缓解 R4 漂移（结构化解析 + 重试）。
 """

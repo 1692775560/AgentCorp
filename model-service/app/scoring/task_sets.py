@@ -1,6 +1,6 @@
 """
 model-service/app/scoring/task_sets.py
-Task-Set 可插拔（T9，架构 §3.7 / Q9）。
+Task-Set 可插拔（T9。
 
 职责：
 - TaskSet（Protocol）：id / title / description / applicableJobs / run(input, opts)

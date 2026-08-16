@@ -1,6 +1,6 @@
 /**
  * src/services/evaluationRuntime.ts
- * 评估运行时捕获点（T06）：将 runId 与 task/agent/session 关联落库。
+ * 评估运行时捕获点：将 runId 与 task/agent/session 关联落库。
  *
  * 这是「runId 锚定」契约的写入入口——Evaluation 页面在
  * gateway.rpc('chat.send') 拿到 runId 后立刻调用本函数，

@@ -1,14 +1,14 @@
 /**
  * src/stores/evaluation.ts
- * 评估中心 Zustand store（AgentCorp 评估层编排中枢，T04）。
+ * 评估中心 Zustand store（AgentCorp 评估层编排中枢）。
  *
  * 职责：
  * - 持有全部 agent 的 EvaluationProfile 与聚合视图（radar/kpi/roi/lifecycle/leaderboard）。
  * - 编排评估服务（采集/落库均在主进程，渲染层经 Host API 访问）：
  *   - evaluationData（T05 重构）：collectRunData / listAgentSessions（主进程采集客户端）
  *   - tokenUsageCollector.buildRoiSnapshot：纯函数 ROI 计算（真实 token 成本）
- *   - judgeClient（T07）：evaluate（MiniCPM-o 外部裁判，SSE 流）
- *   - evaluationRuntime（T06）：linkRunToTask（runId ↔ task 落库）
+ *   - judgeClient：evaluate（MiniCPM-o 外部裁判，SSE 流）
+ *   - evaluationRuntime：linkRunToTask（runId ↔ task 落库）
  *   - metricsEngine：纯函数聚合 KPI
  *   - evaluationStore：Host API 客户端（主进程 electron-store 落库）
  *

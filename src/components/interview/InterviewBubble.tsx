@@ -1,6 +1,6 @@
 /**
  * src/components/interview/InterviewBubble.tsx
- * 单轮问答气泡（模块 B · 设计 §4.2）。
+ * 单轮问答气泡（模块 B）。
  *
  * 一轮 = 「题干（考查维度）→ 候选回答 → HR 逐维打分 + 证据备注」。
  * 打分不是走过场：hrRatings 会被 dimTracker.aggregateHrRadar 聚合成 finalRadar，

@@ -1,9 +1,7 @@
 # AgentCorp × A2A（Agent2Agent）通信集成设计
 
-> 版本：v1.0 ｜ 2026-08-07
-> 任务：`.trellis/tasks/08-07-a2a-design`
-> 定位：AgentCorp 通信层集成设计（赛事中立）。本文档回答三个问题：A2A 协议现状是什么；AgentCorp 底座已有的 agent 编排能力映射到哪些私有协议；如何分层集成 A2A，并把 A2A trace 变成六维评估的客观证据链（本项目区别于普通 A2A 集成的独特点）。
-> 性质：设计文档，不改代码。所有关于本仓库现状的论断均给出 `文件:行号` 依据；所有协议事实附权威来源链接。
+> 通信层集成设计。本文档回答三个问题：A2A 协议现状是什么；AgentCorp 底座已有的 agent 编排能力映射到哪些私有协议；如何分层集成 A2A，并把 A2A trace 变成六维评估的客观证据链（本项目区别于普通 A2A 集成的独特点）。
+> 文中关于本仓库现状的论断均给出 `文件:行号` 依据，协议事实附权威来源链接。
 
 ---
 
@@ -64,7 +62,7 @@
 
 ### 1.6 生态
 
-捐赠时 100+ 公司支持；Microsoft 2025-05-07 宣布 Azure AI Foundry 与 Copilot Studio 支持 A2A（https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/05/07/empowering-multi-agent-apps-with-the-open-agent2agent-a2a-protocol/）；LangGraph / CrewAI / Semantic Kernel / ADK 均可互连。
+捐赠时 100+ 公司支持；Microsoft 2025-05-07 宣布 Azure AI Foundry 与 Copilot Studio 支持 A2A（https://www.microsoft.com/en-us/microsoft-cloud/blog/2025/05/07/empowering-multi-agent-apps-with-the-open-agent2agent-a2a-protocol）；LangGraph / CrewAI / Semantic Kernel / ADK 均可互连。
 
 ---
 

@@ -1,6 +1,6 @@
 /**
  * src/stores/interview.ts
- * HR 面试（S2）编排 store（模块 B · 设计 §4.1 / §7）。
+ * HR 面试（S2）编排 store（模块 B ·  / §7）。
  *
  * 职责：
  * - startSession：从人才市场任务画像派生题序（★通道①），装配面试会话；

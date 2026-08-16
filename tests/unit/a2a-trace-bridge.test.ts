@@ -35,7 +35,7 @@ function span(
   };
 }
 
-describe('a2a-trace bridge (G10)', () => {
+describe('a2a-trace bridge ', () => {
   it('toA2aTraceRecord 投影全部 G10 扩展字段', () => {
     const s = span({
       spanId: 'sp-1',

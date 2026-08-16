@@ -3,7 +3,7 @@
  * Layer3 收敛层数据模型契约（T13，前端镜像，严格对齐
  * model-service/app/scoring/convergence.py 的 Pydantic 模型与 §5.1）。
  *
- * 设计红线（架构 §0）：Layer3 新增字段全部独立命名空间（conv_ 意念），
+ * 设计红线：Layer3 新增字段全部独立命名空间（conv_ 意念），
  * 不占用雷达/RADAR_DIMS/StageScore/DualLeaderboard/KpiRecord/RoiSnapshot 既有键。
  *
  * 序列化口径：后端 `model_dump(mode="json")` 默认输出 snake_case（与
@@ -95,12 +95,12 @@ export interface HumanAnchor {
   /** 锚点 embedding */
   embedding: number[];
   owner_id: string;
-  /** explicit_pin（MVP）/ dual_leaderboard_drag（批次 2 后） */
+  /** explicit_pin（MVP）/ dual_leaderboard_drag */
   source: ConvSource;
   ts: string;
 }
 
-/** 收敛评分结果（对齐架构 §5.1 ConvergenceScore） */
+/** 收敛评分结果 */
 export interface ConvergenceScore {
   run_id: string;
   agent_id: string;

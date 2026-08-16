@@ -1,6 +1,6 @@
 /**
  * src/pages/Arena/ArenaPage.tsx
- * Arena 个性化对决页（设计 §2 / 独立路由 /arena）。
+ * Arena 个性化对决页。
  *
  * 布局：
  *   需求输入 + 选角（ArenaSetupPanel）

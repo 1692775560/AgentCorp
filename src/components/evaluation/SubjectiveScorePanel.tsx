@@ -1,6 +1,6 @@
 /**
  * src/components/evaluation/SubjectiveScorePanel.tsx
- * 主观打分通道（T6 → T38 重写，架构 §2.2 / PRD §5.2 / 增量 §8.1）。
+ * 主观打分通道（T6 → T38 重写。
  *
  * 针对本阶段启用的 sub_* 维（来自 registry.SUBJECTIVE_DIMS[stage]）渲染滑块，
  * 0–5 分、0.5 步进；变更即写入 scoringStore.onScore（回灌 StageScore.subjective）。

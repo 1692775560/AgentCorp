@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { traceEmitter } from '@/engine/trace/traceEmitter';
 
-describe('traceEmitter (G10)', () => {
+describe('traceEmitter ', () => {
   beforeEach(() => {
     traceEmitter.reset();
   });

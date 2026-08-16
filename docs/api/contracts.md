@@ -1,6 +1,6 @@
 # AgentCorp API 接口契约文档
 
-日期：2026-08-08 · 架构师：Bob · 唯一契约真相（设计见 `docs/design/arena-user-participation-2026-08-08.md`）
+接口契约的唯一真相源。前端与服务端实现均以本文件为准。
 
 ## 0. 总览与约定
 

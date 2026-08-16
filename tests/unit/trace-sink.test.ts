@@ -53,7 +53,7 @@ describe('observability/traceSink', () => {
     expect(replayed!.runId).toBe(run.runId);
     expect(replayed!.status).toBe(run.status);
     expect(replayed!.steps).toEqual(run.steps);
-    // QA-4：result 整体 round-trip（仅 request.judge 注入函数按约定不落盘）
+    // result 整体 round-trip（仅 request.judge 注入函数按约定不落盘）
     const { judge: _stripped, ...expectedRequest } = run.result!.request;
     expect(replayed!.result).toEqual({ ...run.result, request: expectedRequest });
   });

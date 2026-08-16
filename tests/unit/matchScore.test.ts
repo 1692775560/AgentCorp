@@ -1,7 +1,7 @@
 /**
  * tests/unit/matchScore.test.ts
  *
- * 智能匹配排序引擎单测（模块 A · 设计 §6 Step 3）。
+ * 智能匹配排序引擎单测（模块 A）。
  *
  * 严格按设计公式手算期望值并断言：
  *   effWeight = normalize(userWeight × dimBoost)
@@ -184,7 +184,7 @@ describe('matchScore · budgetRefOf（报价参照）', () => {
   });
 });
 
-describe('matchScore · 总分手算校验（设计 §6 公式）', () => {
+describe('matchScore · 总分手算校验', () => {
   it('★ 满分候选 + 无标签 + 无绩效 → 82.5', () => {
     // userFit=1；tagMatch=0.5（需求无标签）；costPerf=1；perfBoost=0.5
     // total = 100×(0.5×1 + 0.2×0.5 + 0.15×1 + 0.15×0.5) = 82.5

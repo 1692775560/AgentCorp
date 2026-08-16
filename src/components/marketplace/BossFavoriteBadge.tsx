@@ -1,6 +1,6 @@
 /**
  * src/components/marketplace/BossFavoriteBadge.tsx
- * 「最受 boss 青睐」徽章 + 投票入口（T05 / 设计 §4 / contracts.md §1.5）。
+ * 「最受 boss 青睐」徽章 + 投票入口。
  *
  * 语义：BossFavorite = 测评后深度认可（完成面试/绩效/Arena 对决后对该工种某 agent 投票）。
  * 幂等：一次测评最多投一票（sourceId 幂等键），重复投票后端返回 409。

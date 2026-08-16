@@ -8,7 +8,7 @@ QA 独立验证 —— Layer3 收敛层（T13 数据模型 / T14 编码器+PCA /
 设计原则：
 - 纯单元 + 接口验证，不依赖真实模型 / NPU。
 - 公式交叉核对：test 内**独立重算** CR/R/St/CQ/score（非抄实现），
-  用于「前端公式对拍」前的后端自检（架构 §3.5 / R3）。
+  用于「前端公式对拍」前的后端自检。
 - 确定性 + 复现：encode_summary 同输入同输出；pca2d 同输入逐位一致。
 """
 from __future__ import annotations
@@ -115,7 +115,7 @@ def _make_trace(k=3, anchor_id=None):
 
 
 # ======================================================================
-# T14：编码器确定性 + 同义一致性
+# 编码器确定性 + 同义一致性
 # ======================================================================
 def test_encode_summary_deterministic_and_normalized():
     """同输入同输出；非空文本 L2 归一为 1；空文本返回全 0。"""
@@ -143,7 +143,7 @@ def test_encode_summary_cjk_tokenize():
 
 
 # ======================================================================
-# T14：PCA 纯 Python 复现 + 主成分正确
+# PCA 纯 Python 复现 + 主成分正确
 # ======================================================================
 def test_pca2d_reproducible():
     """同输入逐位一致（幂迭代确定性）。"""
@@ -176,7 +176,7 @@ def test_convergence_config_defaults():
 
 
 # ======================================================================
-# T13：数据模型字段（前后端契约）
+# 数据模型字段（前后端契约）
 # ======================================================================
 def test_convergence_models_serialization_camel():
     """模型可构造；序列化（model_dump mode=json）与前端 snake_case 契约一致。
@@ -203,7 +203,7 @@ def test_convergence_models_serialization_camel():
 
 
 # ======================================================================
-# T15：compute_convergence_score 与公式一致
+# compute_convergence_score 与公式一致
 # ======================================================================
 def test_convergence_score_full_anchored():
     """完整锚定（锚点≈末轮 belief，且候选在末轮集）→ 独立重算对拍。"""
@@ -404,7 +404,7 @@ def test_score_is_measured_only_when_all_turns_measured():
 
 
 # ======================================================================
-# T16：接口（FastAPI TestClient）
+# 接口（FastAPI TestClient）
 # ======================================================================
 def test_convergence_endpoints_via_testclient():
     from fastapi.testclient import TestClient

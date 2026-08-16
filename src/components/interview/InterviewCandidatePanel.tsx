@@ -1,6 +1,6 @@
 /**
  * src/components/interview/InterviewCandidatePanel.tsx
- * 面试候选与场次控制台（模块 B · 设计 §4.2）。
+ * 面试候选与场次控制台（模块 B）。
  *
  * 三块内容：
  * 1) 任务需求卡 —— ★通道①（市场能力标签 → 面试考查维度）的输入与可视化证据：

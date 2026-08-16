@@ -1,8 +1,8 @@
 /**
  * src/engine/evaluation/ranking.ts
- * 主观多元聚合与排序引擎（G4 · 替代朴素平均的严谨聚合层）。
+ * 主观多元聚合与排序引擎。
  *
- * 设计来源（路书 §2.4）：
+ * 设计来源：
  * - Chatbot Arena（arXiv:2403.04132）：成对比较 + 统计排序（此处提供其一致性检验部分）；
  * - Ranking Unraveled（ACL 2025, arXiv:2411.14483）：小而受控数据用 Bradley-Terry / Glicko，
  *   大而不均用 Glicko；本模块先落地确定性、无迭代的 TOPSIS 多维聚合；

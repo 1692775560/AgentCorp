@@ -16,7 +16,7 @@ from sse_starlette.sse import EventSourceResponse
 from ..config import settings
 from ..evaluator import judge_available
 
-# 批次2（T4–T9）：仅追加，不破坏既有端点（架构 §2.1 / 实现清单）。
+# 批次2（T4–T9）：仅追加，不破坏既有端点。
 from ..scoring.stage_scorer import build_stage_score
 from ..scoring.preference import aggregate_preference, apply_to_user_preference
 from ..scoring.rules_engine import load_rules, _PRESETS_DIR as _SCORING_PRESETS_DIR

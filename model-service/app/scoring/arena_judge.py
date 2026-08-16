@@ -1,6 +1,6 @@
 """
 model-service/app/scoring/arena_judge.py
-Arena 个性化对决的 LLM-as-judge 裁判（设计 §2.3 / 决策 D2/D4）。
+Arena 个性化对决的 LLM-as-judge 裁判。
 
 与 craft_judge 的边界：
 - 题源：用户需求（开卷个性化）而非题库闭卷题；

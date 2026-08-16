@@ -1,6 +1,6 @@
 """
 model-service/app/config.py
-服务配置（环境变量驱动，架构 §2 / §7）。
+服务配置（环境变量驱动。
 """
 from __future__ import annotations
 

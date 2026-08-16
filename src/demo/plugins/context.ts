@@ -31,14 +31,14 @@ export interface PluginPatch {
   override: Record<string, unknown>;
 }
 
-/** 内核事件（session/event 与 agent/* waterfall 的可订阅雏形；G13 发现广播复用）。 */
+/** 内核事件（session/event 与 agent/* waterfall 的可订阅雏形 发现广播复用）。 */
 export interface PluginEvents {
   'agent/registered': { id: string; name: string };
   'skill/unregistered': { id: string };
 }
 export type PluginEventHandler<K extends keyof PluginEvents> = (payload: PluginEvents[K]) => void;
 
-/** 能力 seam 类别（Option 1 · T5 LLM / T6 judge / 未来 tool / sandbox；G11 活注册表衔接）。 */
+/** 能力 seam 类别（Option 1 · T5 LLM / T6 judge / 未来 tool / sandbox 活注册表衔接）。 */
 export type CapabilityKind = 'llm' | 'judge' | 'tool' | 'sandbox';
 
 /** 插件内核上下文：向共享 ctx 贡献 service / event / effect。 */

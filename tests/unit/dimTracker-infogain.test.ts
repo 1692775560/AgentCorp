@@ -1,7 +1,7 @@
 /**
  * tests/unit/dimTracker-infogain.test.ts
  *
- * G1 缺口专项锁：题序「信息增益(EIG) 驱动」选题（路书 G1 / 熵收敛内核）。
+ * G1 缺口专项锁：题序「信息增益(EIG) 驱动」选题。
  *
  * 本文件不重复 main dimTracker.test.ts 已覆盖的「覆盖度升序」旧语义，而是专门锁定：
  *   1. irt 引擎层：dimInformationGain 的「边际信息递减」与「夹逼后 EIG→0」性质；

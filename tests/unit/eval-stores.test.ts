@@ -1,7 +1,7 @@
 /**
  * tests/unit/eval-stores.test.ts
  *
- * 落库单测（T03 / T06 / 真实遥测链路改造后）：
+ * 落库单测：
  * - electron/services/evaluation/eval-store.ts（主进程）：lazy import('electron-store')，
  *   用 in-memory FakeStore 替身验证 save/load/list/getByRunId 语义。
  * - src/services/runLinkStore.ts（渲染层客户端）：mock hostApiFetch 验证请求与回包处理。

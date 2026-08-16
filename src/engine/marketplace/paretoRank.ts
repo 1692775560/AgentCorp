@@ -1,6 +1,6 @@
 /**
  * src/engine/marketplace/paretoRank.ts
- * 二维 Pareto（质量 × 成本）非支配排序（模块 A · 设计 §6 Step 4 增量）。
+ * 二维 Pareto（质量 × 成本）非支配排序（模块 A ·  增量）。
  *
  * 智能匹配（matchScore）把多维压成一维总分，会丢失「质量高但贵」与「便宜但平庸」
  * 之间的真实权衡。Pareto 排序保留这种权衡：把候选分成「非支配前沿」，

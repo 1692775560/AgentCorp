@@ -1,6 +1,6 @@
 /**
  * src/types/reactions.ts
- * 小红心点赞 + BossFavorite 深度认可契约层（模块 Arena · 设计 §4/§5 / contracts.md §1.4/§1.5）。
+ * 小红心点赞 + BossFavorite 深度认可契约层（模块 Arena · /§5 / contracts.md §1.4/§1.5）。
  *
  * 字段以 contracts.md 为准；users/voters/votedBy/ownerId 为后端聚合预留字段，
  * 当前本地实现恒空 / 'default'。

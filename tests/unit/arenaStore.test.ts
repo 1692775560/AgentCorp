@@ -1,7 +1,7 @@
 /**
  * tests/unit/arenaStore.test.ts
  *
- * Arena 对决 store 单测（T03）：
+ * Arena 对决 store 单测：
  * - 需求输入 / 工种 / 候选增删
  * - compare 成功 → match + history + status=ready
  * - compare 失败（judgeClient 返回 null）→ status=error 降级提示

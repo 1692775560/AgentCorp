@@ -1,9 +1,9 @@
 /**
  * src/services/convergenceService.ts
- * Layer3 收敛层网络 + 本地缓存服务（T17）。
+ * Layer3 收敛层网络 + 本地缓存服务。
  *
  * 网络：经 Host API 代理（与 judgeClient 同基 `hostApiFetch`）调用
- *   model-service 的 /api/convergence/{trace,score,anchor} 端点（T16）。
+ *   model-service 的 /api/convergence/{trace,score,anchor} 端点。
  *   契约严格对齐 serve.py，snake_case（与既有 evaluation.ts 一致）。
  *
  * 本地缓存：electron-store 命名空间 `agentcorp.convergence`

@@ -1,6 +1,6 @@
 /**
  * src/stores/marketplace.ts
- * 人才市场（S1 初审）状态编排 store（模块 A · 设计 §4.1 / §7.1）。
+ * 人才市场（S1 初审）状态编排 store（模块 A ·  / §7.1）。
  *
  * 职责：
  * - 持有任务需求 `taskRequirement` 与派生画像 `taskProfile`（taskMatch 确定性词典）；

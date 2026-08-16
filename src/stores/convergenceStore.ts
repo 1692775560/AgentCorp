@@ -1,6 +1,6 @@
 /**
  * src/stores/convergenceStore.ts
- * Layer3 收敛层 Zustand store（T17）。
+ * Layer3 收敛层 Zustand store。
  *
  * 职责（编排 T13–T16 前端侧闭环）：
  *   - 持有当前收敛轨迹 trace / 评分 score / 锚点库 anchors（内存镜像）；
@@ -72,7 +72,7 @@ interface ConvergenceState {
   loadFromServer: (runId: string, ownerId?: string) => Promise<void>;
 
   /**
-   * T19：双 Leaderboard 拖拽锚点回填。
+   * 双 Leaderboard 拖拽锚点回填。
    * 将拖拽置顶候选回填为 HumanAnchor（source="dual_leaderboard_drag"），
    * 与 explicit_pin 源互斥合并（共用锚点库）。
    * - 无活跃 trace 时静默 noop（返回 false，不报错）；

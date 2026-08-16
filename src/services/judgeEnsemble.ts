@@ -1,6 +1,6 @@
 /**
  * src/services/judgeEnsemble.ts
- * 裁判 ensemble（模块 C · 评估中心可靠性底座；T07 增量）。
+ * 裁判 ensemble（模块 C · 评估中心可靠性底座 增量）。
  *
  * 单次 chat-judge 噪声大（见 passK.ts 设计依据），故对同一条 transcript 重复裁判 k 次，
  * 再做聚合：

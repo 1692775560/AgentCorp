@@ -1,7 +1,7 @@
 /**
  * tests/unit/taskMatch.test.ts
  *
- * 任务画像抽取引擎单测（模块 A · 设计 §6 Step 1）：
+ * 任务画像抽取引擎单测（模块 A）：
  *  - inferJobType        —— 图/文/码三工种推断 + 确定性 tie-break + 无命中 null
  *  - extractDimBoost     —— 六类维度强调词典；多规则命中同维「取最大值而非连乘」
  *  - extractTags         —— 标准标签抽取（去重、按词典顺序、含工种标签）

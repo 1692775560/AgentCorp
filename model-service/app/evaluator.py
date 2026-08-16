@@ -1,6 +1,6 @@
 """
 model-service/app/evaluator.py
-跨模态评估 pipeline（架构 §1.3 / 类图 Evaluator）。
+跨模态评估 pipeline。
 
 pipeline：load_media → build_prompt → infer → parse → compute_fit → stream
 
@@ -104,7 +104,7 @@ def compute_user_fit(
     weighted = 0.0
     for dim in RADAR_DIMS:
         weighted += (getattr(radar, dim) / 5.0) * weight[dim]
-    # PRD §7.3 / 架构 §4.3：Σ weight = 1，user_fit = Σ(radar/5 × weight) × 100%。
+    #  / ：Σ weight = 1，user_fit = Σ(radar/5 × weight) × 100%。
     # 不做归一化：超预算清零 cost 权重后总分自然 < 100（预算硬约束真正生效）。
     fit = weighted * 100.0
 
@@ -349,7 +349,7 @@ def _get_fixture(candidate: CandidateProfile) -> Dict:
 def _resolve_media_path(url: str) -> Optional[str]:
     """
     将媒体 URL 解析为本地文件路径：
-    - "/uploads/..."（/api/upload 落盘的静态前缀）→ settings.upload_dir 下；
+    - "/uploads/..."（api/upload 落盘的静态前缀）→ settings.upload_dir 下；
     - http(s) 远程 URL → 不抓取，返回 None（记日志跳过）；
     - 其余按文件系统路径处理。
     """
@@ -427,7 +427,7 @@ def _sample_video_frames(path: str, n_frames: int) -> List[object]:
 
 def load_media(candidate: CandidateProfile) -> Dict:
     """
-    加载并预处理多模态证据（架构 §8 多模态约定）：
+    加载并预处理多模态证据：
     - 视频：确定性均匀抽帧（settings.frame_sample，默认 8 帧）
     - 音频：重采样至 16kHz mono（librosa，numpy 波形）
     - 图像：最长边 ≤1024（PIL）
@@ -678,7 +678,7 @@ async def evaluate(
 
 
 # ======================================================================
-# 6) 运行期裁判（/api/evaluate-run）：transcript + usage → 同构 SSE 流
+# 6) 运行期裁判（api/evaluate-run）：transcript + usage → 同构 SSE 流
 # ======================================================================
 def _clamp(value: float, lo: float = 0.0, hi: float = 5.0) -> float:
     return max(lo, min(hi, value))
