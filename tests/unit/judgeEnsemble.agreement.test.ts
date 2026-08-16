@@ -1,5 +1,5 @@
 /**
- * judgeEnsemble · G4 跨评委一致性 α 朝向回归测试。
+ * judgeEnsemble · 跨评委一致性 α 的矩阵朝向回归测试。
  *
  * 回归目标：krippendorffAlphaMulti 契约是 rows=候选(6 维)、cols=评委(k 次运行)。
  * 之前 judgeEnsemble 把矩阵传反（行=运行、列=维），导致「稳定 agent」算出负 α，
@@ -36,7 +36,7 @@ vi.mock('@/services/judgeClient', () => ({
 import { judgeChatEnsemble } from '@/services/judgeEnsemble';
 import { judgeChat } from '@/services/judgeClient';
 
-describe('judgeEnsemble · G4 agreementAlpha orientation', () => {
+describe('judgeEnsemble · agreementAlpha orientation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

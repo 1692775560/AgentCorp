@@ -1,14 +1,14 @@
 /**
  * src/stores/convergenceStore.ts
- * Layer3 收敛层 Zustand store（T17）。
+ * Layer3 收敛层 Zustand store。
  *
- * 职责（编排 T13–T16 前端侧闭环）：
+ * 职责（编排收敛层的前端侧闭环）：
  *   - 持有当前收敛轨迹 trace / 评分 score / 锚点库 anchors（内存镜像）；
  *   - 编排收敛服务 convergenceService（网络 + electron-store 缓存）；
  *   - 暴露 recordTurn / setAnchor / computeScore 三个核心动作；
  *   - explicit_pin：MVP 的「临时锚点源」——用户置顶某候选后，
  *     先以 explicitPin 暂存（不落库、不覆盖轨迹），commit 时才写入。
- *     （批次 2 后回填 dual_leaderboard_drag 来源，本 store 已预留 ConvSource。）
+ *     （双榜拖拽来源经 ConvSource 回填。）
  *
  * 数据真相在 electron-store（agentcorp.convergence），本 store 仅持内存镜像。
  * 任一网络/缓存环节失败不中断其余流程（与 evaluation.ts 同口径）。
@@ -72,7 +72,7 @@ interface ConvergenceState {
   loadFromServer: (runId: string, ownerId?: string) => Promise<void>;
 
   /**
-   * T19：双 Leaderboard 拖拽锚点回填。
+   * 双 Leaderboard 拖拽锚点回填。
    * 将拖拽置顶候选回填为 HumanAnchor（source="dual_leaderboard_drag"），
    * 与 explicit_pin 源互斥合并（共用锚点库）。
    * - 无活跃 trace 时静默 noop（返回 false，不报错）；
@@ -201,7 +201,7 @@ export const useConvergenceStore = create<ConvergenceState>((set, get) => ({
 
   setAnchor: async (candidateId, source = 'dual_leaderboard_drag') => {
     const { trace } = get();
-    // 无活跃 trace → 静默 noop（T19 不报错）
+    // 无活跃 trace → 静默返回，不报错
     if (!trace) return false;
     // 在当前 trace 候选集中定位该候选的 embedding
     let embedding: number[] | null = null;

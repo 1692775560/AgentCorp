@@ -1,6 +1,6 @@
 """
 scripts/eval/dsh/agentcorp_eval_provider.py
-AgentCorp 评测 Provider —— 供 DeepSeek Harness (dsh) 消费的 eval provider（Option 2）。
+AgentCorp 评测 Provider —— 供 DeepSeek Harness (dsh) 消费的 eval provider。
 
 本文件是「真实」provider：run_sample 通过 HTTP 调 AgentCorp 的 /api/chat-judge
 （由 electron Host API 代理 / model-service :8000 提供），k 次重复采样后聚合

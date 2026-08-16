@@ -1,6 +1,6 @@
 """
 scripts/eval/dsh/run_probe.py
-自包含探针 runner —— 模拟 dsh 的 eval 编排循环，用「进程内 mock judge」跑通 Option 2 探针，
+自包含探针 runner —— 模拟 dsh 的 eval 编排循环，用进程内 mock judge 跑通评测探针，
 不依赖 dsh、也不必启动 model-service。验证「AgentCorp 的评分科学（pass^k / 多数裁决 /
 Krippendorff α）能被 eval loop 消费并产出结构化报告」。
 
@@ -87,7 +87,7 @@ def main():
     samples = load_samples(sample_path)
     mock = MockJudge()
     print("=" * 70)
-    print("AgentCorp × dsh Option 2 探针（mock judge，自包含 runner）")
+    print("AgentCorp × dsh 评测探针（mock judge，自包含 runner）")
     print("=" * 70)
     all_ok = True
     for s in samples:

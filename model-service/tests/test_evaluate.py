@@ -1,6 +1,6 @@
 """
 model-service/tests/test_evaluate.py
-验证评估契约与 user_fit 计算（不依赖真实模型，架构 §4.4 / 任务 T03）。
+验证评估契约与 user_fit 计算（不依赖真实模型。
 
 运行（在 model-service 目录下）：
     pip install pytest

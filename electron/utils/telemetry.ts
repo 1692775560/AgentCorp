@@ -4,7 +4,7 @@ import { app } from 'electron';
 import { getSetting, setSetting } from './store';
 import { logger } from './logger';
 
-// Security (T08): the PostHog API key is NEVER hardcoded in source. It must be
+// Security: the PostHog API key is NEVER hardcoded in source. It must be
 // supplied at runtime via the POSTHOG_API_KEY env var (operator-provided). With
 // no key present, telemetry cannot initialize and no data leaves the machine.
 const POSTHOG_HOST = 'https://us.i.posthog.com';
@@ -78,7 +78,7 @@ export async function initTelemetry(): Promise<void> {
       return;
     }
 
-    // Security (T08): no hardcoded key — must be provided via POSTHOG_API_KEY env.
+    // Security: no hardcoded key — must be provided via POSTHOG_API_KEY env.
     const apiKey = getPostHogApiKey();
     if (!apiKey) {
       telemetryInitialized = false;

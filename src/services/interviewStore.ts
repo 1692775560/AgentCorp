@@ -1,6 +1,6 @@
 /**
  * src/services/interviewStore.ts
- * 面试报告本地落库（electron-store，模块 B · 设计 §4.1）。
+ * 面试报告本地落库（electron-store，模块 B）。
  *
  * 命名空间：`agentcorp.interview`（默认落盘 <userData>/agentcorp.interview.json）。
  * 键 = interviewId，值 = InterviewReport。
@@ -67,7 +67,7 @@ export async function latestByAgent(agentId: string): Promise<InterviewReport | 
 }
 
 /**
- * 追加/更新用户自定义题小节（设计 §3 / T04）。
+ * 追加/更新用户自定义题小节。
  * 仅加法：加载既有报告 → 合并 userQuestionRound → 覆盖写。
  * 不进 turns[]、不进 dimTracker 证据、不进模型分（报告结构不变，仅多一个可选字段）。
  */

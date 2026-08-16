@@ -1,7 +1,7 @@
 /**
  * tests/unit/judgeClient.test.ts
  *
- * 裁判客户端单测（T07）。重点验证离线回退 fallbackMock（不触达网络 / Host API）：
+ * 裁判客户端单测。重点验证离线回退 fallbackMock（不触达网络 / Host API）：
  *  - 产出与真实裁判同构的 SSE 事件流：radar_update×6 + verdict + done
  *  - 字段名严格对齐 judgeClient.parseBlock 解析契约
  *    （radar_update: dim/score/confidence/evidence；verdict: verdict/user_fit/evidence_trace/confidence；done: evaluation_id）

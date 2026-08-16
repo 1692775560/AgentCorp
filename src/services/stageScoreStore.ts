@@ -1,6 +1,6 @@
 /**
  * src/services/stageScoreStore.ts
- * 三阶段评分卡（S1/S2/S3）本地落库（electron-store，模块 B · 设计 §4.1）。
+ * 三阶段评分卡（S1/S2/S3）本地落库（electron-store，模块 B）。
  *
  * 命名空间：`agentcorp.stage-scores`。
  * 键 = `${agentId}:${stage}`（同 agent 同阶段覆盖写，保留最新一张）。

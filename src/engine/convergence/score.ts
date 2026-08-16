@@ -1,8 +1,8 @@
 /**
  * src/engine/convergence/score.ts
- * 收敛评分（T15）前端镜像 —— 严格对齐后端
+ * 收敛评分前端镜像 —— 严格对齐后端
  * model-service/app/scoring/convergence.py 的 compute_convergence_score
- * 与架构 §3.5 公式（R3 对拍要求：前后端公式逐位一致）。
+ * 与 公式（R3 对拍要求：前后端公式逐位一致）。
  *
  *   CR  = 1 − |S_K| / |S_0|
  *   R   = clamp( ||e_K − e_anchor|| / scale , 0, 1)

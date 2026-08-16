@@ -1,6 +1,6 @@
 /**
  * src/engine/evaluationAdapter.ts
- * 适配层（评估设计 §5 / playbook §2.6）：把 EvaluationEvent 流（Mock 或未来真实 SSE）
+ * 适配层：把 EvaluationEvent 流（离线或真实 SSE）
  * 增量转换为内部状态（RadarScore 逐维点亮 / KpiRecord / RoiSnapshot / LifecycleState），
  * 供看板组件消费。
  *

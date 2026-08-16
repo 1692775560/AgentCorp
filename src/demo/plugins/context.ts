@@ -1,8 +1,8 @@
 /**
- * src/demo/plugins/context.ts  (Option 1 · T1)
+ * src/demo/plugins/context.ts
  * --------------------------------------------------------------------------
  * 可逆注册内核（借 dsh "Everything is a Plugin" 范式，**自研**，不引任何第三方运行时，
- * 对齐 AGENTCORP_HARNESS §2 铁律）。
+ * 内核不直接依赖任何具体运行时。
  *
  * 提供：
  *  - `PluginContext`：共享 ctx，向内核贡献 service / event / reversible effect
@@ -31,14 +31,14 @@ export interface PluginPatch {
   override: Record<string, unknown>;
 }
 
-/** 内核事件（session/event 与 agent/* waterfall 的可订阅雏形；G13 发现广播复用）。 */
+/** 内核事件（session/event 与 agent/* waterfall 的可订阅雏形 发现广播复用）。 */
 export interface PluginEvents {
   'agent/registered': { id: string; name: string };
   'skill/unregistered': { id: string };
 }
 export type PluginEventHandler<K extends keyof PluginEvents> = (payload: PluginEvents[K]) => void;
 
-/** 能力 seam 类别（Option 1 · T5 LLM / T6 judge / 未来 tool / sandbox；G11 活注册表衔接）。 */
+/** 能力接入点类别：llm / judge，以及后续可扩展的 tool / sandbox。 */
 export type CapabilityKind = 'llm' | 'judge' | 'tool' | 'sandbox';
 
 /** 插件内核上下文：向共享 ctx 贡献 service / event / effect。 */
@@ -71,7 +71,7 @@ export interface PluginKernel extends PluginContext {
   list(): SkillDefinition[];
   has(id: string): boolean;
   clear(): void;
-  /** 能力 seam：注册某类能力的可替换 Provider（T5 LLM / T6 judge / 未来 tool / sandbox）。 */
+  /** 注册某类能力的可替换实现（llm / judge / tool / sandbox）。 */
   registerProvider(kind: CapabilityKind, id: string, impl: unknown, priority?: number): Disposable;
   /** 取指定 id 的 Provider（按 kind + id 精确查找）。 */
   getProvider<I = unknown>(kind: CapabilityKind, id: string): I | undefined;
@@ -108,7 +108,7 @@ class SkillRegistry implements PluginKernel {
 
   onDispose(fn: () => void): Disposable {
     // 全局生命周期钩子（内核级）；返回可释放句柄。
-    // 注：T1 阶段仅提供形态；持久化钩子列表为后续 G11 活注册表衔接预留。
+    // 当前仅提供接口形态；持久化钩子列表为后续扩展预留。
     return { dispose: () => fn() };
   }
 

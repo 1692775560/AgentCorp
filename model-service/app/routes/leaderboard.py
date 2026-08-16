@@ -1,4 +1,4 @@
-"""批次2（T4–T9）端点：evaluate-stage / rules / leaderboard / preference（纯搬运自原 serve.py）。
+"""评分与偏好相关端点：evaluate-stage / rules / leaderboard / preference。
 
 这些端点共享进程内状态（_STAGE_STORE / _RULES_OVERRIDES），故同处一个模块。
 """
@@ -16,7 +16,7 @@ from sse_starlette.sse import EventSourceResponse
 from ..config import settings
 from ..evaluator import judge_available
 
-# 批次2（T4–T9）：仅追加，不破坏既有端点（架构 §2.1 / 实现清单）。
+# 仅追加端点，不改动既有接口行为。
 from ..scoring.stage_scorer import build_stage_score
 from ..scoring.preference import aggregate_preference, apply_to_user_preference
 from ..scoring.rules_engine import load_rules, _PRESETS_DIR as _SCORING_PRESETS_DIR
@@ -38,7 +38,7 @@ logger = logging.getLogger("serve")
 router = APIRouter()
 
 # ======================================================================
-# 批次2（T4–T9）内存 store（零新依赖，进程内）：
+# 进程内内存存储（零新增依赖）：
 #   _STAGE_STORE[stage][jobType][agentId] = StageScore(dict)
 #   _RULES_OVERRIDES[presetId] = rules dict（PUT /api/rules 落库）
 # ======================================================================
@@ -65,13 +65,13 @@ def _mock_leaderboard_entries(stage: str, job_type: str) -> list:
 
 
 # ======================================================================
-# 批次2 端点（T4–T9）：/api/evaluate-stage / /api/rules / /api/leaderboard / /api/preference
+# 端点：/api/evaluate-stage / /api/rules / /api/leaderboard / /api/preference
 # 不破坏既有 /api/evaluate* 与 /api/convergence/* 端点。
 # ======================================================================
 @router.post("/api/evaluate-stage")
 async def api_evaluate_stage(req: StageScoreRequest):
     """
-    三阶段评分卡装配（T4）：接收客观分 + 主观分，装配 StageScore 并发 stage_score SSE 事件。
+    三阶段评分卡装配：接收客观分与主观分，装配 StageScore 并推送 stage_score 事件。
     SSE 事件：stage_score（携带 StageScore）→ done。
 
     judge 门禁（P0）：本端点分数经 _STAGE_STORE 进入 /api/leaderboard 榜单，且
@@ -84,7 +84,7 @@ async def api_evaluate_stage(req: StageScoreRequest):
             status_code=503,
             detail=(
                 "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
-                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+                "或在具备本机权重的环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
             ),
         )
 
@@ -121,7 +121,7 @@ async def api_evaluate_stage(req: StageScoreRequest):
 
 @router.get("/api/rules")
 def api_get_rules(preset: str = "default") -> dict:
-    """读取规则预设（T5）：优先内存覆盖，否则从 presets/<preset>.json 加载。"""
+    """读取规则预设：优先使用内存覆盖，否则从 presets/<preset>.json 加载。"""
     if preset in _RULES_OVERRIDES:
         return _RULES_OVERRIDES[preset]
     return load_rules(preset)
@@ -129,7 +129,7 @@ def api_get_rules(preset: str = "default") -> dict:
 
 @router.put("/api/rules")
 def api_put_rules(req: ScoringRulesLoad) -> dict:
-    """保存规则预设（T5）：写入内存 + 持久化到 presets/<presetId>.json。"""
+    """保存规则预设：写入内存并持久化到 presets/<presetId>.json。"""
     _RULES_OVERRIDES[req.presetId] = req.rules
     try:
         os.makedirs(_SCORING_PRESETS_DIR, exist_ok=True)
@@ -148,7 +148,7 @@ def api_get_leaderboard(
     subjective: Optional[str] = None,
 ) -> dict:
     """
-    双 Leaderboard（T7）：基于 _STAGE_STORE 中 StageScore 生成 DualLeaderboard。
+    双榜生成：基于已存 StageScore 装配客观榜与主观榜。
     - 客观榜：按 objectiveScore 降序。
     - 主观榜：默认序=客观序；若传 subjective（JSON 数组，agentId 拖拽序）则按之重排。
     - divergences：dragRank != objectiveRank 自动派生。
@@ -219,7 +219,7 @@ def api_get_leaderboard(
 @router.post("/api/preference")
 def api_post_preference(req: PreferenceFeedbackRequest) -> dict:
     """
-    偏好回灌（T8）：接收累计 PreferenceSignal 列表 + 当前 UserPreference.weight，
+    偏好回灌：接收累计的偏好信号与当前用户权重，
     聚合 → dimLift → apply_to_user_preference → 返回新 weight（Σ=1）。
     R1 门控：N<3 时返回原 weight 并标记 pending。
     """

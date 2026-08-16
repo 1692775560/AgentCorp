@@ -40,7 +40,7 @@ async def api_evaluate(req: EvaluationRequest):
             status_code=503,
             detail=(
                 "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
-                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+                "或在具备本机权重的环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
             ),
         )
 
@@ -66,7 +66,7 @@ async def api_evaluate(req: EvaluationRequest):
 @router.post("/api/evaluate-run")
 async def api_evaluate_run(req: JudgeRunRequest):
     """
-    运行期裁判端点（T07）：接收 JudgeRunInput（transcript + usage + task），
+    运行期裁判端点：接收 JudgeRunInput（transcript + usage + task），
     产出与 /api/evaluate 同构的 SSE 事件流（radar_update ×6 + verdict + done）。
     无 NPU / MOCK=true 时走 Mock 派生；模型可用时走真实推理。
     """
@@ -75,7 +75,7 @@ async def api_evaluate_run(req: JudgeRunRequest):
             status_code=503,
             detail=(
                 "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
-                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+                "或在具备本机权重的环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
             ),
         )
 
@@ -100,7 +100,7 @@ async def api_evaluate_run(req: JudgeRunRequest):
                     "event": "convergence_update",
                     "data": json.dumps(turn_payload, ensure_ascii=False),
                 }
-        # T9：可选 Task-Set 调度（向后兼容，缺省 usage_efficiency；不影响既有流）
+        # 可选任务集调度（向后兼容，缺省 usage_efficiency；不影响既有流程）
         task_set_id = req.task_set_id or "usage_efficiency"
         try:
             ts = get_task_set(task_set_id)

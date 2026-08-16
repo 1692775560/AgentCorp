@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, AliasGenerator
 from pydantic.alias_generators import to_camel
 
-# Layer3 收敛（T13/T14/T15/T16）：仅追加，不破坏既有端点。
+# Layer3 收敛：仅追加，不破坏既有端点。
 from ..scoring import (
     ConvergenceEngine,
     ConvergenceTrace,
@@ -37,7 +37,7 @@ logger = logging.getLogger("serve")
 router = APIRouter()
 
 # ======================================================================
-# Layer3 收敛（T16）：进程内 store + 可选 JSON 落盘（零新依赖）
+# Layer3 收敛：进程内 store + 可选 JSON 落盘（零新依赖）
 # ======================================================================
 _ENGINE = ConvergenceEngine()  # 端点共用引擎（含锚点库）
 _TRACE_STORE: dict[str, ConvergenceTrace] = {}
@@ -45,8 +45,8 @@ _TRACE_LOCK = threading.Lock()
 _CONV_STORE_PATH = os.getenv("CONVERGENCE_STORE_PATH", "convergence-store.json")
 
 # 并发模型（_TRACE_LOCK 的保护范围）：
-# - FastAPI sync 端点（/api/convergence/*）跑在 anyio 线程池，SSE 端点
-#   （/api/evaluate-run）协程内也会写 store，二者可并发 → 所有
+# - FastAPI sync 端点（api/convergence/*）跑在 anyio 线程池，SSE 端点
+#   （api/evaluate-run）协程内也会写 store，二者可并发 → 所有
 #   _TRACE_STORE 读写必须持 _TRACE_LOCK。
 # - _persist_convergence 全程持锁：快照迭代与文件写原子（进程内），
 #   避免多线程同时 json.dump 同一文件产生交错/截断的坏文件。临界区仅
@@ -134,7 +134,7 @@ def _build_convergence_trace_from_run(
 
 
 # ======================================================================
-# Layer3 收敛端点（T16）：/api/convergence/{trace,score,anchor}
+# Layer3 收敛端点：/api/convergence/{trace,score,anchor}
 # 不破坏既有 /api/evaluate* 端点。
 # ======================================================================
 @router.post("/api/convergence/trace")

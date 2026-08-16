@@ -1,6 +1,6 @@
 /**
  * src/services/leaderboardClient.ts
- * 双 Leaderboard 拉取（T7，镜像后端 /api/leaderboard）。
+ * 双榜数据拉取（镜像后端 /api/leaderboard）。
  *
  * 网络：经 Host API 代理调用 model-service 的 /api/leaderboard。
  * GET /api/leaderboard?stage=&jobType=&subjective=

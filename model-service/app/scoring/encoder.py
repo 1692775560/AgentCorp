@@ -1,6 +1,6 @@
 """
 model-service/app/scoring/encoder.py
-需求理解摘要编码器封装 + PCA 工具（T14，架构 §3.2 / §3.5）。
+需求理解摘要编码器封装 + PCA 工具。
 
 设计要点（零新增运行时依赖，纯 Python，可 CPU 复现）：
 - encode_summary(text) -> List[float]（默认确定性投影）：
@@ -11,7 +11,7 @@ model-service/app/scoring/encoder.py
 - pca2d(vectors) -> List[[x, y]]：纯 Python 幂迭代求前 2 主成分，
     固定迭代次数 + 固定初始向量 → 逐位可复现（不引 numpy）。
 - ConvergenceConfig：k 默认 3、weights 默认 0.4/0.4/0.2、scale 默认 2.0，
-    与架构 §3.5 默认值严格一致。
+    与 默认值严格一致。
 
 本模块只依赖标准库（hashlib / math / re / os）+ pydantic（仅用于配置模型）。
 """
@@ -210,11 +210,11 @@ def pca2d(vectors: List[List[float]]) -> List[List[float]]:
 
 
 # ======================================================================
-# 5) 收敛配置（架构 §3.5 默认值）
+# 5) 收敛配置
 # ======================================================================
 class ConvergenceConfig(BaseModel):
     """
-    收敛引擎可配参数（与架构 §3.5 严格一致）：
+    收敛引擎可配参数（与 严格一致）：
       - k：默认轮数 3（可配 5/7 等）；
       - weights：w1/w2/w3 默认 0.4/0.4/0.2（Σ=1）；
       - scale：残差校准常数，默认 2.0（单位向量最大距离）；

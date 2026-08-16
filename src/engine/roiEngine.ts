@@ -1,6 +1,6 @@
 /**
  * src/engine/roiEngine.ts
- * ROI / 效率引擎（评估设计 §3）：把成本五要素 + 价值两要素折算为
+ * ROI / 效率引擎（评估）：把成本五要素 + 价值两要素折算为
  * ROI / IPR / SRPC / CPS，并做跨 agent 归一化（z-score）。
  *
  * 设计约束（阶段 A）：
@@ -22,7 +22,7 @@ export interface CostInput {
 
 /** 价值两要素 */
 export interface ValueInput {
-  /** 难度权重表 w_k（Σ=1，见评估设计 §3.5 W 表） */
+  /** 难度权重表 w_k（Σ=1，见评估 W 表） */
   weight: Record<string, number>;
   /** 各任务类型的成功度 s_k（0–1 连续度，1=完全成功） */
   success: Record<string, number>;
@@ -105,7 +105,7 @@ export function computeRoi(
   const srpc = C_total > 0 ? value.n_success / C_total : 0;
   const cps = normCps(ipr);
 
-  // 性价比分（0–5）：客观 CPS 与主观雷达 cost 维融合（评估设计 §3.4）
+  // 性价比分（0–5）：客观 CPS 与主观雷达 cost 维融合（评估）
   const lambda = opts.lambda ?? DEFAULT_LAMBDA;
   let cost_perf_score = cps; // 默认纯客观
   if (opts.radarCost != null) {

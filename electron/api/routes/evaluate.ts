@@ -1,6 +1,6 @@
 /**
  * electron/api/routes/evaluate.ts
- * 评估裁判 Host API 代理（T07）。
+ * 评估裁判 Host API 代理。
  *
  * 路由：POST /api/evaluate/run
  * 行为：读取请求体（JudgeRunInput），服务端转发至 modelServiceUrl 的

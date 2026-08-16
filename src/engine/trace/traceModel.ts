@@ -1,6 +1,6 @@
 /**
  * src/engine/trace/traceModel.ts
- * 统一 trace 模型（G10 · trace-first 真相源）。
+ * 统一 trace 模型。
  *
  * 设计目标：让每一次「面试 / 评估 / 委派」都可追溯、可回放、可归因成本。
  * - 跨进程关联：用 `correlationId` 把分散在渲染层 / 主进程 / 网关侧的事件串成一条链；

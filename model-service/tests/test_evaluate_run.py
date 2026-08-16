@@ -1,6 +1,6 @@
 """
 model-service/tests/test_evaluate_run.py
-运行期裁判契约验证（T07 / 评估设计 §1.3）。
+运行期裁判契约验证。
 
 验证 /api/evaluate-run 的 Mock 派生流（evaluate_run, mode="mock"）：
   - 产出与 /api/evaluate 同构的 SSE 事件序列：radar_update ×6 + verdict + done

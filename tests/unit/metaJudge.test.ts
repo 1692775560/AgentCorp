@@ -1,6 +1,6 @@
 /**
  * tests/unit/metaJudge.test.ts
- * G5 元评估引擎专项锁（JudgeBench 式评委元评估）。
+ * 元评估引擎行为锁定（对评委本身的评估）。
  *
  * 覆盖：
  * - agreement 一致率计算
@@ -112,7 +112,7 @@ describe('metaJudge · diagnoseByDim', () => {
 describe('metaJudge · driftCheck', () => {
   it('样本不足 → insufficient', () => {
     const samples = Array.from({ length: 10 }, (_, i) =>
-      sample({ id: `s${i}`, gold: true, judgeVerdict: true, ts: `2026-01-0${(i % 9) + 1}T00:00:00Z` }),
+      sample({ id: `s${i}`, gold: true, judgeVerdict: true, ts: `2026-01-0${(i % 9) + 1}00:00Z` }),
     );
     const drift = driftCheck(samples);
     expect(drift.direction).toBe('insufficient');
@@ -150,7 +150,7 @@ describe('metaJudge · driftCheck', () => {
           id: `${prefix}${i}`,
           gold: true,
           judgeVerdict: i >= 10, // 后 2 个判错
-          ts: `2026-01-${String(startDay + i).padStart(2, '0')}T00:00:00Z`,
+          ts: `2026-01-${String(startDay + i).padStart(2, '0')}00:00Z`,
         }),
       );
     const drift = driftCheck([...makeHalf('e', 1), ...makeHalf('l', 15)]);
@@ -168,7 +168,7 @@ describe('metaJudge · assessMetaJudge', () => {
         judgeVerdict: true,
         confidence: 0.95,
         dim: 'factuality',
-        ts: `2026-01-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`,
+        ts: `2026-01-${String((i % 28) + 1).padStart(2, '0')}00:00Z`,
       }),
     );
     const report = assessMetaJudge(samples);

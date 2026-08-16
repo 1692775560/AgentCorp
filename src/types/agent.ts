@@ -15,7 +15,7 @@ import type { RoleCard } from '@/engine/agents/roleCard';
 /** Agent 来源渠道（由 electron/utils/openclaw-workspace.ts 在快照中下发） */
 export type AgentSource = 'marketplace' | 'local' | 'custom';
 
-/** 创建/更新 Agent 时携带的结构化角色卡（G8）。见 src/engine/agents/roleCard.ts。 */
+/** 创建/更新 Agent 时携带的结构化角色卡。见 src/engine/agents/roleCard.ts。 */
 export type AgentRoleCardInput = RoleCard;
 
 export interface AgentSummary {
@@ -46,7 +46,7 @@ export interface AgentSummary {
    * （实际下发 'marketplace' | 'local'），渲染层缺省按 'custom' 兜底。
    */
   source?: AgentSource;
-  /** 结构化角色卡（G8）；缺省时该 Agent 没有规范化角色定义。 */
+  /** 结构化角色卡；缺省时该 Agent 没有规范化角色定义。 */
   roleCard?: RoleCard;
 }
 

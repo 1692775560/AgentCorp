@@ -1,34 +1,47 @@
-# AgentCorp · 给普通人用的 Agent 评测与协同工作台
+# AgentCorp
 
-> 面向职场普通人的 Agent 评测服务：把「该信哪个 Agent」这件事，
-> 从凭感觉和看 star 数，变成可测量、可复现、可解释的工程问题。
-> <img width="2940" height="1742" alt="a4fb087985edc41368b563a83f790dbd" src="https://github.com/user-attachments/assets/3399d589-4ed5-4b41-a201-0dedc258ad32" />
+> **跑分测的是模型，不是你的活。**
+> AgentCorp 用同一套工种实测题、同一份评分标准，把「该用哪个 Agent」
+> 从凭感觉，变成可测量、可复现、可追溯的判断。
 
+<img width="2940" height="1742" alt="AgentCorp 界面预览" src="https://github.com/user-attachments/assets/3399d589-4ed5-4b41-a201-0dedc258ad32" />
 
 ---
 
-## 0. 项目理念：人在回路，让「Agent 选择困难症」成为人机协同的起点
+## 为什么需要它
 
-开源 Agent 越来越多，但普通人挑 Agent 时能依据的信息少得可怜：star 数、README 写得好不好、别人一句「挺好用」。这对个人开发者尤其不公平——一个刚上传自己作为 Agent 的人，无论能力如何，star 数都是 0。
+现有的 Agent 评测基本回答不了两个实际问题：
 
-AgentCorp 不把大模型当「更聪明的搜索引擎」，而是把评估层做成**人在回路（human-in-the-loop）**的协奏场：
+1. **跑分与真实工作脱节。** 榜单在标准化题库上比较模型的通用能力，
+   而真实工作需求模糊、约束具体、要能交付。跑分高不等于能替你完成这份工作。
+2. **不同来源的 Agent 之间没有公共标尺。** 选型只能看 star 数或一句「挺好用」，
+   新发布的 Agent 天然吃亏，团队引入时也无法回答「能不能上线、出问题谁负责」。
 
-- **机器**负责可量化的客观基准——任务完成度、bug 数、耗时、返工次数、token 成本、六维能力雷达、工种专属 craft 维；
-- **人**保留对审美倾向、任务理解「手感」、信任度等**非清晰规则**的主观赋分权，并随时可拖拽重排、把偏好回灌给下一次打分。
+AgentCorp 把选型变成一次**有证据的准入评审**：出同一套题、按同一份标准打分、
+留下可复核的记录、由人拍板。
 
-我们相信：**Agent 选择困难症**（面对海量候选 agent 该信谁）恰恰是挖掘「人机协调与同步」的最佳入口——它把模糊的方向性需求，经**梯度下降式收敛**为可检验、可迭代的工程问题。当人始终在环中，agent 就不会越过人直接抓取结果、退化成「猜你喜欢」；人也不再迷失在发散的状态空间里。
+## 核心能力
 
-**学术价值**：AgentCorp 把「人机精准匹配与同步」做成可测量、可复现的实验对象，为 **人人 → 人机 → 人机人机** 的社会学演进提供可观测样本：评估数据（客观遥测 + 主观偏好）天然构成人机协同的研究语料，而偏好回灌回路则是「人机同步」的可计算原型。
-
-## 0.1 三大核心功能
-
-| 功能 | 解决的问题 | 形态 |
+| 能力 | 解决的问题 | 做法 |
 |---|---|---|
-| **人才市场** | 从哪里找 Agent、怎么公平地展示 | 一键导入 GitHub 开源 Agent，或上传自己作为 Agent；小红心推荐让真实使用者的偏好可见，不只看 star |
-| **HR 面试** | 这个 Agent 到底会不会干活 | LLM-as-judge 对「写代码 / 画图 / 写文案」等工种跑差异化小任务，产出六维能力雷达与用户契合度 |
-| **绩效考核** | 用过之后谁更值得留 | 客观榜按完成度 / bug / 耗时 / 返工 / token 成本排名；主观榜允许每个用户按自己的价值观重排 |
+| **候选市场** | 从哪里找 Agent，怎么公平展示 | 支持导入开源 Agent 或上传自有 Agent；使用者的真实偏好可见，不只看 star |
+| **能力实测** | 这个 Agent 到底会不会干活 | 12 道固定题覆盖写代码 / 写文案 / 做图三类工种，同题同标尺，题面内置反注水探针 |
+| **持续评估** | 用过之后谁更值得留 | 客观榜按完成度、返工率、耗时、成本排名；主观榜允许每位使用者按自身价值观重排 |
 
-两张榜单并存是刻意的设计：有人认为保住完成度比省时间重要，有人相反。我们不假装存在一个客观最优解。
+两张榜单并存是刻意的设计：有人认为保住完成度比省时间更重要，有人相反。
+我们不假设存在唯一的最优解。
+
+## 评估结论为什么可信
+
+用模型给模型打分，首先要解决「裁判本身可不可靠」：
+
+- **重复测量**：同一份作答独立评多次，每次都达标才判定为通过。
+- **稳定性检查**：多次评分离散过大时下调置信度并转人工复核。
+- **抗偏差设计**：轮换维度顺序、固定评分锚点、明确要求不因回答长而给高分。
+- **来源标注**：分数分为真实裁判 / 部分降级 / 完全降级三态，降级结论不进入经验库。
+
+系统只主张结论**稳定**，不主张结论**正确**——后者需要长期的真实表现数据验证，
+这是我们公开的下一阶段目标。
 
 ---
 
@@ -52,9 +65,10 @@ HR 面试（Interview，S2）→ 评估中心（Evaluation，S3 绩效：雷达 
 
 ### 1.2 模型服务（评测裁判，Python + FastAPI + SSE）
 
-评估中心的「运行评估」需要模型服务。默认裁判模型是 **MiniCPM-o 4.5（全模态）**——
-选它是因为候选 Agent 的产出天然异质（代码、图像、文案、语音），需要同一个裁判统一消费。
-裁判后端是可替换的，见 §4。
+评估中心的「运行评估」需要模型服务。**裁判后端可替换**（`JudgeBackend` 协议，见 §4）：
+任何 OpenAI 兼容服务都能当裁判，也可用全模态模型（如 MiniCPM-o 4.5）统一消费
+候选 Agent 的异质产出（代码、图像、文案、语音）。
+不绑定单一模型家族既是工程需要，也是**抗自我增强偏差**的架构级保障。
 
 ```bash
 cd model-service
@@ -63,8 +77,11 @@ pip install -r requirements.txt
 # Mock 模式：不加载真模型，内联 fixture 驱动完整 SSE 事件流（演示/联调用）
 MOCK=true uvicorn app.serve:app --port 8000
 
-# 真实模式：端侧 llama.cpp 文本推理（CPU/Metal 即可，需先按 §4 装好权重）
-MOCK=false MODEL_PATH=models/MiniCPM-o-4_5-Q4_K_M.gguf uvicorn app.serve:app --port 8000
+# 真实模式（推荐）：任意 OpenAI 兼容云服务作裁判，零硬件门槛
+MOCK=false JUDGE_BACKEND=http \
+  JUDGE_BASE_URL=<your_openai_compatible_endpoint> \
+  JUDGE_API_KEY=<your_key> JUDGE_MODEL=<model_name> \
+  uvicorn app.serve:app --port 8000
 ```
 
 访问 `http://localhost:8000/docs` 查看接口；`/health` 查看模型可用性
@@ -139,10 +156,47 @@ agentcorp/
 
 ## 4. 接入真实裁判模型
 
-裁判模型的部署方式按硬件条件三选一，代码路径完全一致——
-`DEVICE=npu|cuda|cpu|auto`，自动降级顺序 NPU > CUDA > CPU。
+> **裁判后端是可替换的，这是刻意的架构决策，不是妥协。**
+> 用模型评模型天然有「自我增强偏差」（裁判偏爱与自己同家族的产出）。
+> 因此本项目把推理后端抽象为 `JudgeBackend` 协议（`model-service/app/judge_backend.py`），
+> 任何 OpenAI 兼容服务都能作为裁判接入，评估体系不绑定任何单一模型或单一芯片。
+> 换后端只改环境变量，评分逻辑、Skill 契约、Trace 结构一律不动。
 
-### 路径 A · 端侧 GGUF（推荐评委机 / 笔记本，CPU/Metal 即可）
+四条路径按「上手成本」排序，代码路径完全一致：
+
+| 路径 | 后端 | 适用场景 | 硬件要求 |
+|---|---|---|---|
+| **A（默认推荐）** | `JUDGE_BACKEND=http` | 任何 OpenAI 兼容云服务（阿里云百炼/通义、火山方舟、OpenAI…） | 无，联网即可 |
+| B | `JUDGE_BACKEND=http` + 本地 vLLM | 自建推理服务 | GPU |
+| C | 端侧 GGUF | 离线复现、评委笔记本 | CPU/Metal 即可 |
+| D | 本机全量权重 | 需要视觉/音频模态 | GPU 或异构加速卡（NPU 等） |
+
+### 路径 A · OpenAI 兼容云服务（默认推荐，零硬件门槛）
+
+```bash
+cd model-service
+pip install -r requirements.txt
+
+# 以阿里云百炼（DashScope OpenAI 兼容模式）为例：
+MOCK=false \
+JUDGE_BACKEND=http \
+JUDGE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 \
+JUDGE_API_KEY=<your_api_key> \
+JUDGE_MODEL=qwen-plus \
+uvicorn app.serve:app --port 8000
+
+# 换成任意其它 OpenAI 兼容端点同理，只改这三个环境变量：
+# JUDGE_BASE_URL / JUDGE_API_KEY / JUDGE_MODEL
+```
+
+`judge_backend.py` 的 HTTP 后端用标准库 `urllib` 实现（零新增依赖），
+并统一采集 `ttft_ms` / `latency_ms` / `usage`，供成本与时延归因。
+
+### 路径 B · 自建 vLLM / 本地推理服务
+
+同路径 A，把 `JUDGE_BASE_URL` 指向自建服务即可（如 `http://localhost:8080/v1`）。
+
+### 路径 C · 端侧 GGUF（离线复现，CPU/Metal 即可）
 
 无需 torch / transformers，最容易复现。
 
@@ -160,24 +214,19 @@ MOCK=false MODEL_PATH=models/MiniCPM-o-4_5-Q4_K_M.gguf uvicorn app.serve:app --p
 # 注：GGUF 路径仅文本推理（裁判场景够用）；视觉/音频模态需路径 B
 ```
 
-### 路径 B · 全量权重（GPU）
+### 路径 D · 本机全量权重（需要视觉/音频模态时）
 
 ```bash
 pip install "transformers==4.51.0" accelerate "torch>=2.3.0,<=2.8.0" \
     "torchaudio<=2.8.0" "minicpmo-utils[all]>=1.0.5" librosa opencv-python
 
-MOCK=false DEVICE=cuda MODEL_PATH=/models/MiniCPM-o-4.5 uvicorn app.serve:app --port 8000
+MOCK=false JUDGE_BACKEND=local DEVICE=cuda MODEL_PATH=/models/<your-omni-model> \
+  uvicorn app.serve:app --port 8000
 ```
 
-### 路径 C · 昇腾 NPU
-
-```bash
-# 装与 CANN 匹配的 torch_npu（版本矩阵见 docs/ascend-adaptation-plan.md §3）
-MOCK=false DEVICE=npu MODEL_PATH=/models/MiniCPM-o-4.5 uvicorn app.serve:app --port 8000
-
-# 或走容器：编辑 docker-compose.yml 设 MOCK=false 并透传 NPU 设备（/dev/davinci*）
-cd model-service && docker compose up --build
-```
+`DEVICE` 支持 `cuda|cpu|auto`，另可选装对应厂商的异构加速运行时后按
+`DEVICE=npu` 启用（`model_loader.py` 惰性 import，缺依赖自动降级，不崩）。
+容器部署见 `model-service/docker-compose.yml`。
 
 前端切真实模式：`.env` 里设 `VITE_MOCK=false`、`VITE_API_BASE=http://<host>:8000`。
 
@@ -219,19 +268,21 @@ CI（`.github/workflows/ci.yml`）：push 到 `main` / `feat/*` 与 PR 触发，
 
 ---
 
-## 6. 说明与边界（诚实边界）
+## 6. 适用范围与已知边界
 
-我们倾向于把限制写在明处，而不是等使用者自己撞上：
+我们把限制写在明处，而不是等使用者自己撞上：
 
-- **Mock 模式完全不依赖 NPU 或真实媒体**，离线即可看完整 UI 与四模态闭环演示。
-  这是为了让人能先理解产品形态，不是为了掩盖真实推理链路的状态。
-- **真实媒体二进制不入仓**，部署时置入 `samples/candidate-XX/`（见 `samples/README.md`）。
-- **对「单次小任务 + 单一已知 agent」，本评估层是 overhead**，不提高生产力。
+- **离线演示模式不依赖任何加速硬件或真实媒体**，可完整查看产品形态与闭环流程；
+  它用于理解系统结构，不代表真实推理链路的评测结论。
+- **真实媒体样本不入仓**，部署时置入 `samples/candidate-XX/`（见 `samples/README.md`）。
+- **单次任务 + 单一已知 Agent 的场景下，本评估层是额外开销**。
   它的价值出现在候选多、任务重复、选错代价高的场景。
-- **评估结论可解释、过程留痕**（`evidence_trace`），支持人工抽检——
-  用模型评模型天然有元评估风险，留痕是缓解手段，不是消除。
-- **收敛层度量的是「人机对齐过程」，不等价于「Agent 能力」**。
-  两者分开看：能力判断必须来自真实小任务的 LLM-as-judge 结果。
+- **评估过程全程留痕**（`evidence_trace`），支持人工抽检。
+  用模型评估模型存在固有的元评估风险，留痕是缓解手段而非消除。
+- **收敛指标度量的是人机对齐过程，不等同于 Agent 能力**。
+  能力判断以真实工种实测的评分结果为准。
+- **当前指标验证的是结论的稳定性，尚未验证预测有效性**。
+  准入评分与上线后真实表现的相关性验证是我们公开的下一阶段目标。
 
 ---
 

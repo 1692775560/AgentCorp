@@ -8,14 +8,14 @@
  *
  * 双重用途：
  *  1. AgentCorp 内部的「Agent 即员工」角色定义 / 编排状态机输入。
- *  2. 阿里 GOAI 大赛「Agent Identity 清单（附录A）」——身份属性 +
- *     能力边界 + 协同关系在此结构里一一对应。
+ *  2. Agent Identity 清单：身份属性 + 能力边界 + 协同关系的单一真相源，
+ *     供治理、审计与跨框架互操作（A2A AgentCard）复用。
  *
  * 本文件自包含（除 `RoleCardDraft` 的归一化辅助外不 import 任何外部模块），
  * 保证 tsc 编译隔离、可独立演进、可在渲染层与主进程两侧直接 type-only import。
  */
 
-/** 职能分类：身份核心。前四种对应 GOAI 3+ 异构 Agent 要求。 */
+/** 职能分类：身份核心。前四种构成最小可用的异构协同团队。 */
 export type AgentFunction =
   | 'boss' // 老板 / 管理者（人类经理代理）
   | 'recruiter' // HR 面试 / 招聘官
@@ -23,7 +23,7 @@ export type AgentFunction =
   | 'dispatcher' // 编排 / 主控（任务拆解 + 状态追踪）
   | 'specialist'; // 通用职能专家（可被任意部门复用）
 
-/** GOAI 多 Agent 闭环的 8 个阶段（附录 1.3）。每个 RoleCard 声明它主导哪些阶段。 */
+/** 多 Agent 端到端闭环的 8 个阶段。每个 RoleCard 声明它主导哪些阶段。 */
 export type ClosedLoopPhase =
   | 'input' // 任务输入
   | 'decompose' // 任务拆解
@@ -34,7 +34,7 @@ export type ClosedLoopPhase =
   | 'approve' // 审批与回滚
   | 'precipitate'; // 经验沉淀
 
-/** 单条 Skill——同时满足 CrewAI tools 与 GOAI 2.1 Skill 清单字段要求。 */
+/** 单条 Skill——对齐 CrewAI tools 形态，并补全可治理所需的契约字段。 */
 export interface RoleCardSkill {
   id: string;
   name: string; // Skill 名称
@@ -49,7 +49,7 @@ export interface RoleCardSkill {
   collaboration: string; // 与多 Agent 协同流程的关系
 }
 
-/** 能力边界——GOAI 1.2「能力边界」要求 + 1.3「审批与回滚」高风险动作约束。 */
+/** 能力边界——授权范围 + 高风险动作的审批与回滚约束。 */
 export interface CapabilityBoundary {
   allowed: string[]; // 允许动作 / 授权工具
   forbidden: string[]; // 禁止动作
@@ -57,7 +57,7 @@ export interface CapabilityBoundary {
   requiresApproval: boolean; // 高风险动作需人工确认 / 审批
 }
 
-/** 协同关系——GOAI 1.2「协同关系」要求 + 1.1 上下文传递 / 协同执行映射。 */
+/** 协同关系——交接协议 + 上下文传递 / 协同执行的映射。 */
 export interface Collaborator {
   role: AgentFunction | string; // 对方职能
   agentId?: string; // 对方的 agentId（若已实例化）
@@ -84,7 +84,7 @@ export interface RoleCard {
   boundedTools?: string[];
   /** 职责授权的自然语言范围声明（与上方结构化 boundaries 互补）。 */
   authorityScope?: string;
-  skills: RoleCardSkill[]; // 能力（=A2A skills + GOAI Skill 清单）
+  skills: RoleCardSkill[]; // 能力清单（可投影为 A2A skills）
   /** 兼容 A2A AgentCard.capabilities（google-a2a/1.0）。 */
   capabilities: {
     streaming: boolean;
@@ -103,7 +103,7 @@ export interface RoleCard {
 
 /**
  * 从极简草稿构造一张完整角色卡（EmployeeBuilder 表单 → 角色卡）。
- * 仅填充表单直接对应的字段；其余用 GOAI 兼容的安全默认值补全，
+ * 仅填充表单直接对应的字段；其余用最小权限的安全默认值补全，
  * 不臆造 skills / collaborators。
  */
 export interface RoleCardDraft {
@@ -233,7 +233,7 @@ export function toA2aAgentCard(card: RoleCard): {
 }
 
 /**
- * 角色卡注册表（草案示例）——4 张卡满足 GOAI「≥3 个异构职能 Agent」要求。
+ * 角色卡注册表——4 张异构职能卡构成完整的准入治理团队。
  * 前 3 张（boss / recruiter / evaluator）构成最小闭环；dispatcher 承担主控编排。
  */
 export const ROLE_CARDS: RoleCard[] = [

@@ -23,10 +23,6 @@ const Setup = lazy(() => import('./pages/Setup').then((m) => ({ default: m.Setup
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })));
 const TeamBuilder = lazy(() => import('./pages/TeamBuilder').then((m) => ({ default: m.TeamBuilder })));
 const Evaluation = lazy(() => import('./pages/Evaluation').then((m) => ({ default: m.Evaluation })));
-// 模块：任务看板（真实看板复用 Office/TaskBoard；原 pages/Kanban 占位页不再挂载，
-// 侧栏导航、全局搜索、Chat 深链 ?taskId= 统一落到真实看板）
-const Kanban = lazy(() => import('./pages/Office/TaskBoard').then((m) => ({ default: m.TaskBoard })));
-// 模块 B：HR 面试（S2）—— 三阶段流水线 S1 → 【S2】 → S3 的中间环节
 const Interview = lazy(() => import('./pages/Interview').then((m) => ({ default: m.Interview })));
 // 模块 Arena：个性化对决（需求 → 同工种候选作答 → 双轨 Elo）
 const ArenaPage = lazy(() => import('./pages/Arena/ArenaPage').then((m) => ({ default: m.ArenaPage })));
@@ -239,8 +235,8 @@ function App() {
             <Route path="arena" element={<ArenaPage />} />
             <Route path="evaluation" element={<Evaluation />} />
             <Route path="office" element={<Office />} />
-            {/* 任务看板：当前为占位页，全量拖拽看板实现后续接入 */}
-            <Route path="kanban" element={<Kanban />} />
+            {/* 任务看板并入办公室视图：任务卡、执行时间线与审批入口集中在一处 */}
+            <Route path="kanban" element={<Navigate to="/office" replace />} />
             {/* /memory 已迁移至 Settings > 记忆与知识 */}
             <Route path="memory" element={<Navigate to="/settings?section=memory-knowledge" replace />} />
             <Route path="costs" element={<Navigate to="/settings?section=costs-usage" replace />} />

@@ -1,5 +1,5 @@
 /**
- * SP-01 验收：Skill 注册表机制 + 角色卡投影覆盖 GOAI 2.1 全字段。
+ * Skill 注册表机制 + 角色卡投影覆盖 Skill 契约全字段。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
@@ -26,7 +26,7 @@ function registerAllProjected(): void {
 
 beforeEach(() => resetSkills());
 
-describe('skills/registry (SP-01)', () => {
+describe('skills/registry', () => {
   it('投影注册后 listSkills 覆盖角色卡全部 5 个 Skill', () => {
     registerAllProjected();
     const ids = listSkills().map((s) => s.id);
@@ -42,13 +42,13 @@ describe('skills/registry (SP-01)', () => {
     );
   });
 
-  it('getSkill 返回 GOAI 2.1 全字段且 handler 可调用', () => {
+  it('getSkill 返回契约全字段且 handler 可调用', () => {
     registerAllProjected();
     const def = getSkill('boss_review');
     expect(def).toBeDefined();
     expect(def!.handler).toBeTypeOf('function');
     expect(def!.ownerAgent).toBe('boss');
-    // GOAI 2.1 必填字段全部非空
+    // 契约必填字段全部非空
     for (const key of [
       'name',
       'purpose',

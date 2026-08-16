@@ -1,9 +1,9 @@
-"""Arena 个性化对决端点（T02 / 契约 §1.3）。
+"""Arena 个性化对决端点。
 
 - POST /api/arena/compare   需求 → 题面 → 逐 agent 跑题 → LLM 客观分 → ArenaMatch(pending)
 - POST /api/arena/user-pick 用户选择 → 双轨 Elo 更新 → 回填
 
-幂等与防滥用（本地版，设计 §2.5）：
+幂等与防滥用（本地版
 1. 同一 match_id 只允许一次 pick；重复 pick 返回 409。
 2. 同需求 + 同候选集存在 pending match 时 compare 返回已有 match_id（不重复跑题）。
 3. none 不计 Elo；draw 双方 +0.5。

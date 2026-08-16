@@ -1,6 +1,6 @@
 /**
  * src/types/marketplace.ts
- * 人才市场契约层（增量 · 架构 §3.1 / PRD §4.1）。
+ * 人才市场契约层（增量 ·）。
  *
  * 全部类型在既有 CandidateProfile 之上组合扩展，保证 Mock 与真实契约同源
  * （「单一真相源」继承）：initial_review.radar 与 evaluation.radar 同为六维。
@@ -83,7 +83,7 @@ export interface MarketFilters {
   sort: "review" | "budget" | "costperf"; // 初审分 / 报价 / 性价比
 }
 
-/* ===================== 智能匹配增量（模块 A · 设计 §5.2，仅加法） ===================== */
+/* ===================== 智能匹配增量（模块 A · ，仅加法） ===================== */
 
 /**
  * 任务需求（市场页输入，同时流向 HR 面试的考查维度与市场排序）。
@@ -145,7 +145,7 @@ export interface MarketCandidateView {
   hiredCount: number;
   /** 工种（文本推断，null = 未知） */
   jobType: JobType | null;
-  /** 六维三源解析结果（设计 §5.1） */
+  /** 六维三源解析结果 */
   radarResolution: AgentRadarResolution;
   /** 匹配分解；无六维时为 undefined（排序沉底） */
   match?: MatchScoreBreakdown;

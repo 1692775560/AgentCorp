@@ -1,6 +1,6 @@
 /**
  * src/components/marketplace/MarketCandidateCard.tsx
- * 市场候选卡（模块 A · 设计 §3.1）。
+ * 市场候选卡（模块 A）。
  *
  * 在既有卡片视觉之上叠加评估层能力：
  * - 迷你六维雷达（复用 pages/Evaluation/RadarChart，recharts）

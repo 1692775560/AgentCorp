@@ -1,6 +1,6 @@
 """
 model-service/app/serve.py
-FastAPI 入口（架构 §4.2 / 类图 ServeApp）——仅应用装配。
+FastAPI 入口——仅应用装配。
 
 路由按域拆分在 app/routes/ 包（APIRouter，纯搬运，行为不变）：
   samples.py      GET  /api/samples
@@ -10,7 +10,7 @@ FastAPI 入口（架构 §4.2 / 类图 ServeApp）——仅应用装配。
   convergence.py  /api/convergence/{trace,score,anchor} + 引擎进程内状态
                   （_TRACE_STORE / _TRACE_LOCK / _persist_convergence）
   leaderboard.py  POST /api/evaluate-stage、GET/PUT /api/rules、
-                  GET /api/leaderboard、POST /api/preference（批次2 T4–T9）
+                  GET /api/leaderboard、POST /api/preference
   health.py       GET  /health
 
 设计：前后端彻底解耦，契约见 schemas.py 与前端 src/types/index.ts。

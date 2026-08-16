@@ -4,7 +4,7 @@
  *
  * 唯一真相 = 小写 AgentLifecycleStatus（onboarding/active/training/maintenance/retired）。
  * 评估层的大写 LifecycleState 仅作内部别名（定义见 src/types/evaluation.ts），
- * 二者经 LIFECYCLE_TO_STATE / STATE_TO_LIFECYCLE 对齐，避免双源（架构 §5 / §8）。
+ * 二者经 LIFECYCLE_TO_STATE / STATE_TO_LIFECYCLE 对齐，避免双源。
  *
  * 软退休约定：verdict FIRED → retired；MVP / OBSERVE → active（可经 Unretire 回 maintenance，不物理删除）。
  */
@@ -73,7 +73,7 @@ export const STATE_TO_LIFECYCLE: Record<LifecycleState, AgentLifecycleStatus> = 
 
 /**
  * 评估宣判 → 小写生命周期（软退休 / 入职通过）。
- * FIRED → retired；MVP / OBSERVE → active（架构 §8）。
+ * FIRED → retired；MVP / OBSERVE → active。
  */
 export function verdictToLifecycleStatus(verdict: Verdict): AgentLifecycleStatus {
   return verdict === 'FIRED' ? 'retired' : 'active';

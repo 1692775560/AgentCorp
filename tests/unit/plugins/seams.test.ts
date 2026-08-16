@@ -1,5 +1,5 @@
 /**
- * tests/unit/plugins/seams.test.ts  (Option 1 · T5/T6 内核侧验证)
+ * tests/unit/plugins/seams.test.ts —— 能力接入点的内核侧验证
  * 验证能力 seam 的 Provider 注册 / 精确查找 / 默认选择（按 priority）/ 卸载回退，
  * 以及不同 kind（llm / judge）互不干扰。仅依赖内核，不引入仓库级缺失符号。
  */
@@ -8,7 +8,7 @@ import { ctx } from '@/demo/plugins/context';
 import { LLM_KIND, type LLMProvider } from '@/demo/plugins/seams/llm';
 import { JUDGE_KIND } from '@/demo/plugins/seams/judge';
 
-describe('Option1 capability seams (T5/T6 kernel side)', () => {
+describe('capability seams (kernel side)', () => {
   beforeEach(() => ctx.clear());
 
   it('LLM seam：注册双 Provider，默认取 priority 高者，dispose 回退', () => {

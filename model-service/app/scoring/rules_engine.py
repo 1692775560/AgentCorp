@@ -1,13 +1,13 @@
 """
 model-service/app/scoring/rules_engine.py
-规则引擎（T1，架构 §3.2 / §7.8 / 类图 RulesEngine）。
+规则引擎。
 
-职责（仅本批次，不越界到 T4 完整评分卡装配）：
+职责（不含完整评分卡装配，后者在 stage_scorer 中）：
 - load_rules(preset_id)：从 presets/*.json 加载规则（缺省回退 default.json）。
 - flatten_dim_weight(stage, job_type, rules)：把「两层级权重」预折叠为
   扁平 dimWeight（Σ=1，仅含本阶段启用客观维）。
 - compute_stage_score(objective, subjective, rules, stage[, job_type])：
-  按 PRD §10 公式 + 架构 §3.2 计算客观分/主观分/总分/verdict。
+  按  公式 +  计算客观分/主观分/总分/verdict。
 - verdict_from_total(total[, rules, stage])：Q4 阈值映射。
 
 零新增依赖（纯 Python + pydantic 的 Verdict 枚举复用）。
@@ -44,7 +44,7 @@ def load_rules(preset_id: str = "default") -> dict:
 
 
 # ======================================================================
-# 2) 权重预折叠（架构 §7.8）
+# 2) 权重预折叠
 # ======================================================================
 def _detect_job_type(objective: Dict[str, float]) -> str:
     """由 objective 中的 craft 维前缀推断工种（无 craft 维默认 code）。"""
@@ -60,17 +60,17 @@ def _detect_job_type(objective: Dict[str, float]) -> str:
 
 def flatten_dim_weight(stage: str, job_type: str, rules: dict) -> Dict[str, float]:
     """
-    按架构 §3.2 + §7.8 预折叠为扁平 dimWeight（Σ=1，仅含本阶段启用客观维）。
+    按 + §7.8 预折叠为扁平 dimWeight（Σ=1，仅含本阶段启用客观维）。
 
     公式：
       generic 块：generic 六维权重 × objectiveBlockWeight.generic
                   来源：优先 registry.JOB_GENERIC_WEIGHT[job_type]（Q2 按工种差异化，
                   内部 Σ=1）；缺失时回退阶段级 genericRadarWeight。
       craft   块：objectiveBlockWeight.craft 均分给 jobs[job_type].craftDims
-      kpiRoi  块：performance 阶段预留（本批次无 kpi/roi 维 → 占位 0 维）
+      kpiRoi  块：performance 阶段预留
       最后整体归一化使 Σ=1（保证缺 kpiRoi 维时不会 <1）。
 
-    约定（架构 §7.8）：__generic__ = genericRadar；__craft__ = 当前 jobType.craftDims。
+    约定：__generic__ = genericRadar；__craft__ = 当前 jobType.craftDims。
     """
     stage_cfg = rules["stages"][stage]
     bw = stage_cfg.get("objectiveBlockWeight", {})
@@ -92,7 +92,7 @@ def flatten_dim_weight(stage: str, job_type: str, rules: dict) -> Dict[str, floa
         per = craft_block / len(craft_dims)
         for d in craft_dims:
             raw[d] = per
-    # —— kpiRoi 块：本批次占位（无维度），归一时自动把其份额
+    # —— kpiRoi 块：当前无维度参与，归一时自动把其份额
     #    重新分配给 generic + craft，保持 Σ=1（见下方归一）。
 
     total = sum(raw.values())
@@ -102,7 +102,7 @@ def flatten_dim_weight(stage: str, job_type: str, rules: dict) -> Dict[str, floa
 
 
 # ======================================================================
-# 3) 阶段计分（PRD §10 公式 + 架构 §3.2）
+# 3) 阶段计分
 # ======================================================================
 def compute_stage_score(
     objective: Dict[str, float],
@@ -171,7 +171,7 @@ def verdict_from_total(
     stage: Optional[str] = None,
 ) -> Verdict:
     """
-    total → Verdict（架构 §7.4 / Q4）：
+    total → Verdict：
       ≥ mvp(默认78)        → MVP
       78 > total ≥ observe(50) → OBSERVE
       < observe               → FIRED

@@ -12,7 +12,7 @@ import { mockJudge } from '@/demo/mockJudge';
 import { clearRules, setExperiencePersister, createMemoryPersister } from '@/demo/skills/experienceStore';
 
 beforeEach(() => {
-  // 经验 Store 是模块级单例，逐用例重置避免跨用例注入污染（QA-8）
+  // 经验 Store 是模块级单例，逐用例重置避免跨用例注入污染
   setExperiencePersister(createMemoryPersister());
   clearRules();
 });
@@ -35,7 +35,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(at.boundaries.forbidden).toContain('录用');
   });
 
-  it('Team 含 ≥3 个异构职能 Agent（GOAI 1.1）', () => {
+  it('Team 含 ≥3 个异构职能 Agent', () => {
     const team = createTeam();
     const roles = team.agents.map((a) => a.role);
     expect(roles).toEqual(expect.arrayContaining(['boss', 'recruiter', 'evaluator']));
@@ -69,7 +69,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(ROLE_CARDS.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('SP-04：listTeamSkills 投影团队全部 5 个 Skill 且带 ownerAgent', () => {
+  it('listTeamSkills 投影团队全部 5 个 Skill 且带 ownerAgent', () => {
     const team = createTeam();
     const skills = listTeamSkills(team);
     expect(skills).toHaveLength(5);
@@ -81,7 +81,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(ownerOf.orchestrate).toBe('dispatcher');
   });
 
-  it('SP-04：invokeSkill 校验能力边界（owner 不在团队 / skill 未注册 → 降级不抛）', async () => {
+  it('invokeSkill 校验能力边界（owner 不在团队 / skill 未注册 → 降级不抛）', async () => {
     const team = createTeam('t1', [ROLE_CARD_BY_ID.recruiter!]); // 只有 recruiter
     const outOfTeam = await invokeSkill(team, 'boss_review', {});
     expect(outOfTeam.ok).toBe(false);
@@ -100,7 +100,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(ok.ok).toBe(true);
   });
 
-  it('SP-04：runTask 经 invokeSkill 串联，steps 带 Agent + Skill 标签', async () => {
+  it('runTask 经 invokeSkill 串联，steps 带 Agent + Skill 标签', async () => {
     const team = createTeam();
     const task = createTask({ ...TASK_INPUT });
     const run = await runTask(team, task, { judge: mockJudge });
@@ -122,7 +122,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(run.result?.bossDecision.source).toBe('boss_review');
   });
 
-  it('SP-04：judge 全失败时闭环降级但不中断（run 仍产出结构完整结果）', async () => {
+  it('judge 全失败时闭环降级但不中断（run 仍产出结构完整结果）', async () => {
     const team = createTeam();
     const task = createTask({ ...TASK_INPUT });
     const run = await runTask(team, task, { judge: async () => null });
@@ -133,7 +133,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(run.steps.length).toBeGreaterThanOrEqual(5);
   });
 
-  it('SP-06：拆解随候选岗位动态变化（非硬编码）', async () => {
+  it('拆解随候选岗位动态变化（非硬编码）', async () => {
     const { decomposeTask, detectJobType } = await import('@/demo/agentteams-adapter');
     expect(detectJobType('招聘一名海报视觉设计 Agent')).toBe('image');
     expect(detectJobType('招聘一名文案写作 Agent')).toBe('text');
@@ -152,7 +152,7 @@ describe('AgentTeams 薄适配（决策 X 实证）', () => {
     expect(task.decomposition[0]).toContain('岗位类型=image');
   });
 
-  it('SP-06：runTask 消费 team.sharedContext（上下文随步骤传递且非空）', async () => {
+  it('runTask 消费 team.sharedContext（上下文随步骤传递且非空）', async () => {
     const team = createTeam();
     const task = createTask({ ...TASK_INPUT });
     const run = await runTask(team, task, { judge: mockJudge });

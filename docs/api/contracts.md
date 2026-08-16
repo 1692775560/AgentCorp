@@ -1,6 +1,6 @@
 # AgentCorp API 接口契约文档
 
-日期：2026-08-08 · 架构师：Bob · 唯一契约真相（设计见 `docs/design/arena-user-participation-2026-08-08.md`）
+接口契约的唯一真相源。前端与服务端实现均以本文件为准。
 
 ## 0. 总览与约定
 
@@ -71,7 +71,7 @@
 | 错误码 | 422 空需求/缺候选/工种不支持；404 候选通道未知；502 跑题失败；503 judge 不可用 |
 | gate | judge 后端可用；candidate 通道可用 |
 | 前端调用方 | `judgeClient.arenaCompare`（新增）→ `stores/arenaStore` |
-| 状态 | **新增 [本地]**（T02 实现） |
+| 状态 | **已实现（本地）** |
 
 | 项 | 内容 |
 |---|---|
@@ -82,7 +82,7 @@
 | 规则 | `none` 不计 Elo；主观 Elo k=16×userWeight，客观 Elo k=8；initial=1000，clamp[100,3000] |
 | gate | 无（纯计算 + 落库） |
 | 前端调用方 | `judgeClient.arenaUserPick`（新增） |
-| 状态 | **新增 [本地]**（T02 实现） |
+| 状态 | **已实现（本地）** |
 
 ### 1.4 小红心点赞（新增）
 
@@ -92,7 +92,7 @@
 | 请求 | path 参数 agentId |
 | 响应 | `{ agentId, count: number, likedByMe: boolean, users?: string[] /*[预留]*/, updatedAt: string }`；无记录返回 count=0 |
 | 错误码 | 400 agentId 空 |
-| 状态 | **新增 [本地]**（T05 接入 UI）；`users`/`ownerId` 为**后端聚合预留字段** |
+| 状态 | **已实现（本地，含 UI）**；`users`/`ownerId` 为**后端聚合预留字段** |
 
 | 项 | 内容 |
 |---|---|
@@ -161,7 +161,7 @@
 | `GET /api/craft-tasks` | 题库（不含参考答案） | — | task 列表 | — | 无 | 面试试做选题 | 本地（已有） |
 | `POST /api/craft-judge` | 试做题评分（A2/A3） | `{taskId, answer?/candidate?}` | CraftJudgement | 404/422/502/503 | judge | 面试试做环节 | 本地（已有） |
 | `POST /api/chat-judge` | 面试对话整段评分 | `{agentId, transcript, ...}` | `{source, radar, ...}` | 422 | judge→degraded | `judgeClient.judgeChat` | 本地（已有） |
-| `POST /api/arena/compare` | **用户自定义题**（context='interview'，携带 `interviewId`） | `{requirementText, jobType, candidates, context:'interview', interviewId}` | `ArenaMatch` | 404/422/502/503 | judge+candidate | `stores/interview` + `UserQuestionPanel` | 新增[本地]（T04 接入） |
+| `POST /api/arena/compare` | **自定义题**（context='interview'，携带 `interviewId`） | `{requirementText, jobType, candidates, context:'interview', interviewId}` | `ArenaMatch` | 404/422/502/503 | judge+candidate | `stores/interview` + `UserQuestionPanel` | 新增[本地]（T04 接入） |
 | `POST /api/arena/user-pick` | 用户自定义题主观选择 | `{matchId, pick}` | pick 结果 + Elo | 404/409/422 | 无 | 同上 | 新增[本地] |
 
 **本地持久化（非 HTTP）**：面试报告存 electron-store `agentcorp.interview`（`src/services/interviewStore.ts`）。新增 `InterviewReport.userQuestionRound?: UserQuestionRound`（仅加法）。
@@ -201,8 +201,8 @@
 |---|---|---|
 | `LikeRecord.users[]` / `ownerId` | 未来后端聚合点赞人集合 | 本地恒空 / 'default' |
 | `BossFavoriteVote.voters[]` / `votedBy` | 未来后端多用户聚合 | 本地 'default' |
-| `ArenaMatch.eloDelta` 主观/客观双榜 | 已定规则（k=16/8，initial 1000） | T02 实现 |
-| `ArenaMatch.context='interview'` | 面试用户题复用 | T04 接入 |
+| `ArenaMatch.eloDelta` 主观/客观双榜 | 已定规则（k=16/8，初始 1000） | 已实现 |
+| `ArenaMatch.context='interview'` | 面试自定义题复用 | 已接入 |
 | `/api/likes`、`/api/favorites` 后端聚合版 | 未来 model-service/远端实现，契约字段不变 | Host API 本地实现 |
 | `Unknown.severity` | 未来按严重度加权 SC | 已收字段，本期不进权重 |
 | `TurnState.unknowns` 增量传输 | 未来可能改增量，当前全量快照 | 每轮全量（首尾比依赖此） |

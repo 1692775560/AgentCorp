@@ -1,5 +1,5 @@
 /**
- * tests/unit/plugins/roleCardPlugin.test.ts  (Option 1 · T4 验证)
+ * tests/unit/plugins/roleCardPlugin.test.ts —— 角色卡插件验证
  * 验证 roleCardPlugin.apply(ctx) 把角色卡 Skill 投影注册进内核，且返回的 Disposable
  * 可整体卸载。仅依赖内核 + roleCard/handlers（不引入仓库级缺失符号外的额外耦合）。
  */
@@ -8,7 +8,7 @@ import { ctx } from '@/demo/plugins/context';
 import { listSkills, resetSkills, getSkill } from '@/demo/skills/registry';
 import { roleCardPlugin } from '@/demo/plugins/roleCardPlugin';
 
-describe('Option1 roleCard plugin (T4)', () => {
+describe('roleCard plugin', () => {
   beforeEach(() => resetSkills());
 
   it('apply 把角色卡 Skill 投影注册进内核，dispose 全部卸载（unwind）', () => {

@@ -1,6 +1,6 @@
 /**
  * src/services/interviewRunner.ts
- * 面试提问的「agent 回答通道」（模块 B · 设计 §4.1）。
+ * 面试提问的「agent 回答通道」（模块 B）。
  *
  * 双模式（真实优先、降级不阻塞）：
  * 1. agent  —— 经 `gateway:rpc → chat.send` 真实调度候选 agent 回答，

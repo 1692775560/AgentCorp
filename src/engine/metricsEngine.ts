@@ -1,6 +1,6 @@
 /**
  * src/engine/metricsEngine.ts
- * 指标引擎（评估设计 §2.3）：把运行遥测 TelemetryEvent[] 聚合为可量化 KPI，
+ * 指标引擎（评估）：把运行遥测 TelemetryEvent[] 聚合为可量化 KPI，
  * 把多轮 RadarScore 聚合为稳定性 SCR。
  *
  * 设计约束（阶段 A）：

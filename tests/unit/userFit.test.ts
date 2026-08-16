@@ -1,7 +1,7 @@
 /**
  * tests/unit/userFit.test.ts
  *
- * 用户契合度引擎单测（模块 A · 设计 §6 Step 2）：
+ * 用户契合度引擎单测（模块 A）：
  *  - normalizeWeight  —— 归一化（Σ=1）/ 负数归零 / 全零与非法输入回退均匀权重
  *  - applyTaskBoost   —— effWeight = normalize(userWeight × dimBoost)
  *  - computeUserFit   —— userFit = Σ_d (radar[d]/5) × effWeight[d] ∈ [0,1]

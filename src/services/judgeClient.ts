@@ -1,6 +1,6 @@
 /**
  * src/services/judgeClient.ts
- * MiniCPM-o 外部裁判客户端（T07）。
+ * MiniCPM-o 外部裁判客户端。
  *
  * - evaluate(input)：经由 Host API 代理 POST http://127.0.0.1:3210/api/evaluate/run，
  *   解析 SSE 流为 EvaluationEvent（radar_update ×6 + verdict + done）。
@@ -84,7 +84,7 @@ export interface JudgeRunInput {
   history?: string[];
 }
 
-/* ───────────── 收敛层 SSE 侧信道（设计 §5.2，纯加法） ─────────────
+/* ───────────── 收敛层 SSE 侧信道 ─────────────
  * `convergence_update` / `convergence_score` 不属于 EvaluationEvent 联合类型
  * （评估域契约保持不动），故走独立监听器分发，订阅方（convergenceStore）
  * 自行决定如何落到轨迹上。无人订阅时静默丢弃，不影响评估主流。 */
@@ -197,7 +197,7 @@ export interface TokenUsageHistoryEntryLike {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/* ───────────── G10 trace-first 评委埋点（设计 §7 · 可溯源/可归因） ─────────────
+/* ───────────── 评委调用埋点 ─────────────
  * 用统一 trace 模型的 correlationId 把分散的评委调用串成链，emit span 记录
  * 时延，并可在调用后把 token / cost 归属到 span（接 tokenUsageCollector）。 */
 
@@ -719,7 +719,7 @@ export async function judgeChat(
 }
 
 /**
- * Arena 个性化对决：POST /api/arena/compare（T03）。
+ * Arena 个性化对决：POST /api/arena/compare。
  * 经 Host API 代理（127.0.0.1:3210）转发至 model-service；任何失败返回 null，
  * 调用方（arenaStore）据此展示降级提示（后端不可用 / 网络错误）。
  */
@@ -742,7 +742,7 @@ export async function arenaCompare(input: ArenaCompareInput): Promise<ArenaMatch
 }
 
 /**
- * Arena 用户主观选择：POST /api/arena/user-pick（T03）。
+ * Arena 用户主观选择：POST /api/arena/user-pick。
  * 经 Host API 代理转发至 model-service；任何失败返回 null。
  */
 export async function arenaUserPick(input: ArenaUserPickInput): Promise<ArenaPickResult | null> {

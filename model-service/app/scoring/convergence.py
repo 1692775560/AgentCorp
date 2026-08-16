@@ -1,13 +1,13 @@
 """
 model-service/app/scoring/convergence.py
-收敛数据模型（T13）+ 收敛引擎（T15，架构 §3.3 / §3.5 / §5.1）。
+收敛数据模型+ 收敛引擎。
 
 - 数据模型（Pydantic）：CandidateEmbedding / TurnState / ConvergenceTrace /
   HumanAnchor / ConvergenceScore，字段与前端的 src/types/convergence.ts 严格镜像，
   且全部带 conv_ 命名空间意念（独立模型名，绝不占用 RADAR_DIMS /
-  StageScore / DualLeaderboard / KpiRecord / RoiSnapshot 既有键，架构 §0 红线）。
+  StageScore / DualLeaderboard / KpiRecord / RoiSnapshot 既有键。
 - 引擎 ConvergenceEngine：record_turn / set_anchor / compute_convergence_score，
-  严格按架构 §3.5 公式（CR / R / St / CQ / convergence_score / Reversibility）。
+  严格按 公式（CR / R / St / CQ / convergence_score / Reversibility）。
 
 零新增运行时依赖（仅 pydantic + 标准库）。前后端公式一致（R3 对拍）。
 """
@@ -33,7 +33,7 @@ from .encoder import (
     std_pop,
 )
 
-# 锚点来源（MVP 先用 explicit_pin；批次 2 落地后回填 dual_leaderboard_drag）
+# 锚点来源：explicit_pin（显式指定）或 dual_leaderboard_drag（双榜拖拽）
 ConvSource = Literal["explicit_pin", "dual_leaderboard_drag"]
 
 # 序列化别名：输出 camelCase 以匹配前端；同时接受 snake/camel 输入。
@@ -51,7 +51,7 @@ def _now_iso() -> str:
 
 
 # ======================================================================
-# 1) 数据模型（T13，架构 §5.1）
+# 1) 数据模型
 # ======================================================================
 class CandidateEmbedding(BaseModel):
     """单候选的潜在 embedding（每轮 agent 产出）。"""
@@ -130,12 +130,12 @@ class HumanAnchor(BaseModel):
     candidate_id: str  # 被背书的候选
     embedding: List[float]  # 锚点 embedding
     owner_id: str
-    source: ConvSource  # explicit_pin（MVP）/ dual_leaderboard_drag（批次 2 后）
+    source: ConvSource  # explicit_pin / dual_leaderboard_drag
     ts: str
 
 
 class ConvergenceScore(BaseModel):
-    """收敛评分结果（对齐架构 §5.1 ConvergenceScore）。"""
+    """收敛评分结果。"""
 
     model_config = _CONV_CONFIG
 
@@ -173,9 +173,9 @@ class ConvergenceScore(BaseModel):
 
 
 # ======================================================================
-# 2) 收敛引擎（T15，架构 §3.5）
+# 2) 收敛引擎
 # ======================================================================
-# 末轮前坍缩到 1 候选的惩罚系数（可逆性，架构 §3.3 构件 2）
+# 末轮前坍缩到 1 候选的惩罚系数（可逆性
 COLLAPSE_PENALTY = 0.5
 
 # semantic_contraction 在「收缩族」内部占的权重。
@@ -248,7 +248,7 @@ class ConvergenceEngine:
                     return list(c.embedding)
         return None
 
-    # ---- T15：记录 / 锚点 ----
+    # ---- 记录 / 锚点 ----
     def record_turn(
         self, trace: ConvergenceTrace, turn_state: TurnState
     ) -> ConvergenceTrace:
@@ -294,12 +294,12 @@ class ConvergenceEngine:
             items = [a for a in items if a.owner_id == owner_id]
         return items
 
-    # ---- T15：核心评分 ----
+    # ---- 核心评分 ----
     def compute_convergence_score(
         self, trace: ConvergenceTrace
     ) -> ConvergenceScore:
         """
-        按架构 §3.5 公式：
+        按 公式：
 
         CR  = 1 − |S_K| / |S_0|                       # 收缩率
         R   = clamp( ||e_K − e_anchor|| / scale , 0, 1)  # 残差

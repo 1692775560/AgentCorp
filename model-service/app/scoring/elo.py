@@ -1,6 +1,6 @@
 """
 model-service/app/scoring/elo.py
-Arena 双轨 Elo 纯函数（设计 §2.5 / 决策 D3）。
+Arena 双轨 Elo 纯函数。
 
 零依赖、确定性、可单测：
     expected(r_a, r_b) = 1 / (1 + 10 ** ((r_b - r_a) / 400))

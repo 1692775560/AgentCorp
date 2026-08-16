@@ -1,6 +1,6 @@
 /**
  * src/stores/arenaStore.ts
- * Arena 个性化对决编排 store（模块 Arena · 设计 §2 / contracts.md §1.3）。
+ * Arena 个性化对决编排 store（契约见 docs/api/contracts.md）。
  *
  * 职责：
  * - 需求输入 → compare 请求（judgeClient.arenaCompare，经 Host API → model-service）

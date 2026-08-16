@@ -1,6 +1,6 @@
 /**
  * src/components/marketplace/BossFavoriteLeaderboard.tsx
- * 市场页「最受 boss 青睐」工种赛道榜（T05 / 设计 §4）。
+ * 市场页「最受 boss 青睐」工种赛道榜。
  *
  * 按工种赛道（code/text/image）展示 Top3：实体墨色榜首 + --neu-ink-soft 计数。
  * 数据来自 reactionStore.getFavorites（本地聚合），无数据时展示空态。

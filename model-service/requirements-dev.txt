@@ -1,0 +1,17 @@
+# ===== AgentCorp 模型服务 · 开发/测试依赖 =====
+# 用法：pip install -r requirements.txt -r requirements-dev.txt
+#
+# 为什么单独一份：requirements.txt 是运行时依赖（部署环境装这个就够）；
+# 本文件只在跑测试时需要，不进生产镜像。
+
+-r requirements.txt
+
+# 测试框架
+pytest>=8.0
+
+# starlette.testclient 的 HTTP 传输依赖。
+# 注意版本上限：starlette 的 TestClient 目前仅兼容 httpx<0.28
+# （0.28 起移除了 TestClient 依赖的 app= 传参形态，会在 collection 阶段
+#  直接 RuntimeError: The starlette.testclient module requires the httpx2 package）。
+# 不加上限会导致 `pip install -r requirements.txt && pytest` 直接 4 个文件收集失败。
+httpx<0.28

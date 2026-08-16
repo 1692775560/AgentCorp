@@ -1,7 +1,7 @@
 /**
  * tests/unit/reactionStore.test.ts
  *
- * 小红心点赞 + BossFavorite 本地落库单测（T01）。
+ * 小红心点赞 + BossFavorite 本地落库单测。
  * - reactionStore（渲染层 electron-store lazy-load）：
  *   - getLike 无记录返回 count=0 默认态
  *   - toggleLike 幂等翻转（个人态 + 计数 ±1）

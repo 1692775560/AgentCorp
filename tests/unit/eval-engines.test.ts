@@ -1,7 +1,7 @@
 /**
  * tests/unit/eval-engines.test.ts
  *
- * 纯函数引擎单测（AgentCorp 评估层，T04/T05 引擎）：
+ * 评估层纯函数引擎单测：
  *  - metricsEngine.computeKpi        —— 遥测 → KPI（sample_n / 各率字段范围 / 稳定性）
  *  - roiEngine.computeRoi            —— 成本五要素 + 价值两要素 → ROI/IPR/SRPC/CPS/roi_norm
  *  - evaluationAdapter               —— consume(radar_update×6 + verdict + done) → 快照

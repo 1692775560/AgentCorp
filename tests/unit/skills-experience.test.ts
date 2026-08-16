@@ -1,5 +1,5 @@
 /**
- * SP-08 验收：经验沉淀 Store——boss_review 决策即沉淀，下一次闭环注入复用。
+ * 经验沉淀 Store——boss_review 决策即沉淀，下一次闭环注入复用。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
@@ -45,7 +45,7 @@ beforeEach(() => {
   clearRules();
 });
 
-describe('skills/experienceStore (SP-08)', () => {
+describe('skills/experienceStore', () => {
   it('saveRule/loadRules/latestRule 基本存取语义（同候选隔离，无跨候选兜底）', () => {
     expect(latestRule()).toBeNull();
     const radars = [radar(4.5), radar(4.6)];

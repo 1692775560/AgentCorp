@@ -1,5 +1,5 @@
 /**
- * tests/unit/plugins/context.test.ts  (Option 1 · T1-T3 验证)
+ * tests/unit/plugins/context.test.ts —— 插件内核验证
  * 校验可逆注册内核：register 返回 Disposable、dispose/unregister 卸载、applyPatch 覆盖与回滚、
  * ctx.on 事件订阅、向后兼容 API（registerSkill/getSkill/listSkills）。
  *
@@ -36,7 +36,7 @@ function makeDef(id: string): SkillDefinition {
   };
 }
 
-describe('Option1 plugin kernel (T1-T3)', () => {
+describe('plugin kernel', () => {
   beforeEach(() => resetSkills());
 
   it('register 返回可释放 Disposable，dispose 即卸载（unwind）', () => {
