@@ -32,7 +32,8 @@ import {
 } from '../utils/channel-config';
 import { checkUvInstalled, installUv, setupManagedPython } from '../utils/uv-setup';
 import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/skill-config';
-import { saveTaskDeliverables, zipTaskDeliverables } from '../utils/deliverables';
+import { saveTaskDeliverables, zipTaskDeliverables, findHtmlDeliverable } from '../utils/deliverables';
+import { showTaskNotification } from '../utils/task-notify';
 import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate, readAgentPersona } from '../utils/openclaw-workspace';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { getProviderConfig } from '../utils/provider-registry';
@@ -102,6 +103,9 @@ export function registerIpcHandlers(
 
   // 任务交付文件落盘 handlers
   registerDeliverableHandlers();
+
+  // 任务终态系统通知 handler（点击通知跳回看板对应任务）
+  registerTaskNotifyHandlers(mainWindow);
 
   // Dialog handlers
   registerDialogHandlers();
@@ -2043,6 +2047,48 @@ function registerDeliverableHandlers(): void {
         return { success: true as const, ...result };
       } catch (err) {
         logger.warn('zipDeliverables failed:', err);
+        return { success: false as const, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'task:openHtmlDeliverable',
+    async (_, payload: { taskId?: unknown }) => {
+      try {
+        const taskId = typeof payload?.taskId === 'string' ? payload.taskId : '';
+        if (!taskId) return { success: false as const, error: 'missing taskId' };
+        const htmlPath = await findHtmlDeliverable(taskId);
+        if (!htmlPath) return { success: false as const, error: '该任务没有可运行的 HTML 交付文件' };
+        // 用系统默认浏览器打开（shell.openPath 对 .html 的默认行为）
+        const openError = await shell.openPath(htmlPath);
+        if (openError) return { success: false as const, error: openError };
+        return { success: true as const, htmlPath };
+      } catch (err) {
+        logger.warn('openHtmlDeliverable failed:', err);
+        return { success: false as const, error: String(err) };
+      }
+    },
+  );
+}
+
+/**
+ * 任务终态系统通知：渲染进程在任务完成/失败时调用，
+ * 点击通知聚焦主窗口并跳转 /kanban?task=<id>。
+ */
+function registerTaskNotifyHandlers(mainWindow: BrowserWindow): void {
+  ipcMain.handle(
+    'task:notify',
+    async (_, payload: { taskId?: unknown; title?: unknown; body?: unknown }) => {
+      try {
+        const taskId = typeof payload?.taskId === 'string' ? payload.taskId : '';
+        const title = typeof payload?.title === 'string' ? payload.title : '';
+        const body = typeof payload?.body === 'string' ? payload.body : '';
+        if (!taskId || !title) return { success: false as const, error: 'missing taskId/title' };
+        const shown = showTaskNotification(mainWindow, { taskId, title, body });
+        return { success: true as const, shown };
+      } catch (err) {
+        logger.warn('task:notify failed:', err);
         return { success: false as const, error: String(err) };
       }
     },

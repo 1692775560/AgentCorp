@@ -24,7 +24,7 @@ vi.mock("../../electron/utils/paths", () => ({
   getOpenClawConfigDir: () => configDir,
 }));
 
-const { zipTaskDeliverables } = await import("../../electron/utils/deliverables");
+const { zipTaskDeliverables, findHtmlDeliverable } = await import("../../electron/utils/deliverables");
 
 beforeEach(() => {
   execFileMock.mockClear();
@@ -68,6 +68,27 @@ describe("zipTaskDeliverables", () => {
     writeFileSync(join(dir, "x.md"), "x");
     const { zipPath } = await zipTaskDeliverables("task/a:b");
     expect(zipPath).toBe(join(configDir, "deliverables", "a_b.zip"));
+  });
+});
+
+describe("findHtmlDeliverable", () => {
+  it("目录里有 HTML → 返回完整路径（多个取排序第一个）", async () => {
+    const dir = join(configDir, "deliverables", "task-html");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "b.html"), "<html>b</html>");
+    writeFileSync(join(dir, "a.html"), "<html>a</html>");
+    writeFileSync(join(dir, "notes.md"), "not html");
+
+    const found = await findHtmlDeliverable("task-html");
+    expect(found).toBe(join(dir, "a.html"));
+  });
+
+  it("没有 HTML → null；目录不存在 → null", async () => {
+    const dir = join(configDir, "deliverables", "task-md");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "only.md"), "md");
+    expect(await findHtmlDeliverable("task-md")).toBeNull();
+    expect(await findHtmlDeliverable("task-gone")).toBeNull();
   });
 });
 

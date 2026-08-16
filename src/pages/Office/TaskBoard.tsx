@@ -7,9 +7,9 @@
  *   - approvals：待审批 list；可一键通过/驳回，回写对应任务。
  * 点击任一任务卡 → 右侧展开执行过程时间线（executionEvents）。
  */
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, memo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
@@ -31,6 +31,59 @@ const PRIORITY_META: Record<KanbanTask['priority'], { label: string; color: stri
   medium: { label: '中', color: '#f59e0b' },
   low: { label: '低', color: '#9ca3af' },
 };
+
+/**
+ * 单个任务卡片（memo）：编排期间任务数组高频更新时，
+ * 未变化的任务引用不变（applyTaskSnapshotResponse 保留引用），
+ * memo 直接跳过重渲染，避免整板跟着执行时间线一起刷。
+ */
+const TaskCard = memo(function TaskCard({
+  task: t,
+  selected,
+  accent,
+  onSelect,
+  onRetry,
+}: {
+  task: KanbanTask;
+  selected: boolean;
+  accent: string;
+  onSelect: (taskId: string) => void;
+  onRetry: (taskId: string) => void;
+}) {
+  const pr = PRIORITY_META[t.priority];
+  const waiting = t.workState === 'waiting_approval';
+  return (
+    <button type="button" onClick={() => onSelect(t.id)}
+      className={`neu-btn flex flex-col gap-1.5 rounded-xl px-3 py-2.5 text-left ${selected ? 'ring-2' : ''}`}
+      style={{ ...(selected ? { boxShadow: `0 0 0 2px ${accent}` } : {}) }}>
+      <div className="flex items-start gap-2">
+        <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug" style={{ color: 'var(--neu-ink)' }}>{t.title}</span>
+        <span className="shrink-0 rounded px-1 py-0.5 text-[9.5px] font-bold" style={{ backgroundColor: `${pr.color}22`, color: pr.color }}>{pr.label}</span>
+      </div>
+      <div className="flex items-center gap-2 text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
+        {t.assigneeRole && <span className="truncate">{t.assigneeRole}</span>}
+        {t.isTeamTask && <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#6366f122', color: '#6366f1' }}>A2A协作</span>}
+        {waiting && <span className="flex items-center gap-0.5" style={{ color: '#f59e0b' }}><Clock className="h-3 w-3" />待审批</span>}
+        {t.workState === 'failed' && (
+          // 失败任务（含重试上限后停住的）一键重新排队，AutoWorker 下一轮自动领取
+          <span
+            role="button"
+            title={t.workError ?? '执行失败'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetry(t.id);
+            }}
+            className="flex cursor-pointer items-center gap-0.5 rounded px-1 py-px text-[9.5px] font-bold"
+            style={{ background: '#ef444422', color: '#ef4444' }}
+          >
+            失败·点我重试
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-0.5"><ChevronRight className="h-3 w-3" /></span>
+      </div>
+    </button>
+  );
+});
 
 function timeAgo(iso?: string): string {
   if (!iso) return '';
@@ -194,6 +247,16 @@ export function TaskBoard() {
   const [teamModalOpen, setTeamModalOpen] = useState(false);
   const [zipping, setZipping] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 系统通知点击跳转：/kanban?task=<id> → 自动选中该任务展开详情，随后清掉参数
+  useEffect(() => {
+    const taskId = searchParams.get('task');
+    if (taskId) {
+      setSelectedId(taskId);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const handleDownloadZip = async (taskId: string) => {
     if (zipping) return;
@@ -210,6 +273,17 @@ export function TaskBoard() {
       setZipError(String(err));
     } finally {
       setZipping(false);
+    }
+  };
+
+  // HTML 交付物直接用默认浏览器打开（没有 HTML 时如实提示）
+  const handleOpenHtml = async (taskId: string) => {
+    setZipError(null);
+    try {
+      const res = await invokeIpc('task:openHtmlDeliverable', { taskId }) as { success: boolean; error?: string };
+      if (!res?.success) setZipError(res?.error || '打开失败');
+    } catch (err) {
+      setZipError(String(err));
     }
   };
 
@@ -241,6 +315,15 @@ export function TaskBoard() {
     await rejectItem(id, '用户驳回');
     await fetchTasks();
   };
+
+  // 卡片回调保持稳定引用，配合 TaskCard memo 在任务高频更新时跳过重渲染
+  const handleSelectTask = useCallback((taskId: string) => setSelectedId(taskId), []);
+  const handleRetryTask = useCallback(
+    (taskId: string) => {
+      void updateTask(taskId, { status: 'todo', workState: 'idle' }).then(() => fetchTasks());
+    },
+    [updateTask, fetchTasks],
+  );
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden px-6 py-5">
@@ -305,41 +388,16 @@ export function TaskBoard() {
               <div className="flex flex-col gap-2">
                 {byStatus[col.key].length === 0 ? (
                   <p className="neu-inset rounded-xl px-3 py-4 text-center text-[11px]" style={{ color: 'var(--neu-ink-soft)' }}>暂无任务</p>
-                ) : byStatus[col.key].map((t) => {
-                  const pr = PRIORITY_META[t.priority];
-                  const waiting = t.workState === 'waiting_approval';
-                  return (
-                    <button key={t.id} type="button" onClick={() => setSelectedId(t.id)}
-                      className={`neu-btn flex flex-col gap-1.5 rounded-xl px-3 py-2.5 text-left ${selectedId === t.id ? 'ring-2' : ''}`}
-                      style={{ ...(selectedId === t.id ? { boxShadow: `0 0 0 2px ${col.accent}` } : {}) }}>
-                      <div className="flex items-start gap-2">
-                        <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug" style={{ color: 'var(--neu-ink)' }}>{t.title}</span>
-                        <span className="shrink-0 rounded px-1 py-0.5 text-[9.5px] font-bold" style={{ backgroundColor: `${pr.color}22`, color: pr.color }}>{pr.label}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
-                        {t.assigneeRole && <span className="truncate">{t.assigneeRole}</span>}
-                        {t.isTeamTask && <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#6366f122', color: '#6366f1' }}>A2A协作</span>}
-                        {waiting && <span className="flex items-center gap-0.5" style={{ color: '#f59e0b' }}><Clock className="h-3 w-3" />待审批</span>}
-                        {t.workState === 'failed' && (
-                          // 失败任务（含重试上限后停住的）一键重新排队，AutoWorker 下一轮自动领取
-                          <span
-                            role="button"
-                            title={t.workError ?? '执行失败'}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void updateTask(t.id, { status: 'todo', workState: 'idle' }).then(() => fetchTasks());
-                            }}
-                            className="flex cursor-pointer items-center gap-0.5 rounded px-1 py-px text-[9.5px] font-bold"
-                            style={{ background: '#ef444422', color: '#ef4444' }}
-                          >
-                            失败·点我重试
-                          </span>
-                        )}
-                        <span className="ml-auto flex items-center gap-0.5"><ChevronRight className="h-3 w-3" /></span>
-                      </div>
-                    </button>
-                  );
-                })}
+                ) : byStatus[col.key].map((t) => (
+                  <TaskCard
+                    key={t.id}
+                    task={t}
+                    selected={selectedId === t.id}
+                    accent={col.accent}
+                    onSelect={handleSelectTask}
+                    onRetry={handleRetryTask}
+                  />
+                ))}
               </div>
             </div>
           ))}
@@ -406,8 +464,17 @@ export function TaskBoard() {
                         <Download className="h-3.5 w-3.5" />
                         {zipping ? '打包中…' : '下载 ZIP'}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenHtml(selected.id)}
+                        className="neu-btn flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-semibold"
+                        style={{ color: '#f59e0b' }}
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        在浏览器打开
+                      </button>
                       {zipError && (
-                        <span className="text-[11px]" style={{ color: '#ef4444' }}>打包失败：{zipError}</span>
+                        <span className="text-[11px]" style={{ color: '#ef4444' }}>{zipError}</span>
                       )}
                     </div>
                   )}

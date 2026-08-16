@@ -37,6 +37,7 @@ import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { invokeIpc } from '@/lib/api-client';
+import { notifyTaskTerminal } from '@/lib/task-notify';
 import type { Team } from '@/types/team';
 import type { A2aTraceRecord } from '@/types/evaluation';
 import type { TaskExecutionEvent } from '@/types/task';
@@ -316,6 +317,51 @@ function traceToEvent(t: A2aTraceRecord): TaskExecutionEvent {
   };
 }
 
+/** 执行事件写回节流间隔（ms）：编排期间每条 A2A 消息都立即 PUT 会引发写/渲染风暴。 */
+const EVENT_FLUSH_INTERVAL_MS = 800;
+
+/**
+ * 事件写回节流器：事件先攒在内存数组，最多每 800ms 落一次库；
+ * flush() 强制落库（任务结束/失败时必须调用，保证时间线不丢尾部事件）。
+ * 导出供单测直接验证节流语义。
+ */
+export function createThrottledEventSink(taskId: string, events: TaskExecutionEvent[]) {
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let dirty = false;
+  let inFlightWrite: Promise<unknown> | null = null;
+
+  const write = (): Promise<unknown> => {
+    dirty = false;
+    inFlightWrite = useApprovalsStore
+      .getState()
+      .updateTask(taskId, { executionEvents: [...events] })
+      .catch(() => { /* 时间线写回失败不阻塞执行 */ });
+    return inFlightWrite;
+  };
+
+  return {
+    push(t: A2aTraceRecord): void {
+      events.push(traceToEvent(t));
+      dirty = true;
+      if (!flushTimer) {
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          if (dirty) void write();
+        }, EVENT_FLUSH_INTERVAL_MS);
+      }
+    },
+    async flush(): Promise<void> {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (dirty) await write();
+      // 等最后一次在途写完成，避免与后续终态 PUT 交错丢字段
+      if (inFlightWrite) await inFlightWrite.catch(() => { });
+    },
+  };
+}
+
 /**
  * 执行单条任务：（可选）leader 路由 → 反查 sessionKey → 网关真实派活 →
  * startTaskExecution 记录 → 轮询 workState 终态 → done 流转 review / failed 走 S9 自动重试。
@@ -392,6 +438,8 @@ async function runOne(
         if (orchestrate && team) {
           // —— 多成员编排：leader 拆解 → 成员并行执行 → leader 审阅/返工 → 汇总 ——
           const events: TaskExecutionEvent[] = [];
+          // 事件节流写回：看板即时可见，但最多每 800ms 落一次库
+          const sink = createThrottledEventSink(task.id, events);
           const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
           // 注入各成员 persona（SOUL.md 摘要）；读不到为 null，编排器退回纯身份说明。
           const personas: Record<string, string | null> = {};
@@ -403,22 +451,25 @@ async function runOne(
                 .catch(() => null);
             }),
           );
-          const orch = await runSquadOrchestration({
-            taskId: task.id,
-            taskTitle: task.title,
-            taskDescription: task.description,
-            team,
-            candidates: projectRoutingCandidates(team),
-            personas,
-            maxRounds: 2,
-            // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
-            chat: (_agentId, messages) => runRealChat(messages, 2048),
-            // 每产生一条 A2A 消息，实时 append 成执行事件并写回任务（看板即时可见）。
-            onTrace: (t) => {
-              events.push(traceToEvent(t));
-              void approvals.updateTask(task.id, { executionEvents: [...events] });
-            },
-          });
+          let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
+          try {
+            orch = await runSquadOrchestration({
+              taskId: task.id,
+              taskTitle: task.title,
+              taskDescription: task.description,
+              team,
+              candidates: projectRoutingCandidates(team),
+              personas,
+              maxRounds: 2,
+              // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
+              chat: (_agentId, messages) => runRealChat(messages, 2048),
+              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
+              onTrace: (t) => sink.push(t),
+            });
+          } finally {
+            // 成功/失败都必须把尾部事件落库，时间线不丢尾
+            await sink.flush();
+          }
           const passed = orch.subtasks.filter((s) => s.approved).length;
           const failedCount = orch.subtasks.filter((s) => s.error).length;
           realOutput =
@@ -442,21 +493,24 @@ async function runOne(
         } else if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
           // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
           const events: TaskExecutionEvent[] = [];
-          const collab = await runSquadCollaboration({
-            taskId: task.id,
-            taskTitle: task.title,
-            taskDescription: task.description,
-            leaderId: routing.leaderId,
-            memberId: resolvedAssigneeId,
-            maxRounds: 2,
-            // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
-            chat: (_agentId, messages) => runRealChat(messages, 2048),
-            // 每产生一条 A2A 消息，实时 append 成执行事件并写回任务（看板即时可见）。
-            onTrace: (t) => {
-              events.push(traceToEvent(t));
-              void approvals.updateTask(task.id, { executionEvents: [...events] });
-            },
-          });
+          const sink = createThrottledEventSink(task.id, events);
+          let collab: Awaited<ReturnType<typeof runSquadCollaboration>>;
+          try {
+            collab = await runSquadCollaboration({
+              taskId: task.id,
+              taskTitle: task.title,
+              taskDescription: task.description,
+              leaderId: routing.leaderId,
+              memberId: resolvedAssigneeId,
+              maxRounds: 2,
+              // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
+              chat: (_agentId, messages) => runRealChat(messages, 2048),
+              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
+              onTrace: (t) => sink.push(t),
+            });
+          } finally {
+            await sink.flush();
+          }
           realOutput = collab.approved
             ? `【A2A 协作完成·${collab.rounds}轮·Leader PASS】\n${collab.deliverable}`
             : `【A2A 协作未通过·已达${collab.rounds}轮】最后产出：\n${collab.deliverable}\n\nLeader 意见：${collab.verdict}`;
@@ -526,6 +580,8 @@ async function runOne(
     });
     attemptCount.delete(task.id); // 成功后清计数
     set({ note: realOutput ? `已完成：${task.title.slice(0, 24)}` : `已派发：${task.title.slice(0, 24)}` });
+    // 系统通知：真实执行跑完进评审列，提醒用户验收（点击通知直达任务详情）
+    if (realOutput) notifyTaskTerminal(task.id, 'done', task.title);
     release();
     void get()._tick(); // 立即补槽
   } catch (e) {
@@ -557,6 +613,9 @@ async function maybeAutoRetry(
   if (attempts >= max) {
     set({ note: `任务失败且已达重试上限（${attempts}/${max}），终止：${task.title.slice(0, 20)}` });
     attemptCount.delete(task.id);
+    // 系统通知：终态失败（不再自动重试），提醒用户处理；原因从 store 取最新
+    const freshError = useApprovalsStore.getState().tasks.find((t) => t.id === task.id)?.workError;
+    notifyTaskTerminal(task.id, 'failed', task.title, freshError ?? undefined);
     return;
   }
   // 复位为待办，等待下一轮自动领取重跑。计数保留（下次进入 runOne 再 +1）。

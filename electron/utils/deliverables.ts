@@ -53,6 +53,20 @@ export async function saveTaskDeliverables(
 }
 
 /**
+ * 找某个任务交付目录里的 HTML 文件（可直接在浏览器运行的交付物）。
+ * 返回完整路径；没有 HTML 或目录不存在时返回 null。
+ */
+export async function findHtmlDeliverable(taskId: string): Promise<string | null> {
+  const safeTaskId = sanitizeFileName(taskId);
+  const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  const html = entries
+    .filter((name) => /\.html?$/i.test(name))
+    .sort()[0];
+  return html ? join(dir, html) : null;
+}
+
+/**
  * 把某个任务的交付目录打包成 zip，放在 ~/.openclaw/deliverables/<taskId>.zip。
  * 不引入第三方依赖：macOS 用 ditto，Windows 用 PowerShell Compress-Archive，
  * 其他平台用 zip -r。目录不存在或为空时如实抛错。
