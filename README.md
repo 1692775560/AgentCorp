@@ -52,9 +52,10 @@ HR 面试（Interview，S2）→ 评估中心（Evaluation，S3 绩效：雷达 
 
 ### 1.2 模型服务（评测裁判，Python + FastAPI + SSE）
 
-评估中心的「运行评估」需要模型服务。默认裁判模型是 **MiniCPM-o 4.5（全模态）**——
-选它是因为候选 Agent 的产出天然异质（代码、图像、文案、语音），需要同一个裁判统一消费。
-裁判后端是可替换的，见 §4。
+评估中心的「运行评估」需要模型服务。**裁判后端可替换**（`JudgeBackend` 协议，见 §4）：
+任何 OpenAI 兼容服务都能当裁判，也可用全模态模型（如 MiniCPM-o 4.5）统一消费
+候选 Agent 的异质产出（代码、图像、文案、语音）。
+不绑定单一模型家族既是工程需要，也是**抗自我增强偏差**的架构级保障。
 
 ```bash
 cd model-service
@@ -63,8 +64,11 @@ pip install -r requirements.txt
 # Mock 模式：不加载真模型，内联 fixture 驱动完整 SSE 事件流（演示/联调用）
 MOCK=true uvicorn app.serve:app --port 8000
 
-# 真实模式：端侧 llama.cpp 文本推理（CPU/Metal 即可，需先按 §4 装好权重）
-MOCK=false MODEL_PATH=models/MiniCPM-o-4_5-Q4_K_M.gguf uvicorn app.serve:app --port 8000
+# 真实模式（推荐）：任意 OpenAI 兼容云服务作裁判，零硬件门槛
+MOCK=false JUDGE_BACKEND=http \
+  JUDGE_BASE_URL=<your_openai_compatible_endpoint> \
+  JUDGE_API_KEY=<your_key> JUDGE_MODEL=<model_name> \
+  uvicorn app.serve:app --port 8000
 ```
 
 访问 `http://localhost:8000/docs` 查看接口；`/health` 查看模型可用性
@@ -139,10 +143,47 @@ agentcorp/
 
 ## 4. 接入真实裁判模型
 
-裁判模型的部署方式按硬件条件三选一，代码路径完全一致——
-`DEVICE=npu|cuda|cpu|auto`，自动降级顺序 NPU > CUDA > CPU。
+> **裁判后端是可替换的，这是刻意的架构决策，不是妥协。**
+> 用模型评模型天然有「自我增强偏差」（裁判偏爱与自己同家族的产出）。
+> 因此本项目把推理后端抽象为 `JudgeBackend` 协议（`model-service/app/judge_backend.py`），
+> 任何 OpenAI 兼容服务都能作为裁判接入，评估体系不绑定任何单一模型或单一芯片。
+> 换后端只改环境变量，评分逻辑、Skill 契约、Trace 结构一律不动。
 
-### 路径 A · 端侧 GGUF（推荐评委机 / 笔记本，CPU/Metal 即可）
+四条路径按「上手成本」排序，代码路径完全一致：
+
+| 路径 | 后端 | 适用场景 | 硬件要求 |
+|---|---|---|---|
+| **A（默认推荐）** | `JUDGE_BACKEND=http` | 任何 OpenAI 兼容云服务（阿里云百炼/通义、火山方舟、OpenAI…） | 无，联网即可 |
+| B | `JUDGE_BACKEND=http` + 本地 vLLM | 自建推理服务 | GPU |
+| C | 端侧 GGUF | 离线复现、评委笔记本 | CPU/Metal 即可 |
+| D | 本机全量权重 | 需要视觉/音频模态 | GPU 或异构加速卡（NPU 等） |
+
+### 路径 A · OpenAI 兼容云服务（默认推荐，零硬件门槛）
+
+```bash
+cd model-service
+pip install -r requirements.txt
+
+# 以阿里云百炼（DashScope OpenAI 兼容模式）为例：
+MOCK=false \
+JUDGE_BACKEND=http \
+JUDGE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 \
+JUDGE_API_KEY=<your_api_key> \
+JUDGE_MODEL=qwen-plus \
+uvicorn app.serve:app --port 8000
+
+# 换成任意其它 OpenAI 兼容端点同理，只改这三个环境变量：
+# JUDGE_BASE_URL / JUDGE_API_KEY / JUDGE_MODEL
+```
+
+`judge_backend.py` 的 HTTP 后端用标准库 `urllib` 实现（零新增依赖），
+并统一采集 `ttft_ms` / `latency_ms` / `usage`，供成本与时延归因。
+
+### 路径 B · 自建 vLLM / 本地推理服务
+
+同路径 A，把 `JUDGE_BASE_URL` 指向自建服务即可（如 `http://localhost:8080/v1`）。
+
+### 路径 C · 端侧 GGUF（离线复现，CPU/Metal 即可）
 
 无需 torch / transformers，最容易复现。
 
@@ -160,24 +201,19 @@ MOCK=false MODEL_PATH=models/MiniCPM-o-4_5-Q4_K_M.gguf uvicorn app.serve:app --p
 # 注：GGUF 路径仅文本推理（裁判场景够用）；视觉/音频模态需路径 B
 ```
 
-### 路径 B · 全量权重（GPU）
+### 路径 D · 本机全量权重（需要视觉/音频模态时）
 
 ```bash
 pip install "transformers==4.51.0" accelerate "torch>=2.3.0,<=2.8.0" \
     "torchaudio<=2.8.0" "minicpmo-utils[all]>=1.0.5" librosa opencv-python
 
-MOCK=false DEVICE=cuda MODEL_PATH=/models/MiniCPM-o-4.5 uvicorn app.serve:app --port 8000
+MOCK=false JUDGE_BACKEND=local DEVICE=cuda MODEL_PATH=/models/<your-omni-model> \
+  uvicorn app.serve:app --port 8000
 ```
 
-### 路径 C · 昇腾 NPU
-
-```bash
-# 装与 CANN 匹配的 torch_npu（版本矩阵见 docs/ascend-adaptation-plan.md §3）
-MOCK=false DEVICE=npu MODEL_PATH=/models/MiniCPM-o-4.5 uvicorn app.serve:app --port 8000
-
-# 或走容器：编辑 docker-compose.yml 设 MOCK=false 并透传 NPU 设备（/dev/davinci*）
-cd model-service && docker compose up --build
-```
+`DEVICE` 支持 `cuda|cpu|auto`，另可选装对应厂商的异构加速运行时后按
+`DEVICE=npu` 启用（`model_loader.py` 惰性 import，缺依赖自动降级，不崩）。
+容器部署见 `model-service/docker-compose.yml`。
 
 前端切真实模式：`.env` 里设 `VITE_MOCK=false`、`VITE_API_BASE=http://<host>:8000`。
 

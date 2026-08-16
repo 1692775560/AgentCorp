@@ -1028,7 +1028,7 @@ flowchart TD
 
 ```diff
 # architecture.md §3 文件列表（AgentCorp 侧）
-- model-service/                       # MiniCPM-o 服务（Ascend）  ← 删除
+- model-service/                       # 裁判模型服务  ← 删除
 + src/engine/                         # 评估引擎（AgentCorp 拥有）
 +   metricsEngine.ts  roiEngine.ts  strategyEngine.ts  evaluationAdapter.ts
 + src/services/
@@ -1044,7 +1044,7 @@ flowchart TD
 + 与 TelemetryRecord（遥测流）两条契约消费其输出，不持有模型推理代码。
 ```
 
-> **边界红线**：AgentCorp 不 import 任何 MiniCPM-o / torch_npu / MindIE 代码；所有模型相关能力必须经上述两条契约进入。这保证朋友侧底层栈（A1/A2/A3）任意替换不影响 AgentCorp（eval-design §0）。
+> **边界红线**：AgentCorp 不 import 任何具体模型/加速卡运行时代码；所有模型相关能力必须经上述两条契约进入。这保证朋友侧底层栈（A1/A2/A3）任意替换不影响 AgentCorp（eval-design §0）。
 
 ---
 

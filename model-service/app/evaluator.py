@@ -484,7 +484,7 @@ def infer(multimodal: Dict, messages: List[dict]) -> str:
     调用 MiniCPM-o 跨模态推理，返回自由文本（含 JSON）。
 
     推理后端由 JUDGE_BACKEND 选择（judge_backend.py）：
-    http（OpenAI 兼容服务）/ local（昇腾 transformers）/ mock（不可用）。
+    http（OpenAI 兼容服务）/ local（本机 transformers）/ mock（不可用）。
     后端不可用时抛 JudgeUnavailable，由调用方降级，不返回伪造分数。
     """
     completion = get_backend().complete(messages)
@@ -597,7 +597,7 @@ async def _stream_real(req: EvaluationRequest) -> AsyncGenerator[Dict, None]:
         raise JudgeUnavailable(
             "真实推理不可用：JUDGE_BACKEND=mock 或后端未就绪。"
             "请设置 JUDGE_BACKEND=http 并配置 JUDGE_BASE_URL，"
-            "或在昇腾环境设置 JUDGE_BACKEND=local。"
+            "或在具备本机权重的环境设置 JUDGE_BACKEND=local。"
         )
     # —— 以下为真实 pipeline 骨架（模型可用时填充）——
     media = load_media(req.candidate)
@@ -891,7 +891,7 @@ async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
     if not judge_available():
         raise JudgeUnavailable(
             "真实推理不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL）"
-            "或在昇腾环境使用 JUDGE_BACKEND=local。"
+            "或在具备本机权重的环境使用 JUDGE_BACKEND=local。"
         )
     messages = [{"role": "user", "content": _build_run_prompt(req)}]
     media = {"transcript": req.transcript, "usage": req.usage}

@@ -1,10 +1,10 @@
 /**
- * OpenTelemetry GenAI 语义映射（GOAI 要求 4 可观测 · SP-09）
+ * OpenTelemetry GenAI 语义映射
  * --------------------------------------------------------------------------
  * 把自研的 `LoopStep`（闭环轨迹）与 token 用量记录映射到 OTel GenAI
  * 语义约定（opentelemetry semantic-conventions gen-ai 1.x）的字段命名，
  * 使 AgentCorp 的 Trace/Metrics 能被任何 OTel 兼容后端（Langfuse / Phoenix /
- * Jaeger）直接消费，评审可按规范字段核对。
+ * Jaeger）直接消费，无需私有适配。
  *
  * 映射对照：
  *   LoopStep.agentName  → gen_ai.agent.name

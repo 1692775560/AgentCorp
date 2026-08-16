@@ -26,7 +26,7 @@ class Settings:
 
         # ===== LLM-as-judge 推理后端（judge_backend.py）=====
         # http  —— OpenAI 兼容服务（vLLM-Omni / OpenBMB API），无 NPU 也能真实评测
-        # local —— 本机 transformers + torch_npu，device 见上方 self.device
+        # local —— 本机 transformers 推理，device 见上方 self.device（cuda/cpu/npu）
         # mock  —— 不提供推理，调用方降级（绝不伪造分数）
         self.judge_backend: str = os.getenv("JUDGE_BACKEND", "mock").lower()
         self.judge_base_url: str = os.getenv("JUDGE_BASE_URL", "")

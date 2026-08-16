@@ -8,13 +8,13 @@ LLM-as-judge 推理后端抽象层（HR 面试评测的唯一推理入口）。
 
   http   —— OpenAI 兼容 /chat/completions，指向 MiniCPM-o 的 vLLM / OpenBMB 服务。
             无 NPU 的开发机可用它做真实验证。
-  local  —— 昇腾本机 transformers + torch_npu，device 取自 settings.device。
-            大赛统一环境走这条（「性能可复现」）。
+  local  —— 本机 transformers 推理，device 取自 settings.device
+            （cuda / cpu / 异构加速卡如 NPU，按需装对应运行时）。
   mock   —— 明确不可用（available=False），由调用方降级，绝不伪造分数。
 
 零新增依赖：HTTP 走标准库 urllib，不引入 requests/httpx。
 所有后端都返回 JudgeCompletion，内含 ttft_ms / latency_ms，
-直接满足昇腾大赛的首响与端到端延迟指标要求。
+统一采集首响（ttft_ms）与端到端延迟（latency_ms），供性能与成本归因。
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ class JudgeUnavailable(RuntimeError):
 
 @dataclass
 class JudgeCompletion:
-    """一次推理的产出与性能指标（指标供大赛「性能可复现」口径）。"""
+    """一次推理的产出与性能指标（用于性能可复现口径）。"""
 
     text: str
     backend: str
@@ -155,7 +155,7 @@ class HttpJudgeBackend:
 
 
 # ======================================================================
-# 2) 昇腾本地后端（transformers + torch_npu）
+# 2) 本地后端（transformers；可选异构加速卡运行时）
 # ======================================================================
 class LocalJudgeBackend:
     """

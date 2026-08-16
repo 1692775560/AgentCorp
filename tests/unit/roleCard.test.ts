@@ -15,7 +15,7 @@ import {
 } from '@/engine/agents/roleCard';
 
 describe('roleCard schema', () => {
-  it('ROLE_CARDS 含 boss/recruiter/evaluator/dispatcher 四张异构职能卡（≥3 满足 GOAI）', () => {
+  it('ROLE_CARDS 含 boss/recruiter/evaluator/dispatcher 四张异构职能卡', () => {
     const ids = ROLE_CARDS.map((c) => c.id).sort();
     expect(ids).toEqual(['boss', 'dispatcher', 'evaluator', 'recruiter']);
     expect(ROLE_CARDS.length).toBeGreaterThanOrEqual(3);

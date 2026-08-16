@@ -2,7 +2,7 @@
 
 > 版本：v1.0 ｜ 2026-08-07
 > 任务：`.trellis/tasks/08-07-a2a-design`
-> 定位：华为昇腾挑战赛项目。本文档回答三个问题：A2A 协议现状是什么；AgentCorp 底座已有的 agent 编排能力映射到哪些私有协议；如何分层集成 A2A，并把 A2A trace 变成六维评估的客观证据链（本项目区别于普通 A2A 集成的独特点）。
+> 定位：AgentCorp 通信层集成设计（赛事中立）。本文档回答三个问题：A2A 协议现状是什么；AgentCorp 底座已有的 agent 编排能力映射到哪些私有协议；如何分层集成 A2A，并把 A2A trace 变成六维评估的客观证据链（本项目区别于普通 A2A 集成的独特点）。
 > 性质：设计文档，不改代码。所有关于本仓库现状的论断均给出 `文件:行号` 依据；所有协议事实附权威来源链接。
 
 ---
@@ -112,7 +112,7 @@ AgentCorp 底座（fork 自 OpenClaw）已经有一套**完整但完全私有**�
 - 数据源：转录文件 `~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl` + token 用量（`electron/services/evaluation/eval-data.ts:8-11`）。
 - `collectRunData(agentId, sessionId)` 一次读盘产出 `{ events, transcript, entries }`（`eval-data.ts:213-277`），经 Host API `POST /api/eval/collect` 暴露（`electron/api/routes/evaluate.ts:60-76`），再经 `POST /api/evaluate/run` 代理给 model-service 的 `/api/evaluate-run`（SSE，`evaluate.ts:1-13` 头注释）。
 - **现状硬伤**：`TelemetryEvent`（`src/types/evaluation.ts:321-332`，含 `rework` / `human_interventions` / `escalations` / `first_try`）目前是从用量记录**粗糙合成**的——`collectRunData` 产出的单个事件里 `rework: 0`、`human_interventions: 0`、`escalations: 0` 全是**硬编码零**（`eval-data.ts:259-272`；usage 兜底路径同样，`eval-data.ts:187-206`）。comm / 返工 / 升级这些「协作行为」维度没有真实数据源。
-- 裁判模型：model-service 六维雷达 task/quality/comm/creativity/reliability/cost（`model-service/app/evaluator.py:40-57`），模型为 MiniCPM-o 4.5，昇腾 NPU 优先、CPU 兜底、无 NPU 走 Mock（`model-service/app/model_loader.py:3`、`evaluator.py:10`）。
+- 裁判模型：model-service 六维雷达 task/quality/comm/creativity/reliability/cost（`model-service/app/evaluator.py:40-57`），裁判后端可替换（`JudgeBackend` 协议：http / local / mock 三实现），无可用后端时走 Mock 并如实标注 source（`model-service/app/judge_backend.py`、`evaluator.py:10`）。
 
 **协议性质**：证据 = 会话转录文本 + token 用量，**协作过程不可见**（委派了几轮、返工几次、谁升级求助，全靠 transcript 文本让 judge 模型间接推断）。
 
@@ -193,7 +193,7 @@ SDK 选型：`@a2a-js/sdk@^1.0`（npm，a2aproject 官方 JS SDK，2026-07-28 �
 - AgentCard `securitySchemes` 声明 `HTTP Bearer`。
 - A2A token 持久化在 electron-store（命名空间 `agentcorp.a2a`），按「雇主」签发多张，支持吊销；复用现有 `withConfigLock` 配置写入模式。
 - server.ts 的鉴权链改为：路径以 `/a2a` 或 `/.well-known/` 开头 → 走 A2A Bearer 校验；其余 → 走原 `x-clawx-host-session`（`server.ts:85` 处加一个分支即可）。
-- **绑定地址仍是 `127.0.0.1`**（`server.ts:101`）：挑战赛 Demo 阶段外部方通过 SSH 隧道/内网穿透接入；真对外开放是 P4 之后的事，届时再议 TLS 与 mTLS。
+- **绑定地址仍是 `127.0.0.1`**（`server.ts:101`）：Demo 阶段外部方通过 SSH 隧道/内网穿透接入；真对外开放是 P4 之后的事，届时再议 TLS 与 mTLS。
 
 ### 3.4 A2A trace 作为评估证据（核心独特点）
 
@@ -242,10 +242,10 @@ SDK 选型：`@a2a-js/sdk@^1.0`（npm，a2aproject 官方 JS SDK，2026-07-28 �
 
 **为什么这是独特点**：普通 A2A 集成止步于「能通」，AgentCorp 把 A2A 消息流变成 HR 评估的**客观证据源**——通信协议即绩效日志。六维里的 comm、reliability（多轮一致性）由此获得可复核的量化输入，而不是 transcript 的印象分。
 
-### 3.5 与昇腾 / MiniCPM-o 的关系
+### 3.5 与裁判后端的关系
 
-- trace 是纯结构化短文本，天然适合进 MiniCPM-o 4.5 的 judge prompt（`model-service/app/prompt_templates.py`），与 transcript 并列作为证据段；无 NPU 时 Mock 路径（`evaluator.py:10`）可消费合成 trace 先行联调，**P1 完全不依赖昇腾环境**。
-- P4 真机联调时，model-service 在昇腾 NPU 上消费真实 A2A trace 出六维分（`model_loader.py:3` 的 NPU 优先链路），演示叙事闭环：**「A2A 协议通信 → 昇腾算力评估 → 双榜单治理」**——通信层与评估层都是挑战赛加分点。
+- trace 是纯结构化短文本，天然适合进 judge prompt（`model-service/app/prompt_templates.py`），与 transcript 并列作为证据段；无可用推理后端时 Mock 路径（`evaluator.py:10`）可消费合成 trace 先行联调，**P1 完全不依赖任何特定硬件环境**。
+- P4 真机联调时，model-service 消费真实 A2A trace 出六维分（后端按 `JUDGE_BACKEND` 选择：云端 OpenAI 兼容服务 / 本机权重 / 异构加速卡），叙事闭环：**「A2A 协议通信 → 可替换裁判评估 → 双榜单治理」**。
 
 ---
 
@@ -274,12 +274,12 @@ SDK 选型：`@a2a-js/sdk@^1.0`（npm，a2aproject 官方 JS SDK，2026-07-28 �
 - **改动文件预估**：新增 `electron/services/a2a/external-agent.ts`；改 `electron/utils/openclaw-workspace.ts`（hire 外部类型）、`electron/api/routes/agents.ts`、市集前端注册页（`src/` 市集组件）。
 - **演示点**：跨进程（模拟跨组织） hire → 委派 → 评估全链路。
 
-### P4：昇腾真机联调
+### P4：真机联调
 
-- **做什么**：model-service 部署到昇腾环境（走 `docs/ascend-adaptation-plan.md` 的 FlagOS/torch_npu 路径）；judge prompt 接入真实 trace 证据段；Mock 全关，真实推理出分。
+- **做什么**：model-service 部署到目标推理环境（云端 OpenAI 兼容服务或本机权重，见 README §4 四条路径）；judge prompt 接入真实 trace 证据段；Mock 全关，真实推理出分。
 - **验收标准**：NPU 上 MiniCPM-o 4.5 消费真实 A2A trace + transcript 产出六维分与 verdict；`/api/evaluate-run` SSE 全链路无 mock 事件。
 - **改动文件预估**：`model-service/app/prompt_templates.py`（trace 证据段）、`model-service/app/schemas.py`（JudgeRunRequest 加 `a2a_trace` 字段，镜像前端类型）；部署侧按 ascend-adaptation-plan。
-- **演示点**：挑战赛终态叙事——A2A 互通 + 昇腾评估 + 双榜单。
+- **演示点**：终态叙事——A2A 互通 + 可审计评估 + 双榜单治理。
 
 ---
 
@@ -317,4 +317,4 @@ OpenClaw gateway 是 fork 的子进程、帧格式私有（`manager.ts:619-621`�
 - Google 首发博客：https://developers.googleblog.com/en/a2a-a-new-era-of-agent-interoperability/
 - A2A↔MCP 分工：https://a2a-protocol.org/latest/
 - JS SDK：https://github.com/a2aproject/a2a-js ；Python SDK：https://github.com/a2aproject/a2a-python
-- 项目内：PRD 的 A2A 定位与签名卡片要求 `docs/PRD-AgentCorp.md:20`、`:181-201`；昇腾适配 `docs/ascend-adaptation-plan.md`
+- 项目内：PRD 的 A2A 定位与签名卡片要求 `docs/PRD-AgentCorp.md:20`、`:181-201`

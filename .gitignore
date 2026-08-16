@@ -113,3 +113,6 @@ model-service/.venv/
 
 # 素材下载暂存目录（像素办公室素材来源，非源码）
 _downloads/
+
+# 本地工作目录：阶段性交付物汇总，不入仓
+update/

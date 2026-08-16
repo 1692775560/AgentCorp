@@ -1,5 +1,5 @@
 /**
- * 内建 Skill handlers（GOAI 要求 2 · SP-02）
+ * 内建 Skill handlers
  * --------------------------------------------------------------------------
  * 把评估中心的纯函数能力封装为可被 AgentTeams 调用的 Skill handler：
  *   agent_interview        → 结构化面试报告（recruiter）
@@ -9,7 +9,7 @@
  *   orchestrate            → 任务拆解 + 端到端闭环编排（dispatcher）
  *
  * 铁律：每个 handler 失败不抛——异常/依赖缺失一律降级返回
- * `{ ok:false, degraded:true, reason }`，对应赛题 2.1「失败处理机制」。
+ * `{ ok:false, degraded:true, reason }`，即 Skill 契约声明的「失败处理机制」。
  * 模块加载时自动把 4 张角色卡上的 Skill 投影注册进 registry。
  */
 import type { RadarScore, RadarDim, Verdict, BossProfile } from '@/types/evaluation';
@@ -280,7 +280,7 @@ export async function bossReviewHandler(
     candidateName:
       typeof args.candidateName === 'string' ? args.candidateName : undefined,
   });
-  // SP-08：决策产出即沉淀——结构化规则写入经验 Store，供下一次闭环复用注入。
+  // 决策产出即沉淀——结构化规则写入经验 Store，供下一次闭环复用注入。
   // 降级评估（judge 全失败等）不沉淀：避免把无意义规则注入后续候选。
   if (input.source !== 'degraded') {
     saveRule(typeof args.candidateId === 'string' ? args.candidateId : '_global', output.precipitatedRule);

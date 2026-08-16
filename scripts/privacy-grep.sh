@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# SP-18：参赛/提交前隐私 grep 门禁。
+# 发布前隐私 grep 门禁。
 # 命中任一受限 token（用户名、本机绝对路径、AI 工具目录）即 exit 1。
 # 用法：bash scripts/privacy-grep.sh [额外目录...]
 set -u
 
 PATTERN='陈思丞|C:/Users|/c/Users|\.workbuddy|\.trae|/Users/|/home/'
-TARGETS=("src/demo" "docs/artifacts" "docs/review" ".workbuddy/artifacts")
+TARGETS=("src/demo" "docs/artifacts" "docs/review")
 if [ "$#" -gt 0 ]; then
   TARGETS=("$@")
 fi

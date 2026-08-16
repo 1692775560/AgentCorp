@@ -1,5 +1,5 @@
 /**
- * 经验沉淀 Store（GOAI 要求 1 经验沉淀 · SP-08）
+ * 经验沉淀 Store
  * --------------------------------------------------------------------------
  * boss_review 产出的结构化 `precipitatedRule` 不再跑完即丢：
  * 每次闭环决策后写入本 Store，下一次闭环在 context 阶段读回并注入
@@ -36,6 +36,58 @@ export function createMemoryPersister(): ExperiencePersister {
     readAll: () => [...records],
     clear: () => {
       records.length = 0;
+    },
+  };
+}
+
+/**
+ * 浏览器 localStorage 持久化（web demo 用）。
+ *
+ * 为什么需要它：默认内存 persister 在页面刷新后清零，会让「经验沉淀 → 下一轮复用」
+ * 这条回路会退化为「同一次页面会话内才成立」：刷新页面后再跑，
+ * 就看不到「已注入历史经验规则」。本后端把沉淀落到 localStorage，跨会话可复用。
+ *
+ * 非浏览器环境（vitest / node）自动降级为内存后端，语义不变。
+ * 写入失败（隐私模式 / 配额超限）静默降级为内存，不阻断闭环主流程——
+ * 经验沉淀是旁路能力，不该让它拖垮决策链路。
+ */
+export function createLocalStorageExperiencePersister(
+  storageKey = 'agentcorp-experience',
+): ExperiencePersister {
+  const memory = createMemoryPersister();
+  if (typeof localStorage === 'undefined') return memory;
+
+  const readAll = (): ExperienceRecord[] => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return [];
+      const parsed: unknown = JSON.parse(raw);
+      // 存储损坏按「无沉淀」处理，不抛错（trace/经验均为旁路证据）
+      return Array.isArray(parsed) ? (parsed as ExperienceRecord[]) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  return {
+    append: (record) => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify([...readAll(), record]));
+      } catch {
+        memory.append(record); // 配额/隐私模式 → 退回内存，本次会话内仍可复用
+      }
+    },
+    readAll: () => {
+      const persisted = readAll();
+      return persisted.length > 0 ? persisted : memory.readAll();
+    },
+    clear: () => {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        // 忽略：清不掉也不影响后续读写语义
+      }
+      memory.clear();
     },
   };
 }

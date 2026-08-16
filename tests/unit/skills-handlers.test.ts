@@ -1,5 +1,5 @@
 /**
- * SP-02 验收：5 个内建 Skill handler 可用、失败降级不抛、决策语义正确。
+ * 5 个内建 Skill handler 可用、失败降级不抛、决策语义正确。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getSkill, listSkills, runSkill, registerSkill } from '@/demo/skills/registry';
@@ -57,7 +57,7 @@ function evalInput(radars: RadarScore[], verdict: 'MVP' | 'OBSERVE' | 'FIRED' | 
   };
 }
 
-describe('skills/handlers (SP-02)', () => {
+describe('skills/handlers', () => {
   it('模块加载后 5 个内建 Skill 全部注册且 handler 可调', () => {
     expect(listSkills()).toHaveLength(5);
     expect(getSkill('boss_review')?.handler).toBeTypeOf('function');

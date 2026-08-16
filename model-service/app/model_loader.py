@@ -1,6 +1,6 @@
 """
 model-service/app/model_loader.py
-MiniCPM-o 4.5 加载（昇腾 NPU 为部署目标，CPU 兜底；架构 §2 / 适配方案 §2.3、§4.3）。
+全模态裁判模型加载（支持 cuda / cpu / 异构加速卡，自动降级；架构 §2）。
 
 关键设计：
 - 惰性依赖：torch / transformers / torch_npu / flag_gems 一律经 optional_import()
@@ -26,7 +26,7 @@ logger = logging.getLogger("model_loader")
 INSTALL_HINT = (
     "pip install 'transformers==4.51.0' accelerate 'torch>=2.3.0,<=2.8.0' "
     "'torchaudio<=2.8.0' 'minicpmo-utils[all]>=1.0.5' librosa"
-    "（昇腾环境另需与 CANN 版本匹配的 torch_npu 或 FlagOS flag_gems，"
+    "（使用异构加速卡时另需装对应厂商的 torch 运行时，"
     "详见 docs/ascend-adaptation-plan.md §3.2）"
 )
 
@@ -188,7 +188,7 @@ def resolve_device(torch_mod: Any = None) -> str:
     if requested == "npu":
         if npu_ok:
             return "npu"
-        logger.warning("DEVICE=npu 但 NPU 不可用（缺 torch_npu 或无昇腾设备），尝试降级")
+        logger.warning("DEVICE=npu 但 NPU 不可用（缺运行时或无设备），尝试降级")
     elif requested == "cuda":
         if cuda_ok:
             return "cuda"
@@ -250,7 +250,7 @@ def load_minicpmo(model_path: Optional[str] = None) -> MiniCPMModel:
     try:
         device = resolve_device(torch)
         if device == "npu":
-            # 昇腾后端：flag_gems（FlagOS，import 即生效）或 torch_npu（官方主推）
+            # 异构加速卡后端：flag_gems（import 即生效）或 torch_npu
             backend = os.getenv("ASCEND_BACKEND", "torch_npu")
             if backend == "flag_gems":
                 importlib.import_module("flag_gems")

@@ -84,7 +84,7 @@ async def api_evaluate_stage(req: StageScoreRequest):
             status_code=503,
             detail=(
                 "评测后端不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL），"
-                "或在昇腾环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
+                "或在具备本机权重的环境配置 JUDGE_BACKEND=local；或设置 MOCK=true 走演示流。"
             ),
         )
 

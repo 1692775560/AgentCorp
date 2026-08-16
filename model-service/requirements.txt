@@ -14,10 +14,12 @@ numpy>=1.26
 pillow>=10.2
 
 # 测试
+# 注：跑测试请用 `pip install -r requirements.txt -r requirements-dev.txt`
+# （TestClient 还需要 httpx<0.28，见 requirements-dev.txt）
 pytest>=8.0
 
 # ===== 真实模式（MOCK=false）可选推理依赖 =====
-# 不进硬依赖：体积大且需匹配 CANN / torch_npu 版本，评委机/纯 Mock 环境装不动。
+# 不进硬依赖：体积大且需匹配具体加速卡运行时版本，普通开发机/纯 Mock 环境装不动。
 # 代码中全部惰性 import（optional_import），未安装时自动降级为 available=False。
 #
 # 【路径 A · 端侧 GGUF（推荐评委机/笔记本）】llama.cpp 文本推理，CPU/Metal 即可：
@@ -34,9 +36,9 @@ pytest>=8.0
 #   librosa                      # 语音输入重采样（16kHz mono）
 #   opencv-python                # 视频抽帧（缺省仅丢视频模态，不阻塞）
 #
-# 昇腾 NPU（部署目标，二选一，版本对齐 CANN 9.1.0，见 docs/ascend-adaptation-plan.md §3）：
-#   torch_npu                    # 官方主推路径（DEVICE=npu 时必需）
+# 异构加速卡（可选部署目标，二选一，版本需与所用加速卡运行时对齐）：
+#   torch_npu                    # 厂商官方 torch 运行时（DEVICE=npu 时必需）
 #   flag_gems                    # FlagOS 开箱即用后端（ASCEND_BACKEND=flag_gems）
 #
-# 可选 TTS 旁路：cosyvoice 或对应 Ascend 适配 TTS；
+# 可选 TTS 旁路：cosyvoice 或对应平台适配的 TTS；
 # 无模型 TTS 时自动尝试系统命令（macOS say / Linux espeak-ng），都不可用返回空字节。

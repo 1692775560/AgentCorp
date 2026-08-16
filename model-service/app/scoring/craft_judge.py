@@ -12,7 +12,7 @@ model-service/app/scoring/craft_judge.py
    而不是直接给一个总分。没有引用的判定视为无效证据。
 3. 未覆盖维度不打分 —— 题库没考到的 craft 维返回 None 并标注不可评，
    绝不用其他维度的分数外推。
-4. 温度 0 + 固定题面 —— 满足大赛「效果可验证 / 结论可复现」。
+4. 温度 0 + 固定题面 —— 保证效果可验证、结论可复现。
 
 零新增依赖。推理走 judge_backend，不可用时抛 JudgeUnavailable 由调用方降级。
 """
@@ -58,7 +58,7 @@ class CraftJudgement:
     #: 是否采用了参考答案锚定（B：天花板缓解）
     reference_used: bool = False
     confidence: float = 0.0
-    #: 性能指标（大赛 TTFT / 端到端延迟口径）
+    #: 性能指标（TTFT / 端到端延迟口径）
     ttft_ms: Optional[float] = None
     latency_ms: float = 0.0
     backend: str = ""
