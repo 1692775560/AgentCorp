@@ -1,7 +1,7 @@
 /**
- * 多 Agent 闭环编排器（GOAI 最小可跑闭环 · Phase 6 实证）
+ * 多 Agent 闭环编排器（最小可跑闭环）
  * --------------------------------------------------------------------------
- * 把 roleCard.ts 的角色定义接进真实评估中心能力，跑通 GOAI 赛题要求的 8 步闭环：
+ * 把 roleCard.ts 的角色定义接进真实评估中心能力，跑通端到端 8 步闭环：
  *   任务输入(input) → 任务拆解(decompose) → 上下文传递(context) → 工具调用(tool)
  *   → 结果验证(verify) → 执行证据沉淀(evidence) → 审批与回滚(approve) → 经验沉淀(precipitate)
  *
@@ -11,12 +11,12 @@
  *  - 评委（judge）**可注入**：真实 judgeClient 或 mock 均可，网关不可用时降级 mock，
  *    保证闭环在沙箱/离线态也能跑通并可被 vitest 验证（eval-in-the-loop 实证）。
  *  - 审批(approve)与经验沉淀(precipitate)由 **boss_review Skill** 产出
- *    （SP-03：不再是内联逻辑）；Skill 降级时本地纯函数兜底同一语义，闭环不中断。
+ *    （而非内联逻辑）；Skill 降级时本地纯函数兜底同一语义，闭环不中断。
  *  - 每个阶段产出都带 `phase` 标签（关键步骤另带 `skill` 标签），
- *    直接对应 GOAI 附录 1.3 八步闭环 + 要求 2「Skill 真实调用」证据。
+ *    构成八步闭环与「Skill 真实被调用」的可核对证据。
  *
- * 这是「数字员工招募与管理训练场」参赛作品的最小可运行证据：
- * boss（老板）→ recruiter（HR 面试）→ evaluator（评估中心）→ boss（拍板）端到端闭环。
+ * 这是「Agent 准入治理」的最小可运行闭环：
+ * boss（决策）→ recruiter（基线测试）→ evaluator（能力评估）→ boss（拍板）。
  */
 import type { RadarScore, RadarDim, Verdict, BossProfile } from '@/types/evaluation';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
@@ -74,12 +74,12 @@ export interface ClosedLoopRequest {
   judge: JudgeFn;
 }
 
-/** 单步轨迹（执行证据 = Trace，对应 GOAI 2.3 可观测 + 1.3 evidence） */
+/** 单步轨迹（执行证据 = Trace，供可观测与复盘） */
 export interface LoopStep {
   phase: ClosedLoopPhase;
   agentRole: RoleCard['role'];
   agentName: string;
-  /** 该步实际调用的 Skill id（GOAI 要求 2：Skill 被真实调用的证据） */
+  /** 该步实际调用的 Skill id（Skill 被真实调用的证据） */
   skill?: string;
   summary: string;
   payload?: unknown;
@@ -176,7 +176,7 @@ export async function runClosedLoop(req: ClosedLoopRequest): Promise<ClosedLoopR
   push('decompose', 'dispatcher', `编排主控拆解任务为 ${plan.steps.length} 步子任务，目标维度=${plan.targetDims.join('/')}`, plan);
 
   // ── Step 2 · context：recruiter → agent_interview Skill（降级则本地快照兜底） ──
-  // SP-08：读回上一次闭环沉淀的经验规则，注入 interviewer/evaluator 上下文
+  // 读回上一次闭环沉淀的经验规则，注入 interviewer/evaluator 上下文
   const priorRule = latestRule(req.candidateId);
   const interviewRes = await runSkill('agent_interview', {
     candidateId: req.candidateId,

@@ -13,7 +13,7 @@ const SAMPLE: Omit<ClosedLoopRequest, 'judge'> = {
   threshold: 3.5,
 };
 
-describe('ClosedLoop orchestrator（GOAI 八步闭环实证）', () => {
+describe('ClosedLoop orchestrator（八步闭环实证）', () => {
   it('跑通 boss→recruiter→evaluator→boss 端到端闭环', async () => {
     const res = await runClosedLoop({ ...SAMPLE, judge: mockJudge });
     // evaluator：k 次评分 + 聚合 + pass^k + 偏差审计 全部产出
@@ -56,7 +56,7 @@ describe('ClosedLoop orchestrator（GOAI 八步闭环实证）', () => {
     expect(res.bossDecision.requiresHumanAck).toBe(true);
   });
 
-  it('SP-03：approve/precipitate 由 boss_review Skill 产出，经验沉淀为结构化规则', async () => {
+  it('approve/precipitate 由 boss_review Skill 产出，经验沉淀为结构化规则', async () => {
     const res = await runClosedLoop({ ...SAMPLE, judge: mockJudge });
     // 决策来源 = boss_review Skill（非内联逻辑）
     expect(res.bossDecision.source).toBe('boss_review');

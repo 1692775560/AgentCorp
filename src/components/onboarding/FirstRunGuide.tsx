@@ -23,7 +23,7 @@ const STEPS = [
   {
     icon: MessagesSquare,
     title: 'HR 面试 · 让大模型考他',
-    desc: '同题同评分标准，逐条给出命中与原文引用，不看仓库 star 数，个人 Agent 也能公平参赛。',
+    desc: '同题同评分标准，逐条给出命中与原文引用，不看仓库 star 数，个人 Agent 也能被公平评估。',
   },
   {
     icon: BarChart3,

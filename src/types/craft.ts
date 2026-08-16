@@ -44,7 +44,7 @@ export interface CraftJudgement {
   confidence: number;
   /** 是否采用参考答案锚定 */
   reference_used: boolean;
-  /** 首 token 时延（ms），大赛 TTFT 口径 */
+  /** 首 token 时延（ms），TTFT 口径 */
   ttft_ms: number | null;
   latency_ms: number;
   backend: string;

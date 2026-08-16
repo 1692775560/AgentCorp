@@ -1,19 +1,15 @@
 /**
- * HiClaw / AgentTeams CRD 导出（GOAI 要求 1.1「以 AgentTeams 作为协同设计基点」）
+ * HiClaw / AgentTeams CRD 导出
  * --------------------------------------------------------------------------
  * 背景：AgentTeams 是阿里云的多智能体治理与协作平台，其管理层基于开源项目
  * HiClaw（github.com/agentscope-ai/HiClaw），采用 **K8s-native 声明式 CRD**
  * （apiVersion `hiclaw.io/v1beta1`）描述组织结构，并显式分层为
  * 平台管控（TeamAdmin）→ 业务协作（TeamLeader）→ 执行（Worker）。
  *
- * 此前的问题：`agentteams-adapter.ts` 只做到「类型同形」——自定义的
- * ATAgent/ATTeam/ATTask/ATRun 形态上像 AgentTeams，但与 HiClaw 的真实 CRD
- * 命名、层级、字段都对不上。评审若熟悉 HiClaw，「以 AgentTeams 为设计基点」
- * 这条会被追问「你到底怎么映射的」。
- *
- * 本模块把映射变成**可执行、可导出、可核对的产物**：
- * 一条命令把 4 张 RoleCard 导出为 HiClaw 声明式 CRD YAML，
- * 评审可以直接拿去对照 HiClaw 的 CRD 规范逐字段核。
+ * 为什么需要它：`agentteams-adapter.ts` 提供的是「形态同构」的类型层，
+ * 但要论证「可迁移到 AgentTeams」，需要产出**可核对的声明式产物**。
+ * 本模块把映射变成一条命令：4 张 RoleCard → HiClaw 声明式 CRD YAML，
+ * 可直接对照 HiClaw CRD 规范逐字段核，从而量化迁移成本。
  *
  * 映射对照（这也是 PPT 上那张表的真相源）：
  *
@@ -29,7 +25,7 @@
  *
  * 重要边界（诚实标注）：本模块产出的是**符合 HiClaw 形态的声明式描述**，
  * 用于论证「迁移成本 = 协议适配而非重新设计」。它**不代表**已在 HiClaw
- * 控制面上真实 reconcile 过——真机部署是复赛工程项。
+ * 控制面上真实 reconcile 过——真机部署为后续工程项。
  *
  * 纯函数、零依赖、无副作用，vitest 与 web demo 均可直接运行。
  */
@@ -83,7 +79,7 @@ export function roleCardToHiclawResource(card: RoleCard): HiclawResource {
         'hiclaw.io/risk-level': card.boundaries.riskLevel,
       },
       annotations: {
-        // 落地模块指针：让评审能从 CRD 直接跳到实现代码
+        // 落地模块指针：从 CRD 可直接定位到实现代码
         'agentcorp.io/impl-module': card.impl.module ?? '',
         'agentcorp.io/owns-phases': card.ownsPhases.join(','),
       },
@@ -256,7 +252,7 @@ export function exportHiclawManifest(
     '# HiClaw / AgentTeams 声明式清单（由 AgentCorp RoleCard 自动导出）',
     '# 生成命令：pnpm agentteams:export',
     '#',
-    '# 用途：论证「以 AgentTeams 作为协同设计基点」——4 张角色卡可无损映射为',
+    '# 用途：论证可迁移性——4 张角色卡可无损映射为',
     '#       HiClaw 的 Team / TeamAdmin / TeamLeader / Worker 四种 CRD。',
     '# 边界：本清单为形态对齐产物，用于评估迁移成本；尚未在 HiClaw 控制面真实 reconcile。',
     '',

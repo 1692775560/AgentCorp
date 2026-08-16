@@ -528,7 +528,7 @@ class FavoriteVoteResult(BaseModel):
 
 
 class FavoriteRankingEntry(BaseModel):
-    """工种赛道单条青睐榜条目。"""
+    """工种维度单条青睐榜条目。"""
     model_config = ConfigDict(
         populate_by_name=True,
         alias_generator=AliasGenerator(

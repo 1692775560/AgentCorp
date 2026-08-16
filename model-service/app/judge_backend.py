@@ -37,7 +37,7 @@ class JudgeUnavailable(RuntimeError):
 
 @dataclass
 class JudgeCompletion:
-    """一次推理的产出与性能指标（指标供大赛「性能可复现」口径）。"""
+    """一次推理的产出与性能指标（用于性能可复现口径）。"""
 
     text: str
     backend: str

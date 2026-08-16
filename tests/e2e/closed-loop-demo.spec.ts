@@ -1,12 +1,12 @@
 /**
- * GOAI Demo E2E + 截图证据（SP-15）
+ * 闭环 Demo E2E + 截图证据
  * 起 5174 web 预览 → 打开 /demo.html → 运行闭环 → 断言结果渲染 → 截图存
  * docs/artifacts/goai-demo-screenshot.png（PPT/评审证据）。
  * 运行：pnpm demo:shot（首次需 `corepack pnpm exec playwright install chromium`）
  */
 import { test, expect } from '@playwright/test';
 
-test('GOAI 闭环 Demo：运行并产出结果截图', async ({ page }) => {
+test('多 Agent 闭环 Demo：运行并产出结果截图', async ({ page }) => {
   await page.goto('/demo.html');
   await expect(page.getByText('AgentCorp · 多 Agent 闭环 Demo')).toBeVisible();
 

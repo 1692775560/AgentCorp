@@ -1,6 +1,6 @@
 # 工具集成契约：MCP 客户端运行时 + Host API 等价契约
 
-> **口径更正（2026-08-15）**：本文件早期版本称「AgentCorp 未直接接入 MCP」，
+> **口径说明**：本文件早期版本称「AgentCorp 未直接接入 MCP」，
 > 该表述**与代码不符，现予更正**。实际情况是两层并存：
 >
 > | 层 | 说明 | 落点 |
@@ -8,7 +8,7 @@
 > | **① 真实 MCP 客户端运行时** | 已接入 `@modelcontextprotocol/sdk`，支持 **stdio / SSE / StreamableHTTP** 三种 transport，可连接任意标准 MCP Server，拉取 `tools/list` 并执行 `tools/call` | `electron/services/mcp/runtime-manager.ts`（453 行）<br>`electron/api/routes/mcp.ts`（配置 CRUD + 生命周期） |
 > | **② Host API 等价契约** | 项目**自有**能力（评估/评委/竞技场/数字员工 CRUD）以 REST + RPC 暴露，尚未包装成 MCP Server | 本文件 §1 tool 清单 |
 >
-> 也就是说：**「消费外部 MCP 工具」已经能做；「把自己的能力发布为 MCP Server」是复赛项。**
+> 也就是说：**「消费外部 MCP 工具」已经能做；「把自己的能力发布为 MCP Server」是后续工程项。**
 > 后者的迁移成本见文末——纯协议适配，无需重设计调用链。
 
 ---
@@ -27,7 +27,7 @@
 | 注入 Agent | 主进程启动时拉起 enabled server，并把全部 tools 汇总注入 agent 可用工具面（`electron/main/index.ts:550-560`） |
 | 失败处理 | 连接失败落 `lastError` + status='error'，不崩主进程；配置文件损坏回退空配置 |
 
-> 因此赛题 2.2「MCP 作为工具连接层」在**外部工具接入方向已经成立**：
+> 因此「MCP 作为工具连接层」在**外部工具接入方向已经成立**：
 > 任何标准 MCP Server（数据库、工单系统、CI/CD、监控）都可直接挂进来被 Skill 调用。
 
 ---
@@ -47,7 +47,7 @@
 | Model Service | `http://127.0.0.1:8000`（Python 评分/评委后端） |
 | 鉴权 | Host API 请求头 `x-clawx-host-session: <token>`（`electron/api/route-utils.ts` 的 `HOST_API_SESSION_HEADER`；未授权一律 401） |
 | 错误约定 | `{ success: false, error: string }`；未匹配路由 404 `No route for <METHOD> <path>` |
-| 幂等/审计 | 写操作（arena user-pick、agents 写、委派）均落盘/留痕；A2A 委派写 `~/.openclaw/a2a-traces/*.jsonl`（见 SP-11 字段映射） |
+| 幂等/审计 | 写操作（arena user-pick、agents 写、委派）均落盘/留痕；A2A 委派写 `~/.openclaw/a2a-traces/*.jsonl`（字段映射见 `electron/services/evaluation/a2a-trace.ts`） |
 
 ## 1. Tool Schema 清单
 
@@ -107,5 +107,5 @@
 | 方向 | 状态 | 证据 |
 |---|---|---|
 | AgentCorp **消费** 外部 MCP 工具 | ✅ 已实现（三 transport） | `electron/services/mcp/runtime-manager.ts` |
-| AgentCorp **发布**自身能力为 MCP Server | 🔜 复赛项（协议适配，非重设计） | 本文件 §1 tool 清单 + §2 步骤 |
+| AgentCorp **发布**自身能力为 MCP Server | 🔜 后续工程项（协议适配，非重设计） | 本文件 §1 tool 清单 + §2 步骤 |
 | 无 MCP 时的等价集成契约 | ✅ 已提供（REST + WS RPC + 鉴权 + 审计） | 本文件 §0–§1 |

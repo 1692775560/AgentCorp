@@ -1,5 +1,5 @@
 /**
- * HiClaw / AgentTeams CRD 映射验收（GOAI 1.1「以 AgentTeams 作为协同设计基点」）。
+ * HiClaw / AgentTeams CRD 映射验收。
  *
  * 断言的是「映射真实存在且结构正确」，而不是「我们声称对齐了」。
  */
@@ -32,7 +32,7 @@ describe('HiClaw CRD 映射', () => {
     expect(res.spec).toBeTypeOf('object');
   });
 
-  it('Skill 无损投影到 Worker.skills（GOAI 2.1 字段保留）', () => {
+  it('Skill 无损投影到 Worker.skills（契约字段保留）', () => {
     const res = roleCardToHiclawResource(ROLE_CARD_BY_ID.evaluator!);
     const skills = (res.spec as { skills: Array<Record<string, unknown>> }).skills;
     expect(skills.map((s) => s.name)).toEqual(['capability_assessment', 'reliability_audit']);

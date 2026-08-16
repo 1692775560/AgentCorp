@@ -1,23 +1,23 @@
 /**
- * AgentTeams 薄适配层（GOAI 决策 X 落地 · 不引第三方运行时）
+ * AgentTeams 薄适配层（语义映射，不引第三方编排运行时）
  * --------------------------------------------------------------------------
- * 阿里 GOAI 赛题要求「以 AgentTeams 作为协同设计基点」。AgentCorp 主线上跑 OpenClaw，
- * 不引入 langgraph/crewai/agentteams 等第三方编排运行时（架构决策见 MEMORY.md）。
+ * AgentCorp 以 AgentTeams（开源实现 HiClaw）作为多 Agent 协同的设计基点，
+ * 但主线运行时为 OpenClaw，不引入 langgraph/crewai 等第三方编排运行时。
  *
  * 本文件即「薄适配」：在 OpenClaw 之上**暴露 AgentTeams 形态的 API**
  * （Agent / Team / Task / Run / Skill），底层仍由既有 roleCard + 评估中心 +
- * Skill 注册表驱动。它不是换引擎，而是**语义映射层**——使评审方能直接对照
- * AgentTeams 的协同基元（角色编排 / 任务拆解 / 上下文传递 / 协同执行 / 状态追踪）
- * 看 AgentCorp 的对应实现。
+ * Skill 注册表驱动。它不是换引擎，而是**语义映射层**——使 AgentTeams 的协同基元
+ * （角色编排 / 任务拆解 / 上下文传递 / 协同执行 / 状态追踪）与本项目实现一一对应，
+ * 从而保证迁移到 AgentTeams 时只需协议适配（CRD 导出见 ./agentteams/hiclawCrd.ts）。
  *
- * SP-04：`runTask` 不再直连 judge——而是经 `invokeSkill` 逐阶段调用
+ * `runTask` 不直连 judge——而是经 `invokeSkill` 逐阶段调用
  * recruiter→agent_interview、evaluator→capability_assessment + reliability_audit、
  * boss→boss_review，每个 run.steps 都带 `skill` 标签（Skill 真实调用证据）。
  *
- * 复赛若需真接入 AgentTeams，仅需把下列类型替换为 AgentTeams SDK 的真实类型、
+ * 真接入 AgentTeams 时，仅需把下列类型替换为 AgentTeams SDK 的真实类型、
  * 把 invokeSkill 的内部委托换成 AgentTeams 的 skill 调用，
- * 工具调用链与角色卡/Skill 定义均无需重设计（迁移成本见 artifacts/agentteams-adapter-design.md；
- * 工具面契约见 docs/artifacts/mcp-equivalent-contract.md）。
+ * 工具调用链与角色卡/Skill 定义均无需重设计
+ * （迁移成本矩阵见 ./agentteams/hiclawCrd.ts；工具面契约见 docs/artifacts/mcp-equivalent-contract.md）。
  */
 import type { RoleCard } from '@/engine/agents/roleCard';
 import { ROLE_CARDS, ROLE_CARD_BY_ID } from '@/engine/agents/roleCard';
@@ -51,7 +51,7 @@ import {
 
 /* ───────────── AgentTeams 形态基元（薄映射类型，非第三方依赖） ───────────── */
 
-/** AgentTeams · Agent：身份定义（对应 GOAI 附录A + roleCard） */
+/** AgentTeams · Agent：身份定义（对应 roleCard） */
 export interface ATAgent {
   agentId: string;
   name: string;
@@ -67,7 +67,7 @@ export interface ATAgent {
   };
 }
 
-/** AgentTeams · Skill（SP-04）：团队内可被调用的技能单元（对应 Skill 注册表投影） */
+/** AgentTeams · Skill：团队内可被调用的技能单元（Skill 注册表投影） */
 export interface ATSkill {
   skillId: string;
   name: string;
@@ -164,7 +164,7 @@ export function detectJobType(requirement: string): ATJobType {
 }
 
 /**
- * dispatcher 动态任务拆解（SP-06）：基于岗位类型 + RADAR_DIMS 生成拆解计划，
+ * dispatcher 动态任务拆解：基于岗位类型 + RADAR_DIMS 生成拆解计划，
  * 替代旧版硬编码字符串——拆解随候选岗位变化。
  */
 export function decomposeTask(input: { requirement: string }): {
@@ -183,7 +183,7 @@ export function decomposeTask(input: { requirement: string }): {
   };
 }
 
-/** 由招聘需求构造 Task（含 dispatcher 动态拆解，SP-06） */
+/** 由准入需求构造 Task（含 dispatcher 动态拆解） */
 export function createTask(input: {
   taskId?: string;
   title: string;
@@ -203,7 +203,7 @@ export function createTask(input: {
   };
 }
 
-/** 列出团队可调用的全部 Skill（SP-04）：注册表 ∩ 团队成员。 */
+/** 列出团队可调用的全部 Skill：注册表 ∩ 团队成员。 */
 export function listTeamSkills(team: ATTeam): ATSkill[] {
   registerBuiltinSkills();
   const memberIds = new Set(team.agents.map((a) => a.agentId));
@@ -228,7 +228,7 @@ export function listTeamSkills(team: ATTeam): ATSkill[] {
 }
 
 /**
- * 以 AgentTeams 形态调用 Skill（SP-04）：
+ * 以 AgentTeams 形态调用 Skill：
  * 查注册表 → 校验 ownerAgent 在团队内（能力边界）→ 执行 handler。
  * 失败不抛，统一返回 SkillResult（含降级语义）。
  */
@@ -332,8 +332,8 @@ function stepStatus(phase: string, summary: string): 'ok' | 'warn' | 'blocked' {
 }
 
 /**
- * 运行 Task（SP-04）：逐阶段经 `invokeSkill` 调用团队 Skill，
- * 而非直连 judge——评审可在 run.steps 看到「Agent → Skill」的真实调用链。
+ * 运行 Task：逐阶段经 `invokeSkill` 调用团队 Skill，
+ * 而非直连 judge——run.steps 上可见「Agent → Skill」的真实调用链。
  * 任一 Skill 降级不中断流程（失败处理约定），由后续阶段/兜底逻辑消化。
  */
 export async function runTask(
@@ -368,7 +368,7 @@ export async function runTask(
   // ── input：boss 接收任务输入 ──
   push('input', 'boss', `老板接收招聘需求：${task.requirement.slice(0, 60)}…`);
 
-  // ── decompose：dispatcher 动态拆解（SP-06：随岗位变化，非硬编码） ──
+  // ── decompose：dispatcher 动态拆解（随岗位变化，非硬编码） ──
   const plan = {
     jobType: detectJobType(task.requirement),
     targetDims: [...RADAR_DIMS],
@@ -381,7 +381,7 @@ export async function runTask(
     { ...plan, sharedContext: team.sharedContext },
   );
 
-  // ── context：recruiter → agent_interview（SP-06：sharedContext 透传；SP-08：历史经验注入） ──
+  // ── context：recruiter → agent_interview（sharedContext 透传 + 历史经验注入） ──
   const priorRule = latestRule(task.candidateId);
   const interviewRes = await invokeSkill(team, 'agent_interview', {
     candidateId: task.candidateId,

@@ -1,17 +1,17 @@
 /**
- * Skill 运行时注册表（GOAI 要求 2 · SP-01）
+ * Skill 运行时注册表
  * --------------------------------------------------------------------------
  * 把 roleCard.ts 里仅作「数据声明」的 RoleCardSkill 升级为**可被 AgentTeams
- * 调用的 Skill 定义**：GOAI 赛题 2.1 全字段 + 可执行 handler + 注册表。
+ * 调用的 Skill 定义**：完整能力契约字段 + 可执行 handler + 注册表。
  *
  * 设计要点：
- *  - `SkillDefinition` 保留 2.1 全部字段（名称/用途/输入输出/调用条件/依赖/
+ *  - `SkillDefinition` 保留完整能力契约（名称/用途/输入输出/调用条件/依赖/
  *    失败处理/安全边界/复用价值/协同关系），并追加 `ownerAgent` 与 `handler`。
  *  - handler 统一返回 `SkillResult`，**失败不抛**——异常在此层被捕获并降级为
- *    `{ ok:false, degraded:true }`，对应赛题「失败处理机制」要求。
+ *    `{ ok:false, degraded:true }`，实现声明式的「失败处理机制」。
  *  - 本模块零 Electron/IPC 副作用，可在 vitest 与 web demo 中直接运行。
  *
- * 2026-08-15（Option 1 · T1-T3）：全部运行时 API 委托给可逆内核 `ctx`
+ * 全部运行时 API 委托给可逆内核 `ctx`
  * （src/demo/plugins/context.ts），保证单一真相源、可释放（Disposable）、可 patch。
  * 内核与 registry 之间仅存在「registry 值导入 ctx / context 类型导入 SkillDefinition」
  * 的单向依赖，无模块初始化环。
@@ -32,7 +32,7 @@ export interface SkillResult<T = unknown> {
 /** Skill 处理器：任意 JSON 参数 → SkillResult，约定不抛出异常。 */
 export type SkillHandler = (args: Record<string, unknown>) => Promise<SkillResult>;
 
-/** GOAI 2.1 全字段 + 运行时绑定。 */
+/** Skill 能力契约全字段 + 运行时绑定。 */
 export interface SkillDefinition {
   id: string;
   name: string; // Skill 名称
@@ -108,7 +108,7 @@ export async function runSkill(
 }
 
 /**
- * 把角色卡上的 RoleCardSkill 投影为 SkillDefinition（2.1 字段一一对应），
+ * 把角色卡上的 RoleCardSkill 投影为 SkillDefinition（契约字段一一对应），
  * handler 由调用方绑定（真实实现见 handlers.ts，测试可注入 mock）。
  */
 export function projectSkill(

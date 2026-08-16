@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * GOAI 复赛自动化验证报告脚本（SP-14）
- * 依次执行代码门禁与 GOAI 专项测试，汇总生成
- * docs/artifacts/goai-verification-report.md（含命令、通过数、门禁结论）。
- * 用法：node scripts/qa/goai-verify.mjs  （或 pnpm verify:goai）
+ * 发布前自动化验证报告脚本。
+ * 依次执行代码门禁与多 Agent 协同专项测试，汇总生成
+ * docs/artifacts/verification-report.md（含命令、通过数、门禁结论）。
+ * 用法：node scripts/qa/release-verify.mjs  （或 pnpm verify）
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
-const reportPath = join(root, 'docs/competitions/goai/verification-report.md');
+const reportPath = join(root, 'docs/artifacts/verification-report.md');
 
 /**
  * 输出脱敏（QA 复核修复）：报告落在 privacy:check 的扫描目录内，
@@ -35,7 +35,7 @@ const steps = [
     args: ['pnpm', 'typecheck'],
   },
   {
-    name: 'GOAI 专项测试（adapter/closedLoop/skills/otel/trace-sink/approval-gate/hiclaw-crd）',
+    name: '多 Agent 协同专项测试（adapter/closedLoop/skills/otel/trace-sink/approval-gate/hiclaw-crd）',
     cmd: 'corepack',
     args: [
       'pnpm',
@@ -97,9 +97,9 @@ for (const step of steps) {
 
 const now = new Date().toISOString();
 const lines = [
-  '# GOAI 复赛自动化验证报告',
+  '# 自动化验证报告',
   '',
-  `生成时间：${now}（由 \`pnpm verify:goai\` 自动生成，勿手改）`,
+  `生成时间：${now}（由 \`pnpm verify\` 自动生成，勿手改）`,
   '',
   '| 门禁步骤 | 命令 | 结果 | 耗时 |',
   '|---|---|---|---|',

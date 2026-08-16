@@ -1,8 +1,8 @@
 /**
- * GOAI 多 Agent 闭环演示页（web 预览 5174 可用，路径 /demo.html）。
- * 展示 boss → recruiter → evaluator → boss 端到端闭环，并把每一步对齐 GOAI 八步闭环。
+ * 多 Agent 闭环演示页（web 预览 5174 可用，路径 /demo.html）。
+ * 展示 boss → recruiter → evaluator → boss 端到端闭环，每一步对齐八步闭环阶段。
  *
- * SP-05：本页不再直连 runClosedLoop——而是走 AgentTeams 薄适配：
+ * 本页不直连 runClosedLoop——而是走 AgentTeams 薄适配：
  *   createTeam() → createTask() → runTask(team, task)
  * runTask 内部经 invokeSkill 逐阶段调用 Skill（recruiter→agent_interview、
  * evaluator→capability_assessment/reliability_audit、boss→boss_review），
@@ -67,7 +67,7 @@ export default function ClosedLoopDemo() {
   const [auditLines, setAuditLines] = useState<string[]>([]);
   const [hireLedgerCount, setHireLedgerCount] = useState(0);
 
-  // SP-10：web demo 的 Trace 落盘后端 = localStorage（内存兜底）
+  // web demo 的 Trace 落盘后端 = localStorage（内存兜底）
   // 经验沉淀同样落 localStorage——否则刷新页面即丢，
   // 「沉淀 → 下一轮复用注入」的回路在演示现场无法被验证。
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function ClosedLoopDemo() {
       });
       const r = await runTask(team, task);
       setRun(r);
-      sinkRun(r); // SP-10：每次 run 自动落盘（localStorage JSONL）
+      sinkRun(r); // 每次 run 自动落盘（localStorage JSONL）
       setSavedIds(listRunIds());
       setDecisionNote('');
       setAuditLines(exportAuditJsonl(r.runId));
@@ -145,7 +145,7 @@ export default function ClosedLoopDemo() {
       <h1 style={{ fontSize: 24, marginBottom: 4 }}>AgentCorp · 多 Agent 闭环 Demo</h1>
       <p style={{ color: '#555', marginTop: 0 }}>
         数字员工招募与管理训练场 · AgentTeams 协同基点（Team→Task→Run→invokeSkill）·
-        对齐阿里 GOAI 八步闭环（任务输入→拆解→上下文→工具→验证→证据→审批→经验）
+        八步闭环：任务输入→拆解→上下文→工具→验证→证据→审批→经验
       </p>
 
       <h2 style={{ fontSize: 18, marginTop: 24 }}>Agent Identity 清单（4 异构职能 Agent）</h2>
@@ -179,7 +179,7 @@ export default function ClosedLoopDemo() {
         {running ? '运行中…' : '▶ 运行 AgentTeams 闭环（Team→Task→Run）'}
       </button>
 
-      {/* SP-10：Trace 落盘下载 + 历史 run 回放 */}
+      {/* Trace 落盘下载 + 历史 run 回放 */}
       <div style={{ marginTop: 10, fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           onClick={() => run && downloadRunJsonl(run)}

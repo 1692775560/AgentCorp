@@ -1,5 +1,5 @@
 /**
- * SP-10 验收：ATRun Trace 落盘（JSONL）+ 回放 round-trip 一致。
+ * ATRun Trace 落盘（JSONL）+ 回放 round-trip 一致。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
@@ -29,7 +29,7 @@ beforeEach(() => {
   setTraceBackend(backend);
 });
 
-describe('observability/traceSink (SP-10)', () => {
+describe('observability/traceSink', () => {
   it('serializeRun 产出 meta + 每步一行 + result 一行的合法 JSONL', async () => {
     const run = await runTask(createTeam(), createTask(TASK), { judge: mockJudge });
     const lines = serializeRun(run);
