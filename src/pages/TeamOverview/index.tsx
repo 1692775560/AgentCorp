@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, memo } from 'react';
+import { Fragment, useEffect, useState, useMemo, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -471,18 +471,26 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
     const agentId = asset.type === 'team' ? asset.team?.leaderId : asset.agent?.id;
     if (!agentId) return;
     onClose();
-    openDirectAgentSession(agentId, {
-      teamId: asset.type === 'team' ? asset.team?.id : undefined,
-      teamName: asset.type === 'team' ? asset.team?.name : undefined,
-      isLeaderChat: asset.type === 'team',
-    });
+    // openDirectAgentSession 在 agent 缺失 / leader-only 受限时会抛错，
+    // 兜住并提示，且无论如何都完成跳转，绝不让弹窗卡在半关状态。
+    try {
+      openDirectAgentSession(agentId, {
+        teamId: asset.type === 'team' ? asset.team?.id : undefined,
+        teamName: asset.type === 'team' ? asset.team?.name : undefined,
+        isLeaderChat: asset.type === 'team',
+      });
+    } catch (err) {
+      toast.error(`发起对话失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
     navigate('/');
   };
 
   return (
+    // AnimatePresence 的直接子节点必须有稳定 key，否则退出动画无法被跟踪，
+    // 弹窗会以「幽灵」状态残留：看得见但点不动（X / 按钮全部失效）。
     <AnimatePresence>
       {asset && mode && (
-        <>
+        <Fragment key="action-modal">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -608,7 +616,7 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
               </div>
             )}
           </motion.div>
-        </>
+        </Fragment>
       )}
     </AnimatePresence>
   );
