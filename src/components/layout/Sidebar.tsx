@@ -3,6 +3,7 @@ import {
   BarChart3,
   Building2,
   ChevronRight,
+  HelpCircle,
   Home,
   LayoutDashboard,
   MessageSquare,
@@ -136,6 +137,7 @@ function NavItem({
 export function Sidebar() {
   const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
   const setSidebarCollapsed = useSettingsStore((state) => state.setSidebarCollapsed);
+  const openGuide = useSettingsStore((state) => state.openGuide);
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -434,6 +436,15 @@ export function Sidebar() {
                 {selectedAvatar}
               </button>
               <span className="flex-1 truncate text-[13px] font-bold text-[#1A1C1E]">{nickname}</span>
+              <button
+                type="button"
+                aria-label={tSidebar('guide', '新手引导')}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
+                onClick={() => openGuide()}
+                title={tSidebar('guide', '新手引导')}
+              >
+                <HelpCircle className="h-5 w-5" />
+              </button>
               <button
                 type="button"
                 aria-label={tSidebar('settingsAria', 'Settings')}
