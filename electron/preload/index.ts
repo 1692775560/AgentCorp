@@ -33,6 +33,8 @@ const electronAPI = {
         'shell:openExternal',
         'shell:showItemInFolder',
         'shell:openPath',
+        // 任务交付文件
+        'task:saveDeliverables',
         // Dialog
         'dialog:open',
         'dialog:save',

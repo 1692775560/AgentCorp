@@ -35,6 +35,8 @@ import {
 import { runRealExecution, runRealChat, isRealExecutorAvailable } from '@/engine/llm/realExecutor';
 import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
+import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
+import { invokeIpc } from '@/lib/api-client';
 import type { Team } from '@/types/team';
 import type { A2aTraceRecord } from '@/types/evaluation';
 import type { TaskExecutionEvent } from '@/types/task';
@@ -376,6 +378,8 @@ async function runOne(
     let sessionId = task.runtimeSessionId || sessionKey;
     let runId: string | undefined;
     let realOutput: string | null = null;
+    /** 交付文件落盘目录（仅编排路径产出）。 */
+    let deliverableDir: string | undefined;
 
     // 2. 真实执行优先：若真实 LLM 后端在线（Vite 代理已配置 key）：
     //    - 团队任务 → 多成员编排（leader 拆解 → 并行执行 → 审阅/返工 → 汇总）；
@@ -420,6 +424,21 @@ async function runOne(
           realOutput =
             `【团队协同·${team.name}·${orch.subtasks.length} 个子任务：${passed} 通过` +
             `${failedCount ? `，${failedCount} 失败` : ''}】\n${orch.deliverable}`;
+          // 交付文件落盘：各子任务完整产出（含代码全文）写成真实文件，
+          // HTML 可直接双击运行；落盘失败不阻塞交付，仅不附目录。
+          try {
+            const files = buildDeliverableFiles(orch.subtasks, orch.deliverable);
+            const saved = await invokeIpc<{ success: boolean; dir?: string; saved?: string[] }>(
+              'task:saveDeliverables',
+              { taskId: task.id, files },
+            );
+            if (saved.success && saved.dir) {
+              deliverableDir = saved.dir;
+              realOutput += `\n\n---\n📁 ${saved.saved?.length ?? 0} 个交付文件已保存到本地，点下方「打开交付目录」查看/运行。`;
+            }
+          } catch {
+            /* 落盘失败不阻塞交付 */
+          }
         } else if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
           // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
           const events: TaskExecutionEvent[] = [];
@@ -498,6 +517,7 @@ async function runOne(
     await approvals.updateTask(task.id, {
       status: 'review',
       workState: 'done',
+      ...(deliverableDir ? { deliverableDir } : {}),
       workResult: realOutput
         ? realOutput.slice(0, 4000)
         : runId

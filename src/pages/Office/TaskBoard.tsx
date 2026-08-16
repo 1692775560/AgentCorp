@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
@@ -17,6 +17,7 @@ import type { KanbanTask, TaskStatus } from '@/types/task';
 import type { TeamSummary } from '@/types/team';
 import { AutoWorkerBar } from './AutoWorkerBar';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
+import { invokeIpc } from '@/lib/api-client';
 
 const COLUMNS: Array<{ key: TaskStatus; label: string; accent: string }> = [
   { key: 'todo', label: '待办', accent: '#9ca3af' },
@@ -364,6 +365,17 @@ export function TaskBoard() {
                 <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#22c55e14' }}>
                   <p className="mb-1.5 text-[11px] font-semibold" style={{ color: '#22c55e' }}>交付结果</p>
                   <MarkdownContent content={selected.workResult} className="text-[12.5px] leading-relaxed" />
+                  {selected.deliverableDir && (
+                    <button
+                      type="button"
+                      onClick={() => void invokeIpc('shell:openPath', selected.deliverableDir)}
+                      className="neu-btn mt-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11.5px] font-semibold"
+                      style={{ color: '#22c55e' }}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      打开交付目录（{selected.deliverableDir.split('/').pop()}）
+                    </button>
+                  )}
                 </div>
               )}
               {selected.blocker && (

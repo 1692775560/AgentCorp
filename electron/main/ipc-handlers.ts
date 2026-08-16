@@ -32,6 +32,7 @@ import {
 } from '../utils/channel-config';
 import { checkUvInstalled, installUv, setupManagedPython } from '../utils/uv-setup';
 import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/skill-config';
+import { saveTaskDeliverables } from '../utils/deliverables';
 import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate, readAgentPersona } from '../utils/openclaw-workspace';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { getProviderConfig } from '../utils/provider-registry';
@@ -98,6 +99,9 @@ export function registerIpcHandlers(
 
   // Shell handlers
   registerShellHandlers();
+
+  // 任务交付文件落盘 handlers
+  registerDeliverableHandlers();
 
   // Dialog handlers
   registerDialogHandlers();
@@ -2002,6 +2006,31 @@ function registerShellHandlers(): void {
   ipcMain.handle('shell:openPath', async (_, path: string) => {
     return await shell.openPath(path);
   });
+}
+
+/**
+ * 任务交付文件落盘：编排产出的文件列表写入
+ * ~/.openclaw/deliverables/<taskId>/，返回目录供 UI「打开交付目录」。
+ */
+function registerDeliverableHandlers(): void {
+  ipcMain.handle(
+    'task:saveDeliverables',
+    async (_, payload: { taskId?: unknown; files?: unknown }) => {
+      try {
+        const taskId = typeof payload?.taskId === 'string' ? payload.taskId : '';
+        const files = Array.isArray(payload?.files) ? payload.files : [];
+        if (!taskId) return { success: false as const, error: 'missing taskId' };
+        const result = await saveTaskDeliverables(
+          taskId,
+          files as Array<{ name: string; content: string }>,
+        );
+        return { success: true as const, ...result };
+      } catch (err) {
+        logger.warn('saveDeliverables failed:', err);
+        return { success: false as const, error: String(err) };
+      }
+    },
+  );
 }
 
 /**
