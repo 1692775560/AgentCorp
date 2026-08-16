@@ -1,8 +1,9 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
 import { resolve } from 'path';
+import { llmProxyPlugin } from './vite-plugin-llm-proxy';
 
 function isMainProcessExternal(id: string): boolean {
   if (!id || id.startsWith('\0')) return false;
@@ -12,7 +13,15 @@ function isMainProcessExternal(id: string): boolean {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
+  // 把 .env 里的 LLM_* 注入 process.env，供 dev 中间件（Node 侧）读取。
+  // 与 vite.config.web.ts 保持一致：Electron dev 的渲染进程同样只调同源
+  // /api/llm/chat，缺了 llmProxyPlugin 会导致真实执行 404。
+  const env = loadEnv(mode, process.cwd(), '');
+  for (const key of ['LLM_API_KEY', 'LLM_BASE_URL', 'LLM_MODEL']) {
+    if (env[key] && !process.env[key]) process.env[key] = env[key];
+  }
+
   const mainProcessExternal =
     command === 'serve'
       ? isMainProcessExternal
@@ -26,6 +35,7 @@ export default defineConfig(({ command }) => {
   base: './',
   plugins: [
     react(),
+    llmProxyPlugin(),
     electron([
       {
         // Main process entry file

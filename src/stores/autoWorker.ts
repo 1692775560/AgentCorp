@@ -60,7 +60,9 @@ function gatewayConnected(): boolean {
 let realExecutorReady = false;
 let realExecutorProbed = false;
 async function probeRealExecutor(): Promise<boolean> {
-  if (realExecutorProbed) return realExecutorReady;
+  // 只缓存「可用」结论；探测失败（如 dev server 尚未注入 env、代理未就绪）
+  // 不锁定，下次执行时重新探测，避免一次失败导致整个会话永远走网关兜底。
+  if (realExecutorProbed && realExecutorReady) return true;
   realExecutorProbed = true;
   try {
     realExecutorReady = await isRealExecutorAvailable();
