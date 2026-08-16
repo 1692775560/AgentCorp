@@ -184,6 +184,7 @@ export function TaskBoard() {
   const fetchApprovals = useApprovalsStore((s) => s.fetchApprovals);
   const approveItem = useApprovalsStore((s) => s.approveItem);
   const rejectItem = useApprovalsStore((s) => s.rejectItem);
+  const updateTask = useApprovalsStore((s) => s.updateTask);
   const teams = useTeamsStore((s) => s.teams);
   const fetchTeams = useTeamsStore((s) => s.fetchTeams);
 
@@ -297,6 +298,21 @@ export function TaskBoard() {
                         {t.assigneeRole && <span className="truncate">{t.assigneeRole}</span>}
                         {t.isTeamTask && <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#6366f122', color: '#6366f1' }}>A2A协作</span>}
                         {waiting && <span className="flex items-center gap-0.5" style={{ color: '#f59e0b' }}><Clock className="h-3 w-3" />待审批</span>}
+                        {t.workState === 'failed' && (
+                          // 失败任务（含重试上限后停住的）一键重新排队，AutoWorker 下一轮自动领取
+                          <span
+                            role="button"
+                            title={t.workError ?? '执行失败'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void updateTask(t.id, { status: 'todo', workState: 'idle' }).then(() => fetchTasks());
+                            }}
+                            className="flex cursor-pointer items-center gap-0.5 rounded px-1 py-px text-[9.5px] font-bold"
+                            style={{ background: '#ef444422', color: '#ef4444' }}
+                          >
+                            失败·点我重试
+                          </span>
+                        )}
                         <span className="ml-auto flex items-center gap-0.5"><ChevronRight className="h-3 w-3" /></span>
                       </div>
                     </button>
