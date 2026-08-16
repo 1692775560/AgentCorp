@@ -8,7 +8,8 @@
  * 点击任一任务卡 → 右侧展开执行过程时间线（executionEvents）。
  */
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
@@ -45,6 +46,7 @@ function timeAgo(iso?: string): string {
  * AutoWorker 开启时由团队 leader 自动接管多 agent 协作。
  */
 function CreateTeamTaskModal({ teams, onClose }: { teams: TeamSummary[]; onClose: () => void }) {
+  const navigate = useNavigate();
   const createTask = useApprovalsStore((s) => s.createTask);
   const [teamId, setTeamId] = useState(teams[0]?.id ?? '');
   const [title, setTitle] = useState('');
@@ -94,9 +96,24 @@ function CreateTeamTaskModal({ teams, onClose }: { teams: TeamSummary[]; onClose
         </div>
 
         {teams.length === 0 ? (
-          <p className="text-[12.5px] leading-relaxed" style={{ color: 'var(--neu-ink-soft)' }}>
-            暂无可下发任务的团队。团队需要有负责人（leader）且至少 1 名成员，请先在「人力资产」页创建团队。
-          </p>
+          <div className="flex flex-col gap-3">
+            <p className="text-[12.5px] leading-relaxed" style={{ color: 'var(--neu-ink-soft)' }}>
+              暂无可下发任务的团队。注意：单独雇佣的 agent 不算团队——需要先把 1 个 leader 和至少
+              1 名成员组建成一个团队，才能下发团队任务。
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                navigate('/team-builder');
+              }}
+              className="neu-btn flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-[13px] font-semibold text-white"
+              style={{ background: '#6366f1' }}
+            >
+              <Users className="h-4 w-4" />
+              去组建团队
+            </button>
+          </div>
         ) : (
           <>
             <label className="flex flex-col gap-1.5">

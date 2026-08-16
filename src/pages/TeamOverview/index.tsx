@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   MoreHorizontal,
   Users,
@@ -244,34 +244,34 @@ function ActionMenu({ asset, onViewProfile, onConfig, onAssignTask, onEditMemory
         <MoreHorizontal className="h-4 w-4" />
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-gray-100"
-          >
-            {items.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={item.action}
-                className={cn(
-                  'flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors',
-                  item.danger
-                    ? 'text-red-500 hover:bg-red-50'
-                    : 'text-gray-700 hover:bg-gray-50',
-                )}
-              >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* 不用 AnimatePresence 退出动画：framer-motion 12 + StrictMode 下退出
+          完成回调可能不触发，元素停在 opacity 0 却不卸载，残留幽灵层吞掉点击。
+          仅保留入场动画（mount 时播放），关闭即即时卸载。 */}
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.12 }}
+          className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-gray-100"
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={item.action}
+              className={cn(
+                'flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors',
+                item.danger
+                  ? 'text-red-500 hover:bg-red-50'
+                  : 'text-gray-700 hover:bg-gray-50',
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </button>
+          ))}
+        </motion.div>
+      )}
     </div>
   );
 }
@@ -411,6 +411,16 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
   const [sending, setSending] = useState(false);
   const createTask = useApprovalsStore((s) => s.createTask);
 
+  // Esc 关闭弹窗（与点遮罩 / X 等价，兜住点击热区异常的极端情况）。
+  useEffect(() => {
+    if (!asset || !mode) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [asset, mode, onClose]);
+
   const handleAssignTask = async () => {
     if (!asset || !taskContent.trim()) return;
     setSending(true);
@@ -461,31 +471,39 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
     const agentId = asset.type === 'team' ? asset.team?.leaderId : asset.agent?.id;
     if (!agentId) return;
     onClose();
-    openDirectAgentSession(agentId, {
-      teamId: asset.type === 'team' ? asset.team?.id : undefined,
-      teamName: asset.type === 'team' ? asset.team?.name : undefined,
-      isLeaderChat: asset.type === 'team',
-    });
+    // openDirectAgentSession 在 agent 缺失 / leader-only 受限时会抛错，
+    // 兜住并提示，且无论如何都完成跳转，绝不让弹窗卡在半关状态。
+    try {
+      openDirectAgentSession(agentId, {
+        teamId: asset.type === 'team' ? asset.team?.id : undefined,
+        teamName: asset.type === 'team' ? asset.team?.name : undefined,
+        isLeaderChat: asset.type === 'team',
+      });
+    } catch (err) {
+      toast.error(`发起对话失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
     navigate('/');
   };
 
   return (
-    <AnimatePresence>
-      {asset && mode && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, x: '-50%', y: '-45%' }}
-            animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
-            exit={{ opacity: 0, scale: 0.95, x: '-50%', y: '-45%' }}
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md rounded-[32px] bg-white p-8 shadow-2xl"
-          >
+    // 不用 AnimatePresence 退出动画：framer-motion 12 + StrictMode 下退出完成
+    // 回调可能不触发，元素停在 opacity 0 却不卸载，残留的隐形全屏遮罩会吞掉
+    // 页面上所有点击（本次「卡死」的根因）。仅保留入场动画，关闭即即时卸载。
+    asset && mode && (
+      <>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.12 }}
+          onClick={onClose}
+          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm"
+        />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, x: '-50%', y: '-45%' }}
+          animate={{ opacity: 1, scale: 1, x: '-50%', y: '-50%' }}
+          transition={{ duration: 0.12 }}
+          className="fixed left-1/2 top-1/2 z-50 w-full max-w-md rounded-[32px] bg-white p-8 shadow-2xl"
+        >
             {/* Header */}
             <div className="mb-6 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -597,10 +615,9 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
                 </button>
               </div>
             )}
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+        </motion.div>
+      </>
+    )
   );
 }
 
