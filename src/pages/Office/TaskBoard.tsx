@@ -16,6 +16,7 @@ import { useTeamsStore } from '@/stores/teams';
 import type { KanbanTask, TaskStatus } from '@/types/task';
 import type { TeamSummary } from '@/types/team';
 import { AutoWorkerBar } from './AutoWorkerBar';
+import MarkdownContent from '@/pages/Chat/MarkdownContent';
 
 const COLUMNS: Array<{ key: TaskStatus; label: string; accent: string }> = [
   { key: 'todo', label: '待办', accent: '#9ca3af' },
@@ -325,7 +326,7 @@ export function TaskBoard() {
 
         {/* 案件执行过程时间线 */}
         {selected && (
-          <aside className="neu-inset flex w-full max-w-[340px] shrink-0 flex-col overflow-hidden rounded-2xl">
+          <aside className="neu-inset flex w-full max-w-[420px] shrink-0 flex-col overflow-hidden rounded-2xl">
             <div className="border-b px-4 py-3" style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 14%, transparent)' }}>
               <div className="flex items-center gap-2">
                 <ClipboardList className="h-4 w-4" style={{ color: 'var(--neu-ink-soft)' }} />
@@ -360,8 +361,9 @@ export function TaskBoard() {
                 })}
               </ol>
               {selected.workResult && (
-                <div className="mt-3 rounded-xl px-3 py-2 text-[12px] leading-relaxed" style={{ background: '#22c55e14', color: 'var(--neu-ink)' }}>
-                  <span className="font-semibold" style={{ color: '#22c55e' }}>交付结果：</span>{selected.workResult}
+                <div className="mt-3 rounded-xl px-3 py-2" style={{ background: '#22c55e14' }}>
+                  <p className="mb-1.5 text-[11px] font-semibold" style={{ color: '#22c55e' }}>交付结果</p>
+                  <MarkdownContent content={selected.workResult} className="text-[12.5px] leading-relaxed" />
                 </div>
               )}
               {selected.blocker && (
