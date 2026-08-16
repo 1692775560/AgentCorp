@@ -1,6 +1,6 @@
 /**
  * src/engine/scoring/registry.ts
- * 维度注册表（T0 前端 TS 镜像，与 model-service/app/scoring/registry.py 同义）。
+ * 维度注册表（前端 TS 镜像，与 model-service/app/scoring/registry.py 同义）。
  *
  * 设计要点：
  * - 六维基线 RADAR_DIMS 复用既有 RadarDim（src/types/evaluation.ts）。

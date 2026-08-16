@@ -25,7 +25,7 @@
  * - judgeEnsemble.aggregateRadars 可保留为「展示均值」，但**最终排序**应改走
  *   rankByTopsis（纳入维度重要性权重，避免「六维平均」掩盖偏科型候选）。
  * - 多评委场景（HR + AI-judge）每轮用 krippendorffAlphaMulti 检一致性，
- *   α < 0.67 触发人工复核（对齐路书 Phase 4 验收：α 低触发复核）。
+ *   α < 0.67 触发人工复核。
  *
  * 说明：本文件与 metaJudge.ts 的 `krippendorffAlpha`（评委 vs gold 二值）不同，
  * 这里是**多评委对多候选**的评分矩阵一致性，为完整实现，不依赖 Python sidecar。

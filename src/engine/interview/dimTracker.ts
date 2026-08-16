@@ -13,7 +13,7 @@ import type { CraftDim, RadarDim, RadarScore } from '@/types/evaluation';
 import type { InterviewMetrics, InterviewRecommendation, InterviewTurn } from '@/types/interview';
 import { RADAR_DIMS, CRAFT_LINKS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
-// G1：信息增益选题——用单维 2PL IRT 把「再问一题能削减的不确定性」量化成 EIG，
+// 信息增益选题：用单维 2PL IRT 把「再问一题能削减的不确定性」量化为 EIG，
 // 替代原「覆盖度升序」的贪心排序（详见 ./irt.ts）。
 import { dimInformationGain, DEFAULT_ITEM_A, DEFAULT_ITEM_B, type IrtResponse } from './irt';
 
@@ -217,7 +217,7 @@ export function coverageRatio(coverage: DimCoverage[]): number {
 
 /**
 /**
- * 把某维已积累的作答转成 IRT 二项作答序列（G1 信息增益选题用）。
+ * 把某维已积累的作答转成 IRT 二项作答序列，供信息增益选题使用。
  * 优先用 HR 人工评分（≥3 视为达标/正确），无评分时回落到 evidenceStrength 启发式
  * （≥0.5 视为达标）。每题采用统一默认参数（DEFAULT_ITEM_A/B），因追问探针尚无标定 a/b。
  */
@@ -264,7 +264,7 @@ export function suggestFollowups(
   }
 
   const coverage = computeCoverage(turns, targetDims);
-  // G1：全维度先按 EIG 降序（零证据→熵最大→最优先；强证据→熵低→靠后），
+  // 全维度先按 EIG 降序（零证据→熵最大→最优先；强证据→熵低→靠后），
   //     稳定 tie-break：EIG 相同时先问被问更少的维。
   const allByInfoGain = [...coverage].sort((a, b) => {
     const ga = dimInformationGain(dimResponses(turns, a.dim));

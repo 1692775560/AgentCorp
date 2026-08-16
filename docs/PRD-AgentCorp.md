@@ -162,9 +162,9 @@ stateDiagram-v2
 
 ### 6.4 任务-运行 归因关联
 
-`src/services/runLinkStore.ts` 存在并被 `evaluationRuntime` 调用（git log `b6c7904 feat: T06 runId↔task association`）。把 `runId↔taskId↔agentId` 焊死，保证评分能精确归因到「哪个 Agent 在哪次运行完成了哪单任务」，避免下游张冠李戴。
+`src/services/runLinkStore.ts` 存在并被 `evaluationRuntime` 调用。把 `runId↔taskId↔agentId` 焊死，保证评分能精确归因到「哪个 Agent 在哪次运行完成了哪单任务」，避免下游张冠李戴。
 
-### 6.5 T 系列评分层（T03–T08）
+### 6.5 评分层
 双 Leaderboard + 偏好回灌 + 评分卡；`telemetry` 默认关、无硬编码 key、禁用自动更新、`gateway toolPolicy` 收敛（git log 批次提交 `bbdc500` 等）。治理侧已为「安全收敛」留好开关。
 
 ---
@@ -226,14 +226,14 @@ A 卖家 Agent 做一半交给 B 卖家 Agent：顺着 A2A 的设计——Agent 
 ### 9.1 已实现 / 待做
 | 状态 | 项 |
 |------|----|
-| ✅ 已落地 | 三进程架构、双轨 λ 融合评分、5 态生命周期机、runLinkStore 归因、T03–T08 评分层、17 个页面（含 Agent 供给/协作）、Neumorphism 设计系统、自托管字体、tsc 0 错误 + 单测 274/274 |
+| ✅ 已落地 | 三进程架构、双轨 λ 融合评分、5 态生命周期机、runLinkStore 归因、评分层、17 个页面（含 Agent 供给/协作）、Neumorphism 设计系统、自托管字体、tsc 0 错误 + 单测 274/274 |
 | 🚧 占位/待做 | **`Kanban` 真实拖拽看板**（当前仅占位页）；身份层 ANP/DID 落地；`task_sets` 埋 `difficulty_calibrated_at` 时间戳 |
 | 🔒 真 P0 | Gateway 工具执行「只读/白名单/沙箱」收敛——文档写了要做，需实测验证到确实完成（评委面前爆雷的正是这种） |
 
 ### 9.2 已知技术债 / 边界（诚实列出）
 - 浏览器预览拉不到真实 Agent 数据（需 `npm run dev` 跑真实桌面端）。
 - `Kanban` 为占位页，真实看板未实现。
-- 历史已修复：`collectors`/`eval-engines` 单测曾红（collectors 断言滞后 T05 成本模型、`computeRoi` 漏返回 `cps`），已通过独立 `vitest.config.ts` + `RoiSnapshot.cps` 补齐解决；侧边栏竖线割裂（`<aside>` 的 `overflow-hidden` 裁掉新拟物阴影）已修（`relative z-30`）。
+- 历史已修复：`collectors`/`eval-engines` 单测曾红（collectors 断言滞后于成本模型、`computeRoi` 漏返回 `cps`），已通过独立 `vitest.config.ts` + `RoiSnapshot.cps` 补齐解决；侧边栏竖线割裂（`<aside>` 的 `overflow-hidden` 裁掉新拟物阴影）已修（`relative z-30`）。
 
 ### 9.3 与上游状态文档的偏差（已核对，重要）
 用户此前收到的 `agentcorp-codebase-status-and-roadmap.md` 基于 GitHub **上游**克隆，落后本地 fork，列出三个「缺口」——经核对，其中两个在本地**已 Done**：

@@ -1,6 +1,6 @@
 /**
  * src/engine/scoring/taskSets.ts
- * Task-Set 可插拔（T9 前端镜像，与 model-service/app/scoring/task_sets.py 同义）。
+ * 任务集可插拔机制（前端镜像，与 model-service/app/scoring/task_sets.py 同义）。
  *
  * 零新增依赖（纯 TS）。后端为权威实现，前端提供轻量镜像供未来任务集 UI 选择。
  */

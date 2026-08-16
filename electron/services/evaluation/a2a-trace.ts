@@ -156,10 +156,10 @@ export async function loadA2aTracesForRun(
   }
 }
 
-/* ===================== G10 桥接：统一 trace 模型 ↔ A2aTraceRecord =====================
+/* ===================== 桥接：统一 trace 模型 ↔ A2aTraceRecord =====================
  * 复用既有 A2A trace 落盘（appendA2aTrace / readA2aTraces），不 fork 一套新落盘。
  * 通过投影把统一 TraceSpan（含 correlation_id / agent_id / cost_usd / tokens / latency_ms）
- * 写入 A2aTraceRecord 的 G10 扩展字段，使跨进程 trace 与主进程 trace 共用同一回放/归因口径。 */
+ * 写入 A2aTraceRecord 的扩展字段，使跨进程 trace 与主进程 trace 共用同一回放与归因口径。 */
 
 /** A2A 侧状态 → 统一 trace 状态。 */
 function a2aStateToTraceStatus(state: A2aTraceRecord['state']): TraceStatus {
@@ -222,7 +222,7 @@ export function toA2aTraceRecord(
     session_key: opts.sessionKey ?? '',
     root_session_id: opts.rootSessionId ?? span.runId,
     trigger: opts.trigger ?? 'spawn',
-    // G10 扩展字段
+    // 扩展字段
     correlation_id: span.correlationId,
     parent_span_id: span.parentSpanId ?? null,
     agent_id: span.agentId ?? null,
@@ -232,7 +232,7 @@ export function toA2aTraceRecord(
   };
 }
 
-/** 把落盘 A2aTraceRecord 反向投影为统一 TraceSpan（G10 扩展字段缺失时安全兜底）。 */
+/** 把落盘 A2aTraceRecord 反向投影为统一 TraceSpan（扩展字段缺失时安全兜底）。 */
 export function fromA2aTraceRecord(record: A2aTraceRecord): TraceSpan {
   return {
     spanId: record.trace_id,

@@ -1,6 +1,6 @@
 /**
  * src/engine/scoring/rulesEngine.ts
- * 规则引擎（T1 前端 TS 镜像，与 model-service/app/scoring/rules_engine.py 同公式）。
+ * 规则引擎（前端 TS 镜像，与 model-service/app/scoring/rules_engine.py 同公式）。
  *
  * 前端可离线计算（无需后端），公式与后端严格一致。
  * 零新增依赖（纯 TS）。
@@ -69,7 +69,7 @@ export function flattenDimWeight(
     const per = craftBlock / craftDims.length;
     for (const d of craftDims) raw[d] = per;
   }
-  // kpiRoi 块：本批次占位（无维度），归一时自动重分配其份额
+  // kpiRoi 块：当前无维度参与，归一时自动重分配其份额
 
   const total = Object.values(raw).reduce((a, b) => a + b, 0);
   if (total <= 0) return raw;

@@ -1,6 +1,6 @@
 /**
  * src/services/scoringRulesService.ts
- * 规则预设拉取/保存（T5，镜像后端 /api/rules）。
+ * 规则预设拉取与保存（镜像后端 /api/rules）。
  *
  * 网络：经 Host API 代理调用 model-service 的 /api/rules（GET/PUT）。
  * 本地缓存：electron-store 命名空间 `agentcorp.scoring-rules`

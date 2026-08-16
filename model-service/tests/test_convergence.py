@@ -1,15 +1,13 @@
 """
-model-service/tests/test_convergence_layer3.py
-QA 独立验证 —— Layer3 收敛层（T13 数据模型 / T14 编码器+PCA / T15 收敛引擎 / T16 接口）。
+收敛层验证：数据模型、编码器与降维、收敛引擎、对外接口。
 
-运行（在 model-service 目录下，venv 已装 pydantic/fastapi/sse-starlette/pytest）：
-    MOCK=true python -m pytest tests/test_convergence_layer3.py -q
+运行方式（在 model-service 目录下）：
+    MOCK=true python -m pytest tests/test_convergence.py -q
 
 设计原则：
-- 纯单元 + 接口验证，不依赖真实模型 / NPU。
-- 公式交叉核对：test 内**独立重算** CR/R/St/CQ/score（非抄实现），
-  用于「前端公式对拍」前的后端自检。
-- 确定性 + 复现：encode_summary 同输入同输出；pca2d 同输入逐位一致。
+- 纯单元与接口验证，不依赖真实模型或专用硬件。
+- 收缩率、残差、稳定度、收敛质量与总分均在测试内独立重算后与实现对拍。
+- 确定性可复现：同一输入的编码结果与降维结果逐位一致。
 """
 from __future__ import annotations
 

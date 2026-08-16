@@ -1,20 +1,22 @@
 """
-QA 独立验证 —— 评估层扩展·批次2（T4–T9 + T19 后端闭环）
-==================================================================
-针对批次2 新增能力做独立覆盖验证：
+评分层与偏好回灌的端到端覆盖验证。
 
-- T4  build_stage_score：S1/S2/S3 同构、Q6 降权（Σ=1 不变 + evidence 标记）、Q4 verdict
-- T8  aggregate_preference / apply_to_user_preference：dimLift 映射、α=0.15、normalize、N<3 返回原 weight（R1 门控）
-- T9  UsageEfficiencyTaskSet.run 返回 TaskRunResult
-- T5  /api/rules 三预设可用（default / cost-focused / quality-focused）
-- T4  /api/evaluate-stage 装配（SSE 事件）
-- T7  /api/leaderboard 生成 divergences
-- T8  /api/preference 回灌后 weight Σ=1
-- T9  /api/evaluate-run 增 taskSetId（task_run 事件）
+覆盖范围：
 
-运行（在 model-service 目录下，venv 已装 pydantic/fastapi/sse-starlette/pytest）：
-    MOCK=true python -m pytest tests/test_scoring_batch2.py -q
-    python -m pytest tests/ -q   # 全量回归（含批次1 + Layer3）
+- build_stage_score：三个阶段结构一致、缺真实执行证据时的降权（权重和保持为 1
+  并写入 evidence 标记）、判定阈值映射
+- aggregate_preference / apply_to_user_preference：维度增益映射、学习率 0.15、
+  归一化、样本量不足时保持原权重不变
+- UsageEfficiencyTaskSet.run 的返回结构
+- /api/rules 三套预设可用（default / cost-focused / quality-focused）
+- /api/evaluate-stage 的事件流装配
+- /api/leaderboard 的分歧项生成
+- /api/preference 回灌后权重和为 1
+- /api/evaluate-run 支持指定任务集
+
+运行方式（在 model-service 目录下）：
+    MOCK=true python -m pytest tests/test_scoring_stage_and_preference.py -q
+    python -m pytest tests/ -q   # 全量回归
 """
 from __future__ import annotations
 
@@ -66,7 +68,7 @@ def _full_subjective(stage: str, val: float = 4.0) -> dict:
 
 
 # ======================================================================
-# T4：build_stage_score
+# 阶段评分卡装配
 # ======================================================================
 @pytest.mark.parametrize("stage", STAGES)
 @pytest.mark.parametrize("job", JOBS)
@@ -138,7 +140,7 @@ def test_q4_verdict_thresholds():
 
 
 # ======================================================================
-# T8：偏好回灌
+# 偏好回灌
 # ======================================================================
 def test_aggregate_preference_dimlift_mapping():
     """被提升 agent 的最强 craft 维 → 关联通用六维映射进 dimLift。"""
@@ -178,7 +180,7 @@ def test_apply_to_user_preference_r1_gating_N_lt_3():
 
 
 # ======================================================================
-# T9：UsageEfficiencyTaskSet.run
+# 用量效率任务集
 # ======================================================================
 def test_usage_efficiency_task_set_run_returns_taskrunresult():
     """UsageEfficiencyTaskSet.run 返回 TaskRunResult，含客观六维。"""
@@ -317,7 +319,7 @@ def test_api_preference_r1_pending_when_n_lt_3():
 
 
 # ======================================================================
-# T9：/api/evaluate-run 增 taskSetId（task_run 事件）
+# /api/evaluate-run 指定任务集时产出 task_run 事件
 # ======================================================================
 def test_api_evaluate_run_with_task_set_id():
     """POST /api/evaluate-run 带 taskSetId → 发出 task_run 事件且主裁判流不变。"""
@@ -340,7 +342,7 @@ def test_api_evaluate_run_with_task_set_id():
 def test_api_convergence_anchor_accepts_dual_leaderboard_drag():
     """POST /api/convergence/anchor 接受 source='dual_leaderboard_drag'。
 
-    T19 前端在每次拖拽置顶时调用 convergenceStore.setAnchor(topAgentId,
+    前端在每次拖拽置顶时调用 convergenceStore.setAnchor(topAgentId,
     'dual_leaderboard_drag')，最终落到该端点。后端 HumanAnchor.source 为
     ConvSource Literal，必须接受新枚举值，且返回 ok + anchor_id。
     """
@@ -371,4 +373,4 @@ if __name__ == "__main__":
     for name in dir():
         if name.startswith("test_"):
             globals()[name]()
-    print("tests/test_scoring_batch2.py 全部通过 ✅")
+    print("tests/test_scoring_stage_and_preference.py 全部通过 ✅")

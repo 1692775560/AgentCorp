@@ -1,8 +1,7 @@
 """
-model-service/tests/test_convergence_layer3_qa.py
-QA（严过关）独立边界验证 —— Layer3 收敛层。
+收敛层边界条件验证。
 
-本文件由 QA 独立编写，覆盖**工程师 test_convergence_layer3.py 未直接覆盖**的边界：
+覆盖主用例之外的极端输入与退化场景：
   1. K=1（仅 S₀ + 末轮）CR/R/St/CQ 行为合理不崩溃（含锚定 / 未锚定兜底）；
   2. 所有 belief embedding 完全相同 → 稳定度 St 应=1（方差为 0）、残差 R 正常；
   3. 锚点候选完全不在轨迹任何轮（非法 human_anchor_id）→ compute 不崩，CQ=0 兜底；
@@ -10,11 +9,11 @@ QA（严过关）独立边界验证 —— Layer3 收敛层。
   5. pca2d 对「全相同点」返回全 [0,0]（确定性，且不抛错）；
   6. encode_summary 对超长文本 / 特殊字符不抛错且仍 L2 归一。
 
-原则：所有期望值均由本文件**独立重算**（不 import 实现的 clamp/cosine/std 助手），
-仅 import 被验证的生产函数本身，用于「独立重算 vs 实现输出」对拍。
+原则：所有期望值均在本文件内独立重算（不复用实现的数值助手），
+仅导入被验证的函数本身，以「独立重算 vs 实现输出」的方式对拍。
 
 运行（在 model-service 目录下，venv 已装 pydantic/pytest）：
-    cd model-service && .venv/Scripts/python.exe -m pytest tests/ -q
+    cd model-service && python -m pytest tests/ -q
 """
 from __future__ import annotations
 
@@ -45,7 +44,7 @@ from app.scoring.convergence import (  # noqa: E402
 
 
 # ======================================================================
-# QA 独立数值助手（与生产实现平行，用于交叉核对，绝不 import 实现内部）
+# 独立数值助手（与生产实现平行，用于交叉核对，不引入实现内部函数）
 # ======================================================================
 def _l2(v):
     return math.sqrt(sum(x * x for x in v))

@@ -1,6 +1,6 @@
 /**
  * tests/unit/metaJudge.test.ts
- * G5 元评估引擎专项锁（JudgeBench 式评委元评估）。
+ * 元评估引擎行为锁定（对评委本身的评估）。
  *
  * 覆盖：
  * - agreement 一致率计算

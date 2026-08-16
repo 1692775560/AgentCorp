@@ -1,6 +1,6 @@
 """
 model-service/app/scoring/preference.py
-偏好回灌（T8。
+偏好回灌。
 
 职责：
 - aggregate_preference(signals, craft_scores_by_agent=None) -> PreferenceProfile

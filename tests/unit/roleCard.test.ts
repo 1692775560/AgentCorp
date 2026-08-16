@@ -1,6 +1,6 @@
 /**
  * tests/unit/roleCard.test.ts
- * G8 结构化角色卡 schema 纯函数单测（无 electron 依赖）。
+ * 结构化角色卡 schema 纯函数单测（无 electron 依赖）。
  * 运行：pnpm test
  */
 import { describe, it, expect } from 'vitest';

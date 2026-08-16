@@ -54,7 +54,7 @@ interface AgentListEntry extends Record<string, unknown> {
   chatAccess?: AgentChatAccess;
   responsibility?: string;
   reportsTo?: string | null;
-  /** G8 结构化角色卡（规范化 Agent 身份/边界/协同）；缺省无。 */
+  /** 结构化角色卡（规范化 Agent 身份、边界与协同关系）；缺省为空。 */
   roleCard?: RoleCard;
 }
 
@@ -107,7 +107,7 @@ export interface AgentSummary {
   responsibility: string;
   reportsTo: string | null;
   directReports: string[];
-  /** G8 结构化角色卡（与前端 AgentSummary.roleCard 对齐，靠 HTTP JSON 序列化）。 */
+  /** 结构化角色卡（与前端 AgentSummary.roleCard 对齐，经 HTTP JSON 传输）。 */
   roleCard?: RoleCard;
 }
 

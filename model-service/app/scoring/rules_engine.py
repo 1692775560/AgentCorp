@@ -1,8 +1,8 @@
 """
 model-service/app/scoring/rules_engine.py
-规则引擎（T1。
+规则引擎。
 
-职责（仅本批次，不越界到 T4 完整评分卡装配）：
+职责（不含完整评分卡装配，后者在 stage_scorer 中）：
 - load_rules(preset_id)：从 presets/*.json 加载规则（缺省回退 default.json）。
 - flatten_dim_weight(stage, job_type, rules)：把「两层级权重」预折叠为
   扁平 dimWeight（Σ=1，仅含本阶段启用客观维）。
@@ -92,7 +92,7 @@ def flatten_dim_weight(stage: str, job_type: str, rules: dict) -> Dict[str, floa
         per = craft_block / len(craft_dims)
         for d in craft_dims:
             raw[d] = per
-    # —— kpiRoi 块：本批次占位（无维度），归一时自动把其份额
+    # —— kpiRoi 块：当前无维度参与，归一时自动把其份额
     #    重新分配给 generic + craft，保持 Σ=1（见下方归一）。
 
     total = sum(raw.values())

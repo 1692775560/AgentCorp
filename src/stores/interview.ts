@@ -89,7 +89,7 @@ export interface StartSessionInput {
   taskRequirement?: TaskRequirement;
   /** 显式任务画像；缺省时直读 marketplaceStore（★通道①） */
   taskProfile?: TaskProfile;
-  /** G8 目标角色卡：作为本场面试的「岗位画像」上下文（HR 面板/建议可引用 role.goal） */
+  /** 目标角色卡：作为本场面试的岗位画像上下文（面板与建议可引用 role.goal） */
   roleCard?: RoleCard;
   /** 面试官（owner id） */
   createdBy?: string;
@@ -128,7 +128,7 @@ interface InterviewState {
   lastMode: 'agent' | 'manual' | null;
   /** 最近一次调度返回的 runId */
   lastRunId: string | null;
-  /** G8 本场面试的目标角色卡（消费角色卡作上下文） */
+  /** 本场面试的目标角色卡（作为上下文使用） */
   targetRole: RoleCard | null;
   /** 面试报告（finishSession 产出） */
   report: InterviewReport | null;

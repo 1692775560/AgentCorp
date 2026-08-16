@@ -197,7 +197,7 @@ export interface TokenUsageHistoryEntryLike {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/* ───────────── G10 trace-first 评委埋点 ─────────────
+/* ───────────── 评委调用埋点 ─────────────
  * 用统一 trace 模型的 correlationId 把分散的评委调用串成链，emit span 记录
  * 时延，并可在调用后把 token / cost 归属到 span（接 tokenUsageCollector）。 */
 

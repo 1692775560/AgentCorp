@@ -1,6 +1,6 @@
 /**
  * tests/unit/itemBank.test.ts
- * G3 题库工程与抗污染引擎专项锁。
+ * 题库工程与抗污染引擎的行为锁定。
  *
  * 覆盖：
  * - itemParams：默认参数与非法输入兜底

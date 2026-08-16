@@ -82,8 +82,8 @@ def compute_user_fit(
          审美硬约束（不符 -8% / 相符 +2%）、技术栈加分（命中 ×1.5%，上限 6%）。
     结果裁剪至 [0,100]。
 
-    T3 扩展（向后兼容，不传 subjective 时行为完全不变）：
-    若传入 subjective（{dim: 0-5}），按 owner 决策 Q3 叠加「owner 口味修正」：
+    可选的主观修正（向后兼容：不传 subjective 时行为完全不变）：
+    若传入 subjective（{dim: 0-5}），按使用者口味叠加修正：
       delta = clamp( mean((score-3)/5 for score in subjective) , ±capPercent% )
       user_fit = user_fit × (1 + delta)    # 乘法形式，capPercent 默认 8 → ±0.08
     即主观分只做 ±8% 封顶的 owner 口味修正，不颠覆客观结论。
@@ -126,7 +126,7 @@ def compute_user_fit(
             f"技术栈命中 {len(overlap)} 项（{','.join(overlap)}），加 {bonus}%"
         )
 
-    # T3：主观叠加（owner 口味修正，封顶 ±capPercent%，向后兼容）
+    # 主观叠加（使用者口味修正，封顶 ±capPercent%，向后兼容）
     if subjective:
         cap = cap_percent / 100.0  # 8 → 0.08（±8%）
         vals = [float(v) for v in subjective.values()]
@@ -222,7 +222,7 @@ def parse_output(raw: str) -> Dict:
     narration = str(data.get("narration", ""))
     audio_script = str(data.get("audio_script", narration))
 
-    # T2/T3：craft 子对象解析（工种专属维 img_*/txt_*/code_*，0–5）。
+    # 工种专项维度解析（img_* / txt_* / code_*，0–5）。
     # 架构 R4：缺 craft 子对象时降级为空 dict + 标记，不抛异常（向后兼容）。
     craft_raw = data.get("craft")
     craft = craft_raw if isinstance(craft_raw, dict) else {}

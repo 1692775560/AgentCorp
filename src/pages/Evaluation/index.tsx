@@ -1,6 +1,6 @@
 /**
  * src/pages/Evaluation/index.tsx
- * 评估中心主页面（T04 挂载点）。
+ * 评估中心主页面。
  *
  * 布局：
  * - 左栏：agent 列表（含评估状态）+ 触发评估 / 软退休 等动作。
@@ -137,7 +137,7 @@ export function Evaluation() {
     };
   }, [selectedAgentId]);
 
-  // 收敛面板数据（T18 widget 接入：按当前 trace/score 展示，无则空态）
+  // 收敛面板数据：按当前 trace 与评分展示，无数据时显示空态
   const convergenceTrace = useConvergenceStore((s) => s.trace);
   const convergenceScore = useConvergenceStore((s) => s.score);
 

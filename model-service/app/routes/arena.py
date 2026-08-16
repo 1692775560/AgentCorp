@@ -1,4 +1,4 @@
-"""Arena 个性化对决端点（T02 / 契约 §1.3）。
+"""Arena 个性化对决端点。
 
 - POST /api/arena/compare   需求 → 题面 → 逐 agent 跑题 → LLM 客观分 → ArenaMatch(pending)
 - POST /api/arena/user-pick 用户选择 → 双轨 Elo 更新 → 回填

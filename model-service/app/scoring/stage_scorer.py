@@ -1,6 +1,6 @@
 """
 model-service/app/scoring/stage_scorer.py
-三阶段评分卡装配（T4。
+三阶段评分卡装配。
 
 职责：
 - build_stage_score(stage, job_type, objective, subjective, craft_evidence, rules)

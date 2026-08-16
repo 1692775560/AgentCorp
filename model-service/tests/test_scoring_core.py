@@ -1,17 +1,14 @@
 """
-QA 独立验证 —— 评估层扩展·批次1（T0–T3）
-==================================================================
-针对 commit 33ccff4（Q2 修复 38511dd）的 registry / rules_engine /
-evaluator.user_fit / prompt_templates / parse_output 做独立覆盖验证。
+评分基础层覆盖验证：维度注册表、规则引擎、用户契合度、提示词与输出解析。
 
-运行（在 model-service 目录下）：
+运行方式（在 model-service 目录下）：
     MOCK=true python -m pytest tests/ -q
 
 设计原则：
-- 纯单元验证，不依赖真实模型 / NPU。
-- compute_stage_score 的「手算」与实现走同一公式（而非抄实现内部），
-  用于交叉核对客观分/主观分/总分与 verdict 边界。
-- Q3 主观叠加严格按乘法 fit *= (1+delta) 断言，不假设加法。
+- 纯单元验证，不依赖真实模型或专用硬件。
+- 期望值按公开公式独立推算，而非复制实现内部逻辑，
+  以便交叉核对客观分 / 主观分 / 总分与判定边界。
+- 主观修正严格按乘法 fit *= (1 + delta) 断言，不假设为加法。
 """
 from __future__ import annotations
 
@@ -268,4 +265,4 @@ if __name__ == "__main__":
     for name in dir():
         if name.startswith("test_"):
             globals()[name]()
-    print("tests/test_scoring_batch1.py 全部通过 ✅")
+    print("tests/test_scoring_core.py 全部通过 ✅")

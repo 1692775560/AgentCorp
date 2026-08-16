@@ -1,23 +1,24 @@
 """
-QA 独立验证（严过关）—— 评估层扩展·批次2（T4–T9 + T19 后端闭环）
-=========================================================================
-本文件为 QA 工程师独立重算，刻意 **不复用** 实现内的 flatten_dim_weight /
-build_stage_score / apply_to_user_preference 内部逻辑，而是依据
-docs/scoring-standards-architecture.md §3 / §7 / Q4 / Q6 / Q7 / R1 的公开公式
-自行重算，再与实现输出对拍，以暴露实现与规格的偏差。
+评分层规格一致性验证（独立重算对拍）。
+
+本文件刻意 **不复用** 实现内的 flatten_dim_weight / build_stage_score /
+apply_to_user_preference 内部逻辑，而是依据公开的评分公式独立重算，
+再与实现输出对拍，用于暴露实现与规格之间的偏差。
 
 覆盖：
-- T4  build_stage_score：S1/S2/S3 三阶段 objectiveScore/subjectiveScore/total 公式一致、
-       verdict 阈值 78/50；Q6 降权 ×0.4 + Σ=1 + evidence「缺真实结果·降权」；Q7 craft 独立。
-- T8  aggregate_preference：direction=up 信号的 craft 维经 craft_links 映射进 dimLift，
-       且 direction=down 信号 **不应** 污染 dimLift（规格 §3.5/§4.2 仅「被提升」agent 计 lift）。
-       apply_to_user_preference：R1 门控 N=1/N=2 返回原 weight、N=3 生效且 Σ=1、α=0.15。
-- T9  UsageEfficiencyTaskSet.run：返回 TaskRunResult 必要字段。
+- build_stage_score：三阶段的客观分 / 主观分 / 总分公式一致、判定阈值 78 与 50；
+  缺真实执行证据时降权 ×0.4、权重和保持为 1、evidence 写入降权标记；
+  工种专项维度独立记录，不污染通用六维。
+- aggregate_preference：正向信号的工种维度经关联映射计入维度增益，
+  负向信号不得污染增益（仅被提升的候选计入）。
+- apply_to_user_preference：样本量 1 与 2 时保持原权重，达到 3 时生效，
+  学习率 0.15，权重和为 1。
+- UsageEfficiencyTaskSet.run：返回结果包含全部必要字段。
 - 端点：/api/evaluate-stage 装配、/api/leaderboard divergences 派生、
        /api/preference 回灌后 weight Σ=1、/api/rules 三预设可加载。
 
 运行：
-    cd model-service && MOCK=true .venv/Scripts/python.exe -m pytest tests/test_scoring_batch2_qa.py -q
+    cd model-service && MOCK=true python -m pytest tests/test_scoring_spec_conformance.py -q
 """
 from __future__ import annotations
 
@@ -61,7 +62,7 @@ OBSERVE_THRESHOLD = 50
 
 
 # ----------------------------------------------------------------------
-# QA 独立参考实现（依据规格重算，不依赖实现内部函数）
+# 独立参考实现（依据公开规格重算，不依赖实现内部函数）
 # ----------------------------------------------------------------------
 def ref_flatten(stage: str, job_type: str, rules: dict) -> dict:
     """公开公式重算（§3.2 / §7.8 / Q2 优先级）。"""
@@ -138,7 +139,7 @@ def _full_subjective(rules: dict, stage: str, val: float = 4.0) -> dict:
 
 
 # ======================================================================
-# T4：build_stage_score 三阶段公式一致性（独立重算对拍）
+# build_stage_score 三阶段公式一致性（独立重算对拍）
 # ======================================================================
 @pytest.mark.parametrize("stage", STAGES)
 @pytest.mark.parametrize("job", JOBS)
@@ -263,7 +264,7 @@ def test_q7_craft_scores_isolated(job):
 
 
 # ======================================================================
-# T8：aggregate_preference — dimLift 仅来自 up 信号（规格 §3.5/§4.2）
+# aggregate_preference：维度增益仅来自正向信号
 # ======================================================================
 def test_aggregate_dimlift_only_from_up_signals():
     """被提升 agent 的最强 craft 维 → 关联通用六维；down 信号 **不** 应污染 dimLift。"""
@@ -302,7 +303,7 @@ def test_aggregate_dimlift_accumulates_across_up_signals():
 
 
 # ======================================================================
-# T8：apply_to_user_preference — R1 门控 + α=0.15 + normalize Σ=1
+# apply_to_user_preference：样本量门控 + 学习率 0.15 + 归一化
 # ======================================================================
 @pytest.mark.parametrize("n", [1, 2])
 def test_apply_r1_gating_returns_original(n):
@@ -328,7 +329,7 @@ def test_apply_n3_independent_recompute():
 
 
 # ======================================================================
-# T9：UsageEfficiencyTaskSet.run 返回结构
+# UsageEfficiencyTaskSet.run 返回结构
 # ======================================================================
 def test_usage_efficiency_taskrunresult_structure():
     ts = get_task_set("usage_efficiency")
@@ -453,4 +454,4 @@ if __name__ == "__main__":
     for name in dir():
         if name.startswith("test_"):
             globals()[name]()
-    print("tests/test_scoring_batch2_qa.py 通过 ✅")
+    print("tests/test_scoring_spec_conformance.py 通过 ✅")

@@ -100,7 +100,7 @@ async def api_evaluate_run(req: JudgeRunRequest):
                     "event": "convergence_update",
                     "data": json.dumps(turn_payload, ensure_ascii=False),
                 }
-        # T9：可选 Task-Set 调度（向后兼容，缺省 usage_efficiency；不影响既有流）
+        # 可选任务集调度（向后兼容，缺省 usage_efficiency；不影响既有流程）
         task_set_id = req.task_set_id or "usage_efficiency"
         try:
             ts = get_task_set(task_set_id)

@@ -33,7 +33,7 @@ from .encoder import (
     std_pop,
 )
 
-# 锚点来源（MVP 先用 explicit_pin；批次 2 落地后回填 dual_leaderboard_drag）
+# 锚点来源：explicit_pin（显式指定）或 dual_leaderboard_drag（双榜拖拽）
 ConvSource = Literal["explicit_pin", "dual_leaderboard_drag"]
 
 # 序列化别名：输出 camelCase 以匹配前端；同时接受 snake/camel 输入。
@@ -130,12 +130,12 @@ class HumanAnchor(BaseModel):
     candidate_id: str  # 被背书的候选
     embedding: List[float]  # 锚点 embedding
     owner_id: str
-    source: ConvSource  # explicit_pin（MVP）/ dual_leaderboard_drag（批次 2 后）
+    source: ConvSource  # explicit_pin / dual_leaderboard_drag
     ts: str
 
 
 class ConvergenceScore(BaseModel):
-    """收敛评分结果（对齐架构 §5.1 ConvergenceScore）。"""
+    """收敛评分结果。"""
 
     model_config = _CONV_CONFIG
 

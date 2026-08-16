@@ -784,7 +784,7 @@ export async function syncGatewayTokenToConfig(token: string): Promise<void> {
 }
 
 /**
- * Security hardening (T08): lock down Gateway tool execution policy.
+ * Security hardening: lock down Gateway tool execution policy.
  *
  * Writes a conservative `toolPolicy` into the `gateway` section of
  * ~/.openclaw/openclaw.json so the OpenClaw Gateway only runs allowed /

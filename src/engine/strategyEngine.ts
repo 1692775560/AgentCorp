@@ -34,7 +34,7 @@ interface TransitionRule {
 }
 
 /**
- * 状态转换函数表（评估 / playbook §2.5.1）。
+ * 状态转换函数表。
  * 每条规则带守卫条件与可读原因，组件可直接渲染 reason 文本。
  */
 export const TRANSITIONS: Record<LifecycleState, TransitionRule[]> = {

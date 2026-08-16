@@ -19,7 +19,7 @@ export function EmployeeBuilder() {
   const [agentPersona, setAgentPersona] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // G8 角色卡字段（结构化角色定义）
+  // 角色卡字段（结构化角色定义）
   const [agentRole, setAgentRole] = useState<AgentFunction>('specialist');
   const [agentGoal, setAgentGoal] = useState('');
   const [agentBackstory, setAgentBackstory] = useState('');
@@ -214,7 +214,7 @@ export function EmployeeBuilder() {
                     />
                   </div>
 
-                  {/* G8 结构化角色卡字段 */}
+                  {/* 结构化角色卡字段 */}
                   <div>
                     <label className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-gray-400">
                       职能角色 <span className="font-normal normal-case tracking-normal text-gray-400">(角色卡)</span>

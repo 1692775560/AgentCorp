@@ -26,7 +26,7 @@ export interface DimBoostRule {
 
 /**
  * 维度强调词典。
- * 主理人可在验收时微调系数，不影响算法结构。
+ * 系数可按需微调，不影响算法结构。
  */
 export const DIM_BOOST_RULES: DimBoostRule[] = [
   {

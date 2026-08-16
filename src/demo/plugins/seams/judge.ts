@@ -1,5 +1,5 @@
 /**
- * src/demo/plugins/seams/judge.ts  (Option 1 · T6 · Judge 能力 seam)
+ * src/demo/plugins/seams/judge.ts —— 评委能力接入点
  * --------------------------------------------------------------------------
  * 评委 seam：内核只认 JudgeProvider 接口，具体实现（chat-judge / 降级 / 离线）
  * 以 Provider 形式注册。与现有 /api/chat-judge HTTP 契约解耦——Provider 才是

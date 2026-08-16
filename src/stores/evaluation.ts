@@ -5,7 +5,7 @@
  * 职责：
  * - 持有全部 agent 的 EvaluationProfile 与聚合视图（radar/kpi/roi/lifecycle/leaderboard）。
  * - 编排评估服务（采集/落库均在主进程，渲染层经 Host API 访问）：
- *   - evaluationData（T05 重构）：collectRunData / listAgentSessions（主进程采集客户端）
+ *   - evaluationData：collectRunData / listAgentSessions（主进程采集客户端）
  *   - tokenUsageCollector.buildRoiSnapshot：纯函数 ROI 计算（真实 token 成本）
  *   - judgeClient：evaluate（MiniCPM-o 外部裁判，SSE 流）
  *   - evaluationRuntime：linkRunToTask（runId ↔ task 落库）
@@ -437,7 +437,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       };
       await evalSave(profile);
 
-      // 7) runId ↔ task 关联落库（T06 捕获点）
+      // 7) runId ↔ task 关联落库
       if (input.runId) {
         await linkRunToTask(input.runId, {
           taskId: input.taskId ?? '',

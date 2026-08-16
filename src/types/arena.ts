@@ -1,6 +1,6 @@
 /**
  * src/types/arena.ts
- * Arena 个性化对决契约层（模块 Arena ·  / docs/api/contracts.md §1.3）。
+ * Arena 个性化对决契约层（契约见 docs/api/contracts.md）。
  *
  * 字段以 contracts.md 为准（camelCase）。与 model-service/app/schemas.py
  * 的 ArenaMatch / ArenaCandidateAnswer / ArenaPickResult 严格镜像。

@@ -62,11 +62,11 @@ interface ScoringState {
   streaming: boolean;
   error: string | null;
 
-  /** 主观打分（T6） */
+  /** 主观打分 */
   onScore: (agentId: string, stage: StageKey, dim: SubjectiveDim, value: number) => void;
   /** 读取某 agent 在某阶段的主观分 */
   getSubjective: (agentId: string, stage: StageKey) => Partial<Record<SubjectiveDim, number>>;
-  /** 拖拽重排（T8）→ 偏好信号 → 回灌 */
+  /** 拖拽重排 → 偏好信号 → 回灌 */
   onReorder: (
     agentId: string,
     srcRank: number,
@@ -75,9 +75,9 @@ interface ScoringState {
   ) => Promise<void>;
   /** 捕获回灌权重（持久化到本地画像） */
   capturePreference: (profile: PreferenceProfile) => void;
-  /** 装配三阶段评分卡（T4） */
+  /** 装配三阶段评分卡 */
   runStage: (req: StageScoreRequest) => Promise<StageScore | null>;
-  /** 拉取双 Leaderboard（T7） */
+  /** 拉取双榜数据 */
   loadDualLeaderboard: (stage: StageKey, jobType: JobType | 'all', subjectiveOrder?: string[]) => Promise<void>;
   clearError: () => void;
 }

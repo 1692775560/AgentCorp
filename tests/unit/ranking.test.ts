@@ -1,6 +1,6 @@
 /**
  * tests/unit/ranking.test.ts
- * G4 聚合排序引擎专项锁（Krippendorff α / Fleiss κ / TOPSIS）。
+ * 聚合排序引擎行为锁定（Krippendorff α / Fleiss κ / TOPSIS）。
  *
  * 覆盖：
  * - krippendorffAlphaMulti：完全一致=1、反向=-1、随机≈0、样本不足=0

@@ -112,7 +112,7 @@ class JudgeTask(BaseModel):
 
 class JudgeRunRequest(BaseModel):
     """
-    运行期裁判请求（评估 / T07）。
+    运行期裁判请求。
     由前端 judgeClient 经 Host API 代理 POST 至模型服务。
     携带真实 transcript + usage（TokenUsageHistoryEntry[]）+ task，
     后端据此产出与 /api/evaluate 同构的 SSE 事件流
@@ -140,7 +140,7 @@ class JudgeRunRequest(BaseModel):
     # Layer3 收敛扩展：命中则 /api/evaluate-run 记录收敛轨迹
     # 并发 convergence_update / convergence_score SSE 事件（不破坏既有字段）。
     convergence: Optional[dict] = None
-    # 批次2 Task-Set 扩展（T9，可选）：指定任务集调度；缺省 usage_efficiency。
+    # 任务集扩展（可选）：指定任务集调度；缺省 usage_efficiency。
     task_set_id: Optional[str] = None
 
 
@@ -200,7 +200,7 @@ class ObjectiveScoreItem(BaseModel):
 
 
 class SubjectiveScore(BaseModel):
-    """单次主观赋分（人类 owner，PRD §5.2）。"""
+    """单次主观赋分（由使用者给出）。"""
     agentId: str = ""
     stage: str = ""
     scores: Dict[str, float] = Field(default_factory=dict)  # sub_* 维 -> 0–5
@@ -346,7 +346,7 @@ class ScoringRulesLoad(BaseModel):
 
 
 class TaskRunResult(BaseModel):
-    """TaskSet 运行结果（T9）。"""
+    """任务集运行结果。"""
     agentId: str
     taskSetId: str
     jobType: str = "code"
@@ -366,7 +366,7 @@ class TaskSetMeta(BaseModel):
 
 
 # ===================== Arena 个性化对决 =====================
-# 契约见 docs/api/contracts.md §1.3；camelCase 兼容经 AliasGenerator（同 JudgeRunRequest 先例）。
+# 契约见 docs/api/contracts.md；camelCase 兼容经 AliasGenerator 处理。
 
 
 class ArenaCandidateRef(BaseModel):
@@ -477,7 +477,7 @@ class ArenaPickResult(BaseModel):
 
 
 # ===================== 小红心点赞 =====================
-# 契约见 docs/api/contracts.md §1.4；users/ownerId 为后端聚合预留字段。
+# 契约见 docs/api/contracts.md；users/ownerId 为后端聚合预留字段。
 
 
 class LikeRecord(BaseModel):

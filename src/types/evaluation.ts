@@ -14,9 +14,9 @@
  * 其余领域类型见 src/types/agent.ts 等。
  */
 
-/* ===================== 评估层扩展（T0 · 三阶段×三工种） ===================== */
+/* ===================== 评估层扩展：三阶段 × 三工种 ===================== */
 /**
- * 工种类型（owner 决策 Q2：image 重 creativity / text 重 comm·quality / code 重 reliability·cost）。
+ * 工种类型。权重取向：image 侧重 creativity，text 侧重 comm 与 quality，code 侧重 reliability 与 cost。
  * 严格照搬，不改动既有 RadarDim / Verdict / LifecycleState。
  */
 export type JobType = "image" | "text" | "code";
@@ -418,7 +418,7 @@ export interface A2aTraceRecord {
   root_session_id: string; // 根会话 ID（trace 文件名 / 评估关联键）
   trigger: "spawn" | "steer" | "kill"; // 埋点来源
 
-  /** —— G10 扩展：与统一 trace 模型对齐（trace-first 跨进程关联 + 成本归因）——
+  /** —— 扩展字段：与统一 trace 模型对齐（跨进程关联 + 成本归因）——
    *  全部 optional，向后兼容既有落盘 JSONL（旧记录缺这些字段仍可 parse）。 */
   correlation_id?: string | null; // 跨进程/跨调用关联键（≈ TraceSpan.correlationId）
   parent_span_id?: string | null; // 父 span id（≈ TraceSpan.parentSpanId）
@@ -544,7 +544,7 @@ export interface RunTaskLink {
   evaluatedAt: string; // ISO8601 UTC
 }
 
-/* ===================== 评估层扩展·批次2（T4–T9 + T19） ===================== */
+/* ===================== 评估层扩展：阶段评分与偏好回灌 ===================== */
 /**
  * 单次客观维得分（含来源 + 扁平权重，供 Q7 craft 独立存库/工种雷达）。
  * 与后端 schemas.ObjectiveScoreItem 严格镜像。
@@ -669,7 +669,7 @@ export interface PreferenceProfile {
   updatedAt: string;
 }
 
-/** TaskSet 运行结果（T9）。镜像后端 schemas.TaskRunResult */
+/** 任务集运行结果。镜像后端 schemas.TaskRunResult */
 export interface TaskRunResult {
   agentId: string;
   taskSetId: string;

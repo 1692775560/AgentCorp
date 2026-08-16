@@ -1,23 +1,23 @@
 /**
  * src/components/evaluation/DualLeaderboard.tsx
- * 双 Leaderboard（T7 + T19 → T39 重写。
+ * 双榜组件：客观榜与主观榜并列展示。
  *
  * - 客观榜：按 objectiveScore 降序（原逻辑，不污染公平排名）。
  * - 主观榜：默认序=客观序预排；用户可用 @dnd-kit 拖拽重排（仅偏好 overlay）。
  * - 自动高亮 divergences（客观序 vs 拖拽序发散）。
  * - 说明：「拖拽仅为偏好 overlay，不改客观结论」。
  *
- * T19 闭合：每次拖拽除 scoringStore.onReorder（偏好回灌）
+ * 每次拖拽除调用 scoringStore.onReorder（偏好回灌）
  * 外，额外调用 convergenceStore.setAnchor(trace, topCandidateId,
  * "dual_leaderboard_drag")——把拖拽置顶候选回填为 HumanAnchor。若当前无活跃
  * convergence trace，则静默 noop（不报错），与 explicit_pin 源互斥合并。
  *
- * T39 重写说明（MUI → Tailwind，零 @mui import）：
+ * 样式实现：Tailwind，无 @mui 依赖。
  * - Paper            → section.rounded-2xl border bg-white/60（对齐 Leaderboard.tsx 风格）；
  * - List/ListItem    → ul/li + flex 行布局；
  * - Chip(warning Δ)  → span.rounded-full bg-amber-100 text-amber-700；
  * - Divider          → ui/separator（Radix）。
- * @dnd-kit 拖拽逻辑、onReorder（T8 回灌）与 setAnchor（T19 锚点回填）**原样保留**；
+ * @dnd-kit 拖拽逻辑、onReorder（偏好回灌）与 setAnchor（锚点回填）保持不变；
  * props 契约不变（stage / jobType），调用方零适配。
  *
  * i18n：用户可见文案走 common:evaluation.dual.*。
@@ -165,7 +165,7 @@ export function DualLeaderboard({ stage, jobType }: Props) {
     }));
     setSubList(reordered);
 
-    // T8：偏好回灌（一次梯度下降步）
+    // 偏好回灌（一次梯度下降步）
     void onReorder(moved.agentId, oldIndex + 1, newIndex + 1, {
       stage,
       jobType: jobType === 'all' ? 'code' : jobType,
