@@ -35,6 +35,7 @@ const electronAPI = {
         'shell:openPath',
         // 任务交付文件
         'task:saveDeliverables',
+        'task:zipDeliverables',
         // Dialog
         'dialog:open',
         'dialog:save',

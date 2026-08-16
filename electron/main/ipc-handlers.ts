@@ -32,7 +32,7 @@ import {
 } from '../utils/channel-config';
 import { checkUvInstalled, installUv, setupManagedPython } from '../utils/uv-setup';
 import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/skill-config';
-import { saveTaskDeliverables } from '../utils/deliverables';
+import { saveTaskDeliverables, zipTaskDeliverables } from '../utils/deliverables';
 import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate, readAgentPersona } from '../utils/openclaw-workspace';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { getProviderConfig } from '../utils/provider-registry';
@@ -2010,7 +2010,8 @@ function registerShellHandlers(): void {
 
 /**
  * 任务交付文件落盘：编排产出的文件列表写入
- * ~/.openclaw/deliverables/<taskId>/，返回目录供 UI「打开交付目录」。
+ * ~/.openclaw/deliverables/<taskId>/，返回目录供 UI「打开交付目录」；
+ * 打包 zip 供 UI「下载 ZIP」。
  */
 function registerDeliverableHandlers(): void {
   ipcMain.handle(
@@ -2027,6 +2028,21 @@ function registerDeliverableHandlers(): void {
         return { success: true as const, ...result };
       } catch (err) {
         logger.warn('saveDeliverables failed:', err);
+        return { success: false as const, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'task:zipDeliverables',
+    async (_, payload: { taskId?: unknown }) => {
+      try {
+        const taskId = typeof payload?.taskId === 'string' ? payload.taskId : '';
+        if (!taskId) return { success: false as const, error: 'missing taskId' };
+        const result = await zipTaskDeliverables(taskId);
+        return { success: true as const, ...result };
+      } catch (err) {
+        logger.warn('zipDeliverables failed:', err);
         return { success: false as const, error: String(err) };
       }
     },
