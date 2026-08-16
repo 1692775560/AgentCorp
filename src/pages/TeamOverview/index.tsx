@@ -411,6 +411,16 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
   const [sending, setSending] = useState(false);
   const createTask = useApprovalsStore((s) => s.createTask);
 
+  // Esc 关闭弹窗（与点遮罩 / X 等价，兜住点击热区异常的极端情况）。
+  useEffect(() => {
+    if (!asset || !mode) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [asset, mode, onClose]);
+
   const handleAssignTask = async () => {
     if (!asset || !taskContent.trim()) return;
     setSending(true);
