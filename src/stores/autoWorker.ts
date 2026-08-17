@@ -593,6 +593,19 @@ async function runOne(
     set({ note: realOutput ? `已完成：${task.title.slice(0, 24)}` : `已派发：${task.title.slice(0, 24)}` });
     // 系统通知：真实执行跑完进评审列，提醒用户验收（点击通知直达任务详情）
     if (realOutput) notifyTaskTerminal(task.id, 'done', task.title);
+    // 团队任务的交付同步到团队房间：与会话派活同一份内容，房间里直接可见
+    if (realOutput && task.teamId) {
+      await useTeamsStore
+        .getState()
+        .appendTeamChatEvent(task.teamId, {
+          from: team?.leaderId ?? resolvedAssigneeId ?? task.teamId,
+          to: 'user',
+          content:
+            `「${task.title}」交付完成，请验收：\n\n${realOutput.slice(0, 4000)}` +
+            `\n\n> 交付文件在任务会话/看板任务详情里可直接打开或下载 ZIP。`,
+        })
+        .catch(() => { /* 房间同步失败不阻塞交付 */ });
+    }
     release();
     void get()._tick(); // 立即补槽
   } catch (e) {

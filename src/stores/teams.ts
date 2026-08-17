@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
-import type { TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamsSnapshot } from '@/types/team';
+import type { TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamsSnapshot, TeamChatEvent } from '@/types/team';
 
 interface TeamsState {
   teams: TeamSummary[];
@@ -12,6 +12,9 @@ interface TeamsState {
   createTeam: (request: CreateTeamRequest) => Promise<void>;
   updateTeam: (teamId: string, updates: UpdateTeamRequest) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
+
+  /** 团队房间追加一条消息（基于最新状态，封顶 200 条）。 */
+  appendTeamChatEvent: (teamId: string, event: Omit<TeamChatEvent, 'createdAt'>) => Promise<void>;
 
   // Convenience methods
   addMember: (teamId: string, agentId: string) => Promise<void>;
@@ -114,4 +117,14 @@ export const useTeamsStore = create<TeamsState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  appendTeamChatEvent: async (teamId, event) => {
+    const team = get().teams.find((t) => t.id === teamId);
+    if (!team) return;
+    const next = [
+      ...(team.chatEvents ?? []),
+      { ...event, createdAt: new Date().toISOString() },
+    ].slice(-200);
+    await get().updateTeam(teamId, { chatEvents: next });
+  },
 }));

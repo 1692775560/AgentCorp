@@ -31,7 +31,6 @@ import {
 import { runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
 import { runRealChat } from '@/engine/llm/realExecutor';
 import { cn, isAvatarImage } from '@/lib/utils';
-import type { TeamChatEvent } from '@/types/team';
 
 /** 头像可能是 emoji 也可能是 base64/URL 图片，按形态渲染。 */
 function AgentAvatar({ avatar, className }: { avatar?: string | null; className?: string }) {
@@ -45,7 +44,6 @@ export function TeamChatView({ teamId }: { teamId: string }) {
   const navigate = useNavigate();
   const teams = useTeamsStore((s) => s.teams);
   const fetchTeams = useTeamsStore((s) => s.fetchTeams);
-  const updateTeam = useTeamsStore((s) => s.updateTeam);
   const agents = useAgentsStore((s) => s.agents);
   const tasks = useApprovalsStore((s) => s.tasks);
   const createTask = useApprovalsStore((s) => s.createTask);
@@ -112,16 +110,8 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     inputRef.current?.focus();
   }, []);
 
-  /** 追加一条房间消息（基于最新 team 状态，避免并发覆盖） */
-  const appendRoomEvent = useCallback(
-    async (event: Omit<TeamChatEvent, 'createdAt'>) => {
-      const latest = useTeamsStore.getState().teams.find((t) => t.id === teamId);
-      if (!latest) return;
-      const next = [...(latest.chatEvents ?? []), { ...event, createdAt: new Date().toISOString() }];
-      await updateTeam(teamId, { chatEvents: next });
-    },
-    [teamId, updateTeam],
-  );
+  /** 追加一条房间消息（走 teams store，基于最新状态 + 200 条封顶） */
+  const appendRoomEvent = useTeamsStore((s) => s.appendTeamChatEvent);
 
   const handleSend = useCallback(async () => {
     const text = draft.trim();
@@ -141,7 +131,7 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     nearBottomRef.current = true;
     try {
       // 1) 老板发言落房间
-      await appendRoomEvent({ from: 'user', to: targetId, content: text });
+      await appendRoomEvent(teamId, { from: 'user', to: targetId, content: text });
       // 2) 组上下文调真实模型
       const history = mapTeamChatEventsToBubbles(
         useTeamsStore.getState().teams.find((t) => t.id === teamId)?.chatEvents ?? [],
@@ -160,7 +150,7 @@ export function TeamChatView({ teamId }: { teamId: string }) {
       );
       const reply = await runRealChat(messages);
       const { text: replyText, execute } = parseExecuteMarker(reply);
-      await appendRoomEvent({ from: targetId, to: 'user', content: replyText });
+      await appendRoomEvent(teamId, { from: targetId, to: 'user', content: replyText });
 
       // 3) 对 leader 派活 → 立项 + 真实编排（过程在任务会话里展开）。
       //    房间里没有「当前任务」，REWORK 视同 NEW（立新项）。
@@ -188,7 +178,7 @@ export function TeamChatView({ teamId }: { teamId: string }) {
             teamId: team.id,
             teamName: team.name,
           });
-          await appendRoomEvent({
+          await appendRoomEvent(teamId, {
             from: targetId,
             to: 'user',
             content: `已立项「${created.title}」，我这就拆解分派，执行过程在任务会话里同步。`,

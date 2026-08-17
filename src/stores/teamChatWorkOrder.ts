@@ -114,6 +114,17 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
       workResult: realOutput.slice(0, 4000),
     });
     notifyTaskTerminal(taskId, 'done', task.title);
+    // 5) 交付同步到团队房间：与看板「交付结果」同一份内容，房间里直接可见
+    await useTeamsStore
+      .getState()
+      .appendTeamChatEvent(task.teamId!, {
+        from: team.leaderId,
+        to: 'user',
+        content:
+          `「${task.title}」交付完成，请验收：\n\n${realOutput.slice(0, 4000)}` +
+          `\n\n> 交付文件在任务会话/看板任务详情里可直接打开或下载 ZIP。`,
+      })
+      .catch(() => { /* 房间同步失败不阻塞交付 */ });
     return true;
   } catch (err) {
     await approvals
