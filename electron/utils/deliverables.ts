@@ -7,7 +7,7 @@
  * 单次最多 50 个文件。写入失败如实抛错，由调用方降级处理。
  */
 import { execFile } from 'child_process';
-import { mkdir, readdir, writeFile } from 'fs/promises';
+import { mkdir, readdir, unlink, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { promisify } from 'util';
 import { getOpenClawConfigDir } from './paths';
@@ -42,6 +42,11 @@ export async function saveTaskDeliverables(
   const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
   await mkdir(dir, { recursive: true });
 
+  // 每轮交付都是「当前最新全量」：先清掉上一轮的旧文件，
+  // 否则旧 HTML 残留，「在浏览器打开」/ZIP 打包会拿到历史版本。
+  const stale = await readdir(dir).catch(() => [] as string[]);
+  await Promise.all(stale.map((name) => unlink(join(dir, name)).catch(() => {})));
+
   const saved: string[] = [];
   for (const f of files.slice(0, MAX_FILES)) {
     if (!f || typeof f.content !== 'string') continue;
@@ -54,16 +59,27 @@ export async function saveTaskDeliverables(
 
 /**
  * 找某个任务交付目录里的 HTML 文件（可直接在浏览器运行的交付物）。
+ * 优先 index.html（多文件网站入口），否则取排序后的第一个 HTML。
  * 返回完整路径；没有 HTML 或目录不存在时返回 null。
  */
 export async function findHtmlDeliverable(taskId: string): Promise<string | null> {
   const safeTaskId = sanitizeFileName(taskId);
   const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
   const entries = await readdir(dir).catch(() => [] as string[]);
-  const html = entries
-    .filter((name) => /\.html?$/i.test(name))
-    .sort()[0];
-  return html ? join(dir, html) : null;
+  const htmls = entries.filter((name) => /\.html?$/i.test(name)).sort();
+  const pick = htmls.find((name) => /^index\.html?$/i.test(name)) ?? htmls[0];
+  return pick ? join(dir, pick) : null;
+}
+
+/**
+ * 列出任务交付目录里的文件名（供看板逐文件打开/预览）。
+ * 目录不存在时返回空数组。
+ */
+export async function listTaskDeliverables(taskId: string): Promise<string[]> {
+  const safeTaskId = sanitizeFileName(taskId);
+  const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  return entries.sort();
 }
 
 /**

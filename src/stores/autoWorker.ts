@@ -447,7 +447,8 @@ async function runOne(
       try {
         if (orchestrate && team) {
           // —— 多成员编排：leader 拆解 → 成员并行执行 → leader 审阅/返工 → 汇总 ——
-          const events: TaskExecutionEvent[] = [];
+          // sink 写回是全量覆盖，预填已有事件，避免重跑时抹掉历史
+          const events: TaskExecutionEvent[] = [...(task.executionEvents ?? [])];
           // 事件节流写回：看板即时可见，但最多每 800ms 落一次库
           const sink = createThrottledEventSink(task.id, events);
           const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
@@ -502,7 +503,7 @@ async function runOne(
           }
         } else if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
           // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
-          const events: TaskExecutionEvent[] = [];
+          const events: TaskExecutionEvent[] = [...(task.executionEvents ?? [])];
           const sink = createThrottledEventSink(task.id, events);
           let collab: Awaited<ReturnType<typeof runSquadCollaboration>>;
           try {

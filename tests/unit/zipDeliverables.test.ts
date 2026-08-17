@@ -24,7 +24,7 @@ vi.mock("../../electron/utils/paths", () => ({
   getOpenClawConfigDir: () => configDir,
 }));
 
-const { zipTaskDeliverables, findHtmlDeliverable } = await import("../../electron/utils/deliverables");
+const { zipTaskDeliverables, findHtmlDeliverable, saveTaskDeliverables, listTaskDeliverables } = await import("../../electron/utils/deliverables");
 
 beforeEach(() => {
   execFileMock.mockClear();
@@ -83,12 +83,52 @@ describe("findHtmlDeliverable", () => {
     expect(found).toBe(join(dir, "a.html"));
   });
 
+  it("存在 index.html 时优先作为网站入口", async () => {
+    const dir = join(configDir, "deliverables", "task-site");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "a-page.html"), "<html>a</html>");
+    writeFileSync(join(dir, "index.html"), "<html>index</html>");
+
+    const found = await findHtmlDeliverable("task-site");
+    expect(found).toBe(join(dir, "index.html"));
+  });
+
   it("没有 HTML → null；目录不存在 → null", async () => {
     const dir = join(configDir, "deliverables", "task-md");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "only.md"), "md");
     expect(await findHtmlDeliverable("task-md")).toBeNull();
     expect(await findHtmlDeliverable("task-gone")).toBeNull();
+  });
+});
+
+describe("saveTaskDeliverables", () => {
+  it("新一轮交付先清空旧文件，浏览器/ZIP 只拿到最新版本", async () => {
+    const dir = join(configDir, "deliverables", "task-renew");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "01-旧版页面.html"), "<html>old</html>");
+    writeFileSync(join(dir, "旧说明.md"), "old");
+
+    const result = await saveTaskDeliverables("task-renew", [
+      { name: "01-深色主题.html", content: "<html>new</html>" },
+      { name: "00-交付汇总.md", content: "new summary" },
+    ]);
+
+    expect(result.saved.sort()).toEqual(["00-交付汇总.md", "01-深色主题.html"]);
+    const remaining = await listTaskDeliverables("task-renew");
+    expect(remaining).toEqual(["00-交付汇总.md", "01-深色主题.html"]);
+  });
+});
+
+describe("listTaskDeliverables", () => {
+  it("返回排序后的文件名列表；目录不存在 → 空数组", async () => {
+    const dir = join(configDir, "deliverables", "task-list");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "b.py"), "print(1)");
+    writeFileSync(join(dir, "a.html"), "<html/>");
+
+    expect(await listTaskDeliverables("task-list")).toEqual(["a.html", "b.py"]);
+    expect(await listTaskDeliverables("task-none")).toEqual([]);
   });
 });
 

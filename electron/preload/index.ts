@@ -37,6 +37,7 @@ const electronAPI = {
         'task:saveDeliverables',
         'task:zipDeliverables',
         'task:openHtmlDeliverable',
+        'task:listDeliverables',
         // 任务终态系统通知
         'task:notify',
         // Dialog

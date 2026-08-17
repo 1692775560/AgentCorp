@@ -32,7 +32,7 @@ import {
 } from '../utils/channel-config';
 import { checkUvInstalled, installUv, setupManagedPython } from '../utils/uv-setup';
 import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/skill-config';
-import { saveTaskDeliverables, zipTaskDeliverables, findHtmlDeliverable } from '../utils/deliverables';
+import { saveTaskDeliverables, zipTaskDeliverables, findHtmlDeliverable, listTaskDeliverables } from '../utils/deliverables';
 import { showTaskNotification } from '../utils/task-notify';
 import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate, readAgentPersona } from '../utils/openclaw-workspace';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
@@ -2047,6 +2047,21 @@ function registerDeliverableHandlers(): void {
         return { success: true as const, ...result };
       } catch (err) {
         logger.warn('zipDeliverables failed:', err);
+        return { success: false as const, error: String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'task:listDeliverables',
+    async (_, payload: { taskId?: unknown }) => {
+      try {
+        const taskId = typeof payload?.taskId === 'string' ? payload.taskId : '';
+        if (!taskId) return { success: false as const, error: 'missing taskId' };
+        const files = await listTaskDeliverables(taskId);
+        return { success: true as const, files };
+      } catch (err) {
+        logger.warn('listDeliverables failed:', err);
         return { success: false as const, error: String(err) };
       }
     },

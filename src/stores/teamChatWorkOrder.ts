@@ -59,7 +59,10 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
       }),
     );
 
-    const events: TaskExecutionEvent[] = [];
+    // sink 写回是全量覆盖（PUT executionEvents），必须用最新事件列表预填，
+    // 否则本轮编排会把之前的对话与协作历史从任务上抹掉。
+    const freshTask = useApprovalsStore.getState().tasks.find((t) => t.id === taskId);
+    const events: TaskExecutionEvent[] = [...(freshTask?.executionEvents ?? [])];
     const sink = createThrottledEventSink(taskId, events);
     let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
     try {

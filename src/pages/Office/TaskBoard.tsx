@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
@@ -261,6 +261,7 @@ export function TaskBoard() {
   const [teamModalOpen, setTeamModalOpen] = useState(false);
   const [zipping, setZipping] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
+  const [deliverableFiles, setDeliverableFiles] = useState<string[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // 系统通知点击跳转：/kanban?task=<id> → 自动选中该任务展开详情，随后清掉参数
@@ -321,6 +322,25 @@ export function TaskBoard() {
   }, [tasks]);
 
   const selected = tasks.find((t) => t.id === selectedId) ?? null;
+
+  // 交付目录文件列表：选中任务/交付目录变化时拉取，供逐文件打开
+  useEffect(() => {
+    if (!selected?.deliverableDir) {
+      setDeliverableFiles([]);
+      return;
+    }
+    let cancelled = false;
+    void invokeIpc('task:listDeliverables', { taskId: selected.id })
+      .then((res) => {
+        if (!cancelled) setDeliverableFiles((res as { files?: string[] })?.files ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDeliverableFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, selected?.deliverableDir, selected?.updatedAt]);
 
   const handleApprove = async (id: string) => {
     await approveItem(id);
@@ -632,6 +652,31 @@ export function TaskBoard() {
                       {zipError && (
                         <span className="text-[11px]" style={{ color: '#ef4444' }}>{zipError}</span>
                       )}
+                    </div>
+                  )}
+                  {selected.deliverableDir && deliverableFiles.length > 0 && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-[10.5px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>
+                        交付文件（点击用系统默认方式打开：HTML/网站进浏览器，代码/文档进编辑器）
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {deliverableFiles.map((name) => {
+                          const isHtml = /\.html?$/i.test(name);
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              title={`打开 ${name}`}
+                              onClick={() => void invokeIpc('shell:openPath', `${selected.deliverableDir}/${name}`)}
+                              className="neu-btn flex items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] font-semibold"
+                              style={{ color: isHtml ? '#f59e0b' : '#6366f1' }}
+                            >
+                              {isHtml ? <Globe className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+                              <span className="max-w-[160px] truncate">{name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
