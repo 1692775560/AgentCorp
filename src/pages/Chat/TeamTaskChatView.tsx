@@ -15,16 +15,19 @@ import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useAgentsStore } from '@/stores/agents';
+import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
-  buildWorkOrderClassifierMessages,
+  buildWorkIntentClassifierMessages,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
+  parseWorkIntent,
+  taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
 import { runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
@@ -53,6 +56,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const tasks = useApprovalsStore((s) => s.tasks);
   const fetchTasks = useApprovalsStore((s) => s.fetchTasks);
   const appendEvent = useApprovalsStore((s) => s.appendTaskExecutionEvent);
+  const createTask = useApprovalsStore((s) => s.createTask);
   const agents = useAgentsStore((s) => s.agents);
   const teams = useTeamsStore((s) => s.teams);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -166,6 +170,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
           taskDescription: task.description,
           teamName: team?.name ?? task.teamName,
           workResultExcerpt: task.workResult ? task.workResult.slice(0, 800) : undefined,
+          deliveryReady: Boolean(task.deliverableDir),
         },
         chatHistory,
         userText,
@@ -174,24 +179,50 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
       // 3) 成员回复落事件（左列气泡）；leader 回复里的 [EXECUTE] 标记剥离后展示
       const { text: replyText, execute } = parseExecuteMarker(reply);
       await appendEvent(task.id, { type: `chat:${targetId}→user`, content: replyText });
-      // 4) leader 判定为派活 → 触发真实编排（a2a 过程实时回流到本会话与看板）。
-      //    双保险：模型没按约定输出标记时，再用独立的 YES/NO 分类器判一次意图，
-      //    避免「嘴上答应实际没执行」。
+      // 4) leader 判定为派活 → 触发真实编排。三路意图：REWORK 改当前任务 /
+      //    NEW 立新任务（过程在新任务会话展开）/ CHAT 不动手。
+      //    [EXECUTE] 标记视作 REWORK；模型没按约定输出时用独立分类器兜底。
       if (targetId === leaderId) {
-        let shouldExecute = execute;
-        if (!shouldExecute) {
+        let intent: 'rework' | 'new' | 'chat' = execute ? 'rework' : 'chat';
+        if (intent === 'chat') {
           try {
-            const verdict = await runRealChat(buildWorkOrderClassifierMessages(userText), 4);
-            shouldExecute = /^\s*YES/i.test(verdict);
+            const verdict = await runRealChat(buildWorkIntentClassifierMessages(userText, true), 8);
+            intent = parseWorkIntent(verdict);
           } catch {
             /* 分类器失败则保守不执行 */
           }
         }
-        if (shouldExecute) {
+        if (intent === 'rework') {
           toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
           void runTeamChatWorkOrder(task.id, userText).catch((err) => {
             toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
           });
+        } else if (intent === 'new' && task.teamId) {
+          try {
+            const created = await createTask({
+              title: taskTitleFromInstruction(userText),
+              description: userText,
+              priority: 'medium',
+              teamId: task.teamId,
+              teamName: team?.name ?? task.teamName,
+            });
+            useChatStore.getState().ensureTeamTaskSession({
+              id: created.id,
+              title: created.title,
+              teamId: task.teamId,
+              teamName: team?.name ?? task.teamName,
+            });
+            await appendEvent(task.id, {
+              type: `chat:${targetId}→user`,
+              content: `这是件新活，我已立项「${created.title}」并开始执行，过程在对应的任务会话里同步。`,
+            });
+            toast.info(`已立项「${created.title}」并开始执行`);
+            void runTeamChatWorkOrder(created.id, userText).catch((err) => {
+              toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+            });
+          } catch (err) {
+            toast.error(`立项失败：${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       }
     } catch (err) {
@@ -199,7 +230,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     } finally {
       setSending(false);
     }
-  }, [agents, appendEvent, chatHistory, draft, leaderId, members, sending, task, team]);
+  }, [agents, appendEvent, chatHistory, createTask, draft, leaderId, members, sending, task, team]);
 
   if (!task) {
     return (
@@ -254,6 +285,21 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
           )}
         </div>
       </div>
+
+      {/* 执行中指示：任务在跑时常驻显示最新动作，会话里随时可见「正在干嘛」 */}
+      {(task.status === 'in-progress' || task.workState === 'working') && (
+        <div className="shrink-0 border-b border-black/[0.06] px-8 py-2" style={{ background: '#3b82f608' }}>
+          <div className="mx-auto flex max-w-[1000px] items-center gap-2 text-[12px]" style={{ color: '#3b82f6' }}>
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            <span className="font-semibold">团队正在干活</span>
+            {events.length > 0 && (
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                最新：{events[events.length - 1].content ?? '执行中…'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 群聊消息流 */}
       <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto px-8 py-5">

@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
-  buildWorkOrderClassifierMessages,
+  buildWorkIntentClassifierMessages,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   mapTeamChatEventsToBubbles,
   parseExecuteMarker,
   parseMentionTarget,
+  parseWorkIntent,
   taskTitleFromInstruction,
 } from '@/lib/team-task-chat';
 import { isAvatarImage } from '@/lib/utils';
@@ -289,15 +290,30 @@ describe('buildTeamChatMessages 派活约定', () => {
 });
 
 
-describe('buildWorkOrderClassifierMessages', () => {
-  it('分类器为独立 YES/NO 小调用，携带待判文本', () => {
-    const msgs = buildWorkOrderClassifierMessages('把样式改炫酷一点');
-    expect(msgs).toHaveLength(2);
+describe('buildWorkIntentClassifierMessages + parseWorkIntent', () => {
+  it('有当前任务时提供 REWORK/NEW/CHAT 三分类', () => {
+    const msgs = buildWorkIntentClassifierMessages('把样式改炫酷一点', true);
     expect(msgs[0].role).toBe('system');
-    expect(msgs[0].content).toContain('YES');
-    expect(msgs[0].content).toContain('NO');
-    expect(msgs[0].content).toContain('闲聊');
+    expect(msgs[0].content).toContain('REWORK');
+    expect(msgs[0].content).toContain('NEW');
+    expect(msgs[0].content).toContain('CHAT');
+    expect(msgs[0].content).toContain('催促');
     expect(msgs[1]).toEqual({ role: 'user', content: '把样式改炫酷一点' });
+  });
+
+  it('无当前任务时只分 NEW/CHAT', () => {
+    const msgs = buildWorkIntentClassifierMessages('做个小游戏', false);
+    expect(msgs[0].content).toContain('NEW');
+    expect(msgs[0].content).not.toContain('REWORK');
+  });
+
+  it('parseWorkIntent 解析与兜底', () => {
+    expect(parseWorkIntent('REWORK')).toBe('rework');
+    expect(parseWorkIntent('NEW')).toBe('new');
+    expect(parseWorkIntent('CHAT')).toBe('chat');
+    expect(parseWorkIntent('new.')).toBe('new');
+    expect(parseWorkIntent('随便什么别的')).toBe('chat');
+    expect(parseWorkIntent('')).toBe('chat');
   });
 });
 
@@ -354,5 +370,22 @@ describe('buildTeamChatMessages 团队房间场景', () => {
     expect(msgs[0].content).toContain('团队日常');
     expect(msgs[0].content).toContain('马斯克团队');
     expect(msgs[0].content).not.toContain('任务「');
+  });
+});
+
+
+describe('buildTeamChatMessages 诚实约束', () => {
+  const agent = { id: 'leader-1', name: '阿明', isLeader: true };
+
+  it('交付物就绪时告知去交付区获取，不许承诺「马上发」', () => {
+    const msgs = buildTeamChatMessages(agent, { taskTitle: '计算器', deliveryReady: true }, [], '还没给我吗');
+    expect(msgs[0].content).toContain('交付物已保存到本地');
+    expect(msgs[0].content).toContain('不要假装');
+  });
+
+  it('无论是否交付就绪，都声明没有真实执行/发送能力', () => {
+    const msgs = buildTeamChatMessages(agent, { teamName: '交付一组' }, [], '在吗');
+    expect(msgs[0].content).toContain('无法真的去执行或发送');
+    expect(msgs[0].content).not.toContain('交付物已保存到本地');
   });
 });

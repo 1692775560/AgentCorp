@@ -19,11 +19,12 @@ import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
   buildTeamChatMessages,
-  buildWorkOrderClassifierMessages,
+  buildWorkIntentClassifierMessages,
   isNearBottom,
   mapTeamChatEventsToBubbles,
   parseExecuteMarker,
   parseMentionTarget,
+  parseWorkIntent,
   taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
@@ -161,13 +162,14 @@ export function TeamChatView({ teamId }: { teamId: string }) {
       const { text: replyText, execute } = parseExecuteMarker(reply);
       await appendRoomEvent({ from: targetId, to: 'user', content: replyText });
 
-      // 3) 对 leader 派活 → 立项 + 真实编排（过程在任务会话里展开）
+      // 3) 对 leader 派活 → 立项 + 真实编排（过程在任务会话里展开）。
+      //    房间里没有「当前任务」，REWORK 视同 NEW（立新项）。
       if (targetId === leaderId) {
         let shouldExecute = execute;
         if (!shouldExecute) {
           try {
-            const verdict = await runRealChat(buildWorkOrderClassifierMessages(userText), 4);
-            shouldExecute = /^\s*YES/i.test(verdict);
+            const verdict = await runRealChat(buildWorkIntentClassifierMessages(userText, false), 8);
+            shouldExecute = parseWorkIntent(verdict) !== 'chat';
           } catch {
             /* 分类器失败则保守不执行 */
           }

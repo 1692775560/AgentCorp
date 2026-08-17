@@ -108,6 +108,8 @@ export interface TeamChatContext {
   teamName?: string;
   /** 最近交付摘要（截断后注入，帮成员对齐上下文） */
   workResultExcerpt?: string;
+  /** 交付物是否已落盘可取（防止空口承诺「马上发给你」） */
+  deliveryReady?: boolean;
 }
 
 /**
@@ -127,6 +129,12 @@ export function buildTeamChatMessages(
     `你正在和老板${ctx.taskTitle ? `就团队任务「${ctx.taskTitle}」` : '进行团队日常'}直接沟通。`,
     ctx.taskDescription ? `任务要求：${ctx.taskDescription}` : '',
     ctx.workResultExcerpt ? `当前交付进展摘要：${ctx.workResultExcerpt}` : '',
+    ctx.deliveryReady
+      ? '交付物已保存到本地，界面上就有「打开/下载」入口。不要假装「马上发文件给你」——直接告诉老板去交付区获取即可。'
+      : '',
+    // 诚实约束：成员没有主动执行/发送的能力，动手只能靠系统触发编排
+    '重要：你自己无法真的去执行或发送任何东西，不要承诺「马上弄好发给你」这类动作；' +
+      '需要实际动手时，说明安排即可，系统会触发执行并展示过程。',
     '回复要求：中文、口语化、简明扼要，像同事在群里回话，不要堆砌格式。',
     // 派活判定约定：leader 识别到工作指令时输出执行标记，前端据此触发真实编排
     agent.isLeader
@@ -199,20 +207,33 @@ export function parseExecuteMarker(reply: string): { text: string; execute: bool
 
 /**
  * 派活意图分类器的消息组（独立小调用，不污染 leader 人设回复）。
- * 只答 YES/NO；调用方用 runRealChat(msgs, 4) 后判 YES。
+ * 三分类：REWORK=改当前任务 / NEW=新任务 / CHAT=闲聊追问；
+ * 调用方用 runRealChat(msgs, 8) 后交给 parseWorkIntent 解析。
  */
-export function buildWorkOrderClassifierMessages(
+export function buildWorkIntentClassifierMessages(
   text: string,
+  hasCurrentTask: boolean,
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   return [
     {
       role: 'system',
       content:
-        '判断老板对团队说的话是否是在派活、提修改意见或追加需求（需要团队实际动手执行）。' +
-        '闲聊、打招呼、问进度、问团队成员、纯讨论都不算派活。只回答 YES 或 NO，不要输出任何其它内容。',
+        '判断老板对团队说的这句话的意图，只回答一个词：' +
+        (hasCurrentTask
+          ? 'REWORK（要求修改/返工/完善当前这个任务）、NEW（要求做一件新的事情/新的作品）、CHAT（闲聊、催促、问进度、问成员、纯讨论）。'
+          : 'NEW（要求做一件事/一个作品）、CHAT（闲聊、催促、问进度、问成员、纯讨论）。') +
+        '催促（如"快点""还没好吗"）本身不是新需求，算 CHAT。只输出这个词，不要任何其它内容。',
     },
     { role: 'user', content: text },
   ];
+}
+
+/** 解析意图分类结果；无法识别时回退 'chat'（保守不执行）。 */
+export function parseWorkIntent(reply: string): 'rework' | 'new' | 'chat' {
+  const token = reply.trim().toUpperCase();
+  if (token.startsWith('REWORK')) return 'rework';
+  if (token.startsWith('NEW')) return 'new';
+  return 'chat';
 }
 
 /** 聊天滚动判定：用户是否停留在接近底部的位置（阈值内才允许自动滚底）。 */
