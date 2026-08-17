@@ -148,9 +148,9 @@
 **新增（市场参与面）**：
 | 方法/路径 | 说明 | 请求 | 响应 | 错误码 | 状态 |
 |---|---|---|---|---|---|
-| `GET /api/likes/:agentId` / `POST /api/likes/:agentId/toggle` | 卡片红心（见 1.4） | — | `LikeRecord` | 400 | 新增[本地] |
-| `GET /api/favorites?jobType=` / `POST /api/favorites/vote` | 最受青睐（见 1.5） | — | ranking / vote result | 404/409/422 | 新增[本地] |
-| `POST /api/arena/compare` / `POST /api/arena/user-pick` | 市场卡「对决」快捷入口（见 1.3） | — | `ArenaMatch` | 404/409/422/502/503 | 新增[本地] |
+| `GET /api/likes/:agentId` / `POST /api/likes/:agentId/toggle` | 卡片红心（见 1.4） | — | `LikeRecord` | 400 | 本地实现 |
+| `GET /api/favorites?jobType=` / `POST /api/favorites/vote` | 最受青睐（见 1.5） | — | ranking / vote result | 404/409/422 | 本地实现 |
+| `POST /api/arena/compare` / `POST /api/arena/user-pick` | 市场卡「对决」快捷入口（见 1.3） | — | `ArenaMatch` | 404/409/422/502/503 | 本地实现 |
 
 ---
 
@@ -161,8 +161,8 @@
 | `GET /api/craft-tasks` | 题库（不含参考答案） | — | task 列表 | — | 无 | 面试试做选题 | 本地（已有） |
 | `POST /api/craft-judge` | 试做题评分（A2/A3） | `{taskId, answer?/candidate?}` | CraftJudgement | 404/422/502/503 | judge | 面试试做环节 | 本地（已有） |
 | `POST /api/chat-judge` | 面试对话整段评分 | `{agentId, transcript, ...}` | `{source, radar, ...}` | 422 | judge→degraded | `judgeClient.judgeChat` | 本地（已有） |
-| `POST /api/arena/compare` | **自定义题**（context='interview'，携带 `interviewId`） | `{requirementText, jobType, candidates, context:'interview', interviewId}` | `ArenaMatch` | 404/422/502/503 | judge+candidate | `stores/interview` + `UserQuestionPanel` | 新增[本地]（T04 接入） |
-| `POST /api/arena/user-pick` | 用户自定义题主观选择 | `{matchId, pick}` | pick 结果 + Elo | 404/409/422 | 无 | 同上 | 新增[本地] |
+| `POST /api/arena/compare` | **自定义题**（context='interview'，携带 `interviewId`） | `{requirementText, jobType, candidates, context:'interview', interviewId}` | `ArenaMatch` | 404/422/502/503 | judge+candidate | `stores/interview` + `UserQuestionPanel` | 本地实现 |
+| `POST /api/arena/user-pick` | 用户自定义题主观选择 | `{matchId, pick}` | pick 结果 + Elo | 404/409/422 | 无 | 同上 | 本地实现 |
 
 **本地持久化（非 HTTP）**：面试报告存 electron-store `agentcorp.interview`（`src/services/interviewStore.ts`）。新增 `InterviewReport.userQuestionRound?: UserQuestionRound`（仅加法）。
 

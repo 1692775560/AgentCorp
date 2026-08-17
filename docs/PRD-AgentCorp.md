@@ -165,7 +165,7 @@ stateDiagram-v2
 `src/services/runLinkStore.ts` 存在并被 `evaluationRuntime` 调用。把 `runId↔taskId↔agentId` 焊死，保证评分能精确归因到「哪个 Agent 在哪次运行完成了哪单任务」，避免下游张冠李戴。
 
 ### 6.5 评分层
-双 Leaderboard + 偏好回灌 + 评分卡；`telemetry` 默认关、无硬编码 key、禁用自动更新、`gateway toolPolicy` 收敛（git log 批次提交 `bbdc500` 等）。治理侧已为「安全收敛」留好开关。
+双 Leaderboard + 偏好回灌 + 评分卡；`telemetry` 默认关、无硬编码 key、禁用自动更新、`gateway toolPolicy` 收敛。治理侧已为「安全收敛」留好开关。
 
 ---
 
