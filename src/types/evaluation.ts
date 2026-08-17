@@ -282,7 +282,7 @@ export interface UploadForm {
   files: Record<string, File>;
 }
 
-/* ===================== 职场生命周期（阶段 A · 绩效中心） ===================== */
+/* ===================== 职场生命周期（绩效中心） ===================== */
 
 /**
  * 生命周期五态。
@@ -366,7 +366,7 @@ export interface LeaderboardEntry {
 
 /* ===================== 运行期遥测（第二条契约，评估） ===================== */
 
-/** 朋友模型层回传的逐任务遥测（阶段 A 由 telemetrySynth 确定性合成） */
+/** 对端模型层回传的逐任务遥测（由 telemetrySynth 确定性合成） */
 export interface TelemetryEvent {
   agent_id: string;
   task_id: string;
@@ -496,7 +496,7 @@ export interface EvaluationProfile {
    */
   personalizationRisk?: PersonalizationRisk | null;
   /**
-   * B · 状态化多轮会话（SP-History）：按 BossProfile.id 累积的历史会话摘要，
+   * B · 状态化多轮会话（历史协作）：按 BossProfile.id 累积的历史会话摘要，
    * 用于把「记忆」注入裁判上下文，使评估从离线/无状态升级为带历史的状态化评估
    * （Wang 的 sock-puppet + 交互历史主张）。仅存摘要 + 可选 transcript，封顶 3 条。
    * 加法字段。
@@ -521,7 +521,7 @@ export interface EvaluationProfile {
 /** 个性化风险等级（B · personalization delta 接风险标红） */
 export type PersonalizationRisk = 'high' | 'medium' | 'low';
 
-/** B · 单条历史会话摘要（SP-History 注入用） */
+/** B · 单条历史会话摘要（历史协作上下文注入用） */
 export interface AgentSessionSummary {
   /** ISO8601 UTC */
   ts: string;

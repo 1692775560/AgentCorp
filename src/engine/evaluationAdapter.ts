@@ -5,8 +5,8 @@
  * 供看板组件消费。
  *
  * 关键约束：
- * - 真实分支接口已预留，但阶段 A 仅接 Mock 分支；真实 SSE 接入点以 TODO 标注，
- *   后续接朋友模型层时零改动（只需在 useEvaluation 中把事件喂给 consume）。
+ * - 真实分支接口已预留，但当前仅接 Mock 分支；真实 SSE 接入点以 TODO 标注，
+ *   后续接入模型层时零改动（只需在 useEvaluation 中把事件喂给 consume）。
  * - 客观 KPI/ROI 由 metricsEngine / roiEngine 聚合后通过 ingestKpi / ingestRoi 灌入，
  *   narration/audio 事件走语音通道（返回 noop，由 useSpeech 处理）。
  */
@@ -68,12 +68,12 @@ export class EvaluationAdapter {
     return verdict === "FIRED" ? "RETIRED" : "ACTIVE";
   }
 
-  /** 阶段 C 用：把聚合后的 KPI 灌入 */
+  /** 聚合后的 KPI 灌入 */
   ingestKpi(kpi: KpiRecord): void {
     this.kpi = kpi;
   }
 
-  /** 阶段 C 用：把聚合后的 ROI 灌入 */
+  /** 聚合后的 ROI 灌入 */
   ingestRoi(roi: RoiSnapshot): void {
     this.roi = roi;
   }
@@ -95,8 +95,8 @@ export class EvaluationAdapter {
 }
 
 /**
- * TODO（阶段 B）：接朋友真实 SSE 分支。
+ * TODO：接入真实 SSE 分支。
  * 真实模式下，useEvaluation 应把从 /api/evaluate 解析出的 EvaluationEvent 直接
  * 传给 `adapter.consume(ev)`（与 Mock 共用同一条路径），无需改动本适配层。
- * 真实 KPI/ROI 由 telemetryAdapter（阶段 C）回传后调用 ingestKpi/ingestRoi。
+ * 真实 KPI/ROI 由 telemetryAdapter 回传后调用 ingestKpi/ingestRoi。
  */

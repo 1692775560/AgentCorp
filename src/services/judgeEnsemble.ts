@@ -45,7 +45,7 @@ export interface JudgeEnsembleOptions {
    */
   persona?: BossProfile | null;
   /**
-   * B · 历史协作摘要（SP-History）：透传给 judgeChat，在前缀注入「历史协作」段落，
+   * B · 历史协作摘要：透传给 judgeChat，在前缀注入「历史协作」段落，
    * 使裁判能考察 agent 是否前后一致、是否记得此前约定。
    * 空/缺省 → 无状态评估（既有行为）。
    */

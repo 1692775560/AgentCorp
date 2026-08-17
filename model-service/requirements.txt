@@ -22,7 +22,7 @@ pytest>=8.0
 # 不进硬依赖：体积大且需匹配具体加速卡运行时版本，普通开发机/纯 Mock 环境装不动。
 # 代码中全部惰性 import（optional_import），未安装时自动降级为 available=False。
 #
-# 【路径 A · 端侧 GGUF（推荐评委机/笔记本）】llama.cpp 文本推理，CPU/Metal 即可：
+# 【路径 A · 端侧 GGUF（推荐评测机/笔记本）】llama.cpp 文本推理，CPU/Metal 即可：
 #   llama-cpp-python            # macOS 建议 CMAKE_ARGS='-DGGML_METAL=on' 安装启用 Metal
 #   权重：openbmb/MiniCPM-o-4_5-gguf 的 Q4_K_M（约 5.4GB），MODEL_PATH 指向 .gguf 文件即可
 #   注：GGUF 路径仅文本推理（裁判场景够用）；视觉/音频模态需路径 B 全量权重

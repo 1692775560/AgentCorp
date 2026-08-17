@@ -410,7 +410,7 @@ export function Evaluation() {
                             <b className="text-[#1A1C1E] dark:text-white">{evalPersonaName}</b>
                           </span>
                           <span>
-                            历史会话（SP-History）：
+                            历史会话（历史协作）：
                             <b className="text-[#1A1C1E] dark:text-white">{historySessions} 段</b>
                           </span>
                           <span>
@@ -457,7 +457,7 @@ export function Evaluation() {
                     >
                       {passKRunning ? '测算中…' : '测可靠性 (pass^k)'}
                     </button>
-                    {/* B · 跨会话测（SP-History）：同一原型下多段历史会话各判一次，全过才算可靠 */}
+                    {/* B · 跨会话测（历史协作）：同一原型下多段历史会话各判一次，全过才算可靠 */}
                     <button
                       type="button"
                       disabled={passKRunning || !selectedAgentId || sessionTranscriptCount < 2}

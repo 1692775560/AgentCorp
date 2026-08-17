@@ -3,7 +3,7 @@
  * ROI / 效率引擎（评估）：把成本五要素 + 价值两要素折算为
  * ROI / IPR / SRPC / CPS，并做跨 agent 归一化（z-score）。
  *
- * 设计约束（阶段 A）：
+ * 设计约束：
  * - 纯函数、无副作用、可单测。
  * - 与六维「性价比」维融合：cost_perf = λ·(CPS/5) + (1−λ)·(radar.cost/5)，
  *   最终进入 RoiSnapshot.cost_perf_score（0–5），并供 radar.ts 的 user_fit 融合（R3/R5 防注水）。

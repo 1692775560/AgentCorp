@@ -78,7 +78,7 @@ export interface JudgeRunInput {
     captureSummaries?: boolean;
   };
   /**
-   * B · 状态化多轮会话（SP-History）：与同一 agent 的过往会话摘要，
+   * B · 状态化多轮会话（历史协作）：与同一 agent 的过往会话摘要，
    * 由渲染层注入裁判上下文（后端不识别时忽略该字段）。
    */
   history?: string[];
@@ -543,16 +543,16 @@ export interface ChatJudgeResult {
 }
 
 /**
- * A · 构建老板原型前缀（SP-Profile 等价物，纯函数可单测）。
+ * A · 构建老板原型前缀（BossProfile 等价物，纯函数可单测）。
  * 把 BossProfile 翻译成裁判 prompt 的「评估上下文」段落，使裁判在
- * 「与这样一位老板协作」的视角下评估 Agent 行为（Wang 的个性化评估主张）。
- * 中性老板（id='neutral'）或无画像 → 返回空串（不污染离线基线评估）。
+ * 「这位裁判的视角」下评估 Agent 行为（Wang 的个性化评估主张）。
+ * 中性原型（id='neutral'）或无画像 → 返回空串（不污染离线基线评估）。
  */
 export function buildPersonaPreamble(profile: BossProfile | null | undefined): string {
   if (!profile || profile.id === 'neutral') return '';
   const lines: string[] = [
     '[评估上下文 · 老板原型]',
-    '你是正在评估这位 AI Agent 的「老板」。请基于「与这样一位老板协作」的视角，评估 Agent 在上述对话中的表现——尤其是它是否对齐该老板的沟通风格、是否在约束下做出合理取舍、是否在风险情境下稳健。',
+    '你是正在评估这位 AI Agent 的「裁判」。请基于「从这位裁判的视角」，评估 Agent 在上述对话中的表现——尤其是它是否对齐该裁判的沟通风格、是否在约束下做出合理取舍、是否在风险情境下稳健。',
   ];
   if (profile.name) lines.push(`- 原型名：${profile.name}`);
   if (profile.domain) lines.push(`- 领域：${profile.domain}`);
@@ -564,7 +564,7 @@ export function buildPersonaPreamble(profile: BossProfile | null | undefined): s
 }
 
 /**
- * B · 构建历史协作上下文前缀（SP-History 等价物，纯函数可单测）。
+ * B · 构建历史协作上下文前缀（等价于历史协作注入，纯函数可单测）。
  * 把「与同一位 agent 的过往会话摘要」注入裁判上下文，使评估从离线/无状态升级为
  * 带记忆的状态化评估（Wang 的 sock-puppet + 交互历史主张）：同一 agent 在不同轮次
  * 里是否前后一致、是否记得此前约定，都应被纳入评判。空历史 → 返回空串。
@@ -596,7 +596,7 @@ export function buildHistoryPreamble(history: string[] | null | undefined): stri
 export const JUDGE_RUBRIC_ANCHORS: Record<RadarDim, { low: string; high: string }> = {
   task: { low: '几乎没推进交付物', high: '清晰交付且可验收' },
   quality: { low: '含明显错误/遗漏', high: '准确且经得起推敲' },
-  comm: { low: '答非所问/堆砌术语', high: '精准对齐老板意图' },
+  comm: { low: '答非所问/堆砌术语', high: '精准对齐裁判意图' },
   creativity: { low: '只有一种套路', high: '多路径且有取舍权衡' },
   reliability: { low: '无失败预案', high: '有回滚与发现机制' },
   cost: { low: '不计成本', high: '在约束内达到最优' },
@@ -668,7 +668,7 @@ export function auditJudgeBias(radars: RadarScore[], threshold = 1.5): JudgeBias
  * 调用模型裁判对一段面试 transcript 评分（C 挂载点）。
  * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
  * persona 非空时，自动在前缀注入老板原型上下文（不改后端字段名，向后兼容）；
- * history 非空时，注入 SP-History 上下文（状态化多轮评判）；
+ * history 非空时，注入历史协作上下文（状态化多轮评判）；
  * rubricVariant 用于维度顺序扰动（ensemble 内各次传不同值以平均顺序偏差）。
  */
 export async function judgeChat(
