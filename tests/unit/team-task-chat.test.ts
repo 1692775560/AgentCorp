@@ -4,6 +4,7 @@ import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
   buildWorkOrderClassifierMessages,
+  isNearBottom,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
@@ -295,5 +296,22 @@ describe('buildWorkOrderClassifierMessages', () => {
     expect(msgs[0].content).toContain('NO');
     expect(msgs[0].content).toContain('闲聊');
     expect(msgs[1]).toEqual({ role: 'user', content: '把样式改炫酷一点' });
+  });
+});
+
+
+describe('isNearBottom', () => {
+  it('距底部阈值内判定为在底部', () => {
+    expect(isNearBottom(1000, 500, 500)).toBe(true);   // 正好贴底
+    expect(isNearBottom(1000, 430, 500)).toBe(true);   // 差 70px，阈值内
+  });
+
+  it('上滑超过阈值判定为不在底部', () => {
+    expect(isNearBottom(1000, 200, 500)).toBe(false);  // 差 300px
+    expect(isNearBottom(1000, 419, 500)).toBe(false);  // 差 81px，超阈值
+  });
+
+  it('内容不足一屏时始终在底部', () => {
+    expect(isNearBottom(400, 0, 500)).toBe(true);
   });
 });

@@ -21,6 +21,7 @@ import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
   buildWorkOrderClassifierMessages,
+  isNearBottom,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
@@ -56,6 +57,9 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const teams = useTeamsStore((s) => s.teams);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // 用户是否停留在底部：在底部才自动跟随新消息；上滑看历史时不拽回
+  const nearBottomRef = useRef(true);
 
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -92,10 +96,18 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     [bubbles, task?.workResult],
   );
 
-  // 新事件到达时滚到底部（群聊观感）
+  // 新消息到达时：仅当用户本来就在底部附近才自动滚底（上滑看历史不打断）
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (nearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
   }, [renderItems.length, task?.workResult]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = isNearBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+  }, []);
 
   // @ 提及候选：输入尾部出现 @xxx 时弹出成员列表
   const mentionQuery = useMemo(() => {
@@ -135,6 +147,8 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     setSending(true);
     setDraft('');
     setMentionOpen(false);
+    // 自己发消息时视为回到底部，允许后续自动跟随
+    nearBottomRef.current = true;
     try {
       // 1) 用户发言落事件（右列气泡 + 看板留痕）
       await appendEvent(task.id, { type: `chat:user→${targetId}`, content: text });
@@ -242,7 +256,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
       </div>
 
       {/* 群聊消息流 */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
+      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
         <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-4">
           {renderItems.length === 0 && (
             <p className="py-8 text-center text-[12.5px] text-muted-foreground">

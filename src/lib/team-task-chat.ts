@@ -213,3 +213,13 @@ export function buildWorkOrderClassifierMessages(
     { role: 'user', content: text },
   ];
 }
+
+/** 聊天滚动判定：用户是否停留在接近底部的位置（阈值内才允许自动滚底）。 */
+export function isNearBottom(
+  scrollHeight: number,
+  scrollTop: number,
+  clientHeight: number,
+  threshold = 80,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight <= threshold;
+}
