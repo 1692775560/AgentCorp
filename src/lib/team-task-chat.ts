@@ -145,3 +145,36 @@ export function buildTeamChatMessages(
   messages.push({ role: 'user', content: userText });
   return messages;
 }
+
+export interface TeamChatRenderItem {
+  key: string;
+  bubble?: TeamChatBubble;
+  /** true 表示这是「最终交付」气泡 */
+  delivery?: boolean;
+}
+
+/**
+ * 组装渲染序列：把「最终交付」气泡插到协作过程（非对话）末尾、后续对话之前，
+ * 保持时间顺序——而不是永远钉在消息流最底部（那样每来一条新对话，
+ * 交付气泡都像又冒出来的最新消息）。
+ */
+export function buildTeamChatRenderItems(
+  bubbles: TeamChatBubble[],
+  hasDelivery: boolean,
+): TeamChatRenderItem[] {
+  const items: TeamChatRenderItem[] = bubbles.map((b) => ({ key: b.id, bubble: b }));
+  if (!hasDelivery) return items;
+  let insertAt = items.length;
+  for (let i = bubbles.length - 1; i >= 0; i -= 1) {
+    const b = bubbles[i];
+    const isDialogue = b.kind === 'user' || b.peerId === 'user';
+    if (!isDialogue) {
+      insertAt = i + 1;
+      break;
+    }
+    // 纯对话流：交付插在对话之前
+    insertAt = i;
+  }
+  items.splice(insertAt, 0, { key: '__delivery__', delivery: true });
+  return items;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildTeamChatMessages,
+  buildTeamChatRenderItems,
   mapEventsToTeamChatBubbles,
   parseMentionTarget,
 } from '@/lib/team-task-chat';
@@ -184,5 +185,48 @@ describe('isAvatarImage', () => {
     expect(isAvatarImage('')).toBe(false);
     expect(isAvatarImage(null)).toBe(false);
     expect(isAvatarImage(undefined)).toBe(false);
+  });
+});
+
+
+describe('buildTeamChatRenderItems', () => {
+  const seq = (events: TaskExecutionEvent[]) => mapEventsToTeamChatBubbles(events);
+
+  it('交付气泡插在协作过程末尾、后续对话之前', () => {
+    const items = buildTeamChatRenderItems(seq([
+      ev('a2a:leader-1→dev-1', '【第1轮】分派'),
+      ev('a2a:dev-1→leader-1', '【第1轮】审阅：PASS'),
+      ev('chat:user→leader-1', '做得怎么样？'),
+      ev('chat:leader-1→user', '已完成'),
+    ]), true);
+    expect(items.map((i) => i.key)).toEqual(['a2a-0', 'a2a-1', '__delivery__', 'chat-2', 'chat-3']);
+  });
+
+  it('纯对话流时交付气泡排在对话之前', () => {
+    const items = buildTeamChatRenderItems(seq([
+      ev('chat:user→leader-1', '你好'),
+      ev('chat:leader-1→user', '你好，老板'),
+    ]), true);
+    expect(items.map((i) => i.key)).toEqual(['__delivery__', 'chat-0', 'chat-1']);
+  });
+
+  it('纯协作流时交付气泡排在最后', () => {
+    const items = buildTeamChatRenderItems(seq([
+      ev('status', '任务已领取'),
+      ev('a2a:leader-1→dev-1', '【第1轮】分派'),
+    ]), true);
+    expect(items.map((i) => i.key)).toEqual(['sys-0', 'a2a-1', '__delivery__']);
+  });
+
+  it('无交付物时不插入交付气泡', () => {
+    const items = buildTeamChatRenderItems(seq([ev('status', '任务已领取')]), false);
+    expect(items).toHaveLength(1);
+    expect(items[0].delivery).toBeUndefined();
+  });
+
+  it('空消息流 + 有交付物：交付气泡单独存在', () => {
+    const items = buildTeamChatRenderItems([], true);
+    expect(items).toHaveLength(1);
+    expect(items[0].delivery).toBe(true);
   });
 });

@@ -19,6 +19,7 @@ import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
   buildTeamChatMessages,
+  buildTeamChatRenderItems,
   mapEventsToTeamChatBubbles,
   parseMentionTarget,
   type TeamChatBubble,
@@ -82,11 +83,16 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     () => bubbles.filter((b) => b.kind === 'user' || (b.kind === 'a2a' && b.peerId === 'user')),
     [bubbles],
   );
+  // 渲染序列：「最终交付」按时间序插在协作过程末尾、后续对话之前
+  const renderItems = useMemo(
+    () => buildTeamChatRenderItems(bubbles, Boolean(task?.workResult)),
+    [bubbles, task?.workResult],
+  );
 
   // 新事件到达时滚到底部（群聊观感）
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [bubbles.length, task?.workResult]);
+  }, [renderItems.length, task?.workResult]);
 
   // @ 提及候选：输入尾部出现 @xxx 时弹出成员列表
   const mentionQuery = useMemo(() => {
@@ -214,17 +220,40 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
       {/* 群聊消息流 */}
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
         <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-4">
-          {bubbles.length === 0 && (
+          {renderItems.length === 0 && (
             <p className="py-8 text-center text-[12.5px] text-muted-foreground">
               {task.status === 'todo'
                 ? '任务已派发，等待编排器领取。你可以先在下面和团队 leader 聊聊需求。'
                 : '还没有协作记录。'}
             </p>
           )}
-          {bubbles.map((b) => {
+          {renderItems.map((item) => {
+            // 最终交付气泡：按时间序内联在协作过程末尾，不再钉死在流底
+            if (item.delivery) {
+              return (
+                <div key={item.key} className="flex items-start gap-2.5">
+                  <AgentAvatar
+                    avatar={leaderId ? (agentOf(leaderId)?.avatar ?? null) : '📦'}
+                    className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FFD233]/30 text-[16px]"
+                  />
+                  <div className="min-w-0 max-w-[85%]">
+                    <div className="mb-1 flex items-center gap-1.5 text-[11px]">
+                      <span className="font-semibold text-foreground">
+                        {leaderId ? speakerName(leaderId) : '团队'}
+                      </span>
+                      <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#22c55e22', color: '#22c55e' }}>最终交付</span>
+                    </div>
+                    <div className="rounded-2xl rounded-tl-md border border-[#22c55e]/25 bg-[#22c55e]/[0.06] px-3.5 py-2.5">
+                      <MarkdownContent content={task.workResult!} className="text-[13px] leading-relaxed" />
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            const b = item.bubble!;
             if (b.kind === 'system') {
               return (
-                <p key={b.id} className="text-center text-[11px] text-muted-foreground">
+                <p className="text-center text-[11px] text-muted-foreground">
                   {b.text}
                 </p>
               );
@@ -232,7 +261,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             if (b.kind === 'user') {
               const toName = mentionTargetName(b);
               return (
-                <div key={b.id} className="flex items-start justify-end gap-2.5">
+                <div className="flex items-start justify-end gap-2.5">
                   <div className="min-w-0 max-w-[78%]">
                     <div className="mb-1 flex items-center justify-end gap-1.5 text-[11px]">
                       <span className="text-muted-foreground">你{toName ? ` → ${toName}` : ''}</span>
@@ -250,7 +279,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             const speaker = agentOf(b.actorId);
             const isLeader = b.actorId === leaderId;
             return (
-              <div key={b.id} className="flex items-start gap-2.5">
+              <div className="flex items-start gap-2.5">
                 <AgentAvatar
                   avatar={speaker?.avatar}
                   className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[16px]"
@@ -283,26 +312,6 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             );
           })}
 
-          {/* 最终交付：leader 身份汇总发言，Markdown 渲染 */}
-          {task.workResult && (
-            <div className="flex items-start gap-2.5">
-              <AgentAvatar
-                avatar={leaderId ? (agentOf(leaderId)?.avatar ?? null) : '📦'}
-                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FFD233]/30 text-[16px]"
-              />
-              <div className="min-w-0 max-w-[85%]">
-                <div className="mb-1 flex items-center gap-1.5 text-[11px]">
-                  <span className="font-semibold text-foreground">
-                    {leaderId ? speakerName(leaderId) : '团队'}
-                  </span>
-                  <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#22c55e22', color: '#22c55e' }}>最终交付</span>
-                </div>
-                <div className="rounded-2xl rounded-tl-md border border-[#22c55e]/25 bg-[#22c55e]/[0.06] px-3.5 py-2.5">
-                  <MarkdownContent content={task.workResult} className="text-[13px] leading-relaxed" />
-                </div>
-              </div>
-            </div>
-          )}
           {sending && (
             <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
