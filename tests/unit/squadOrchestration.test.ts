@@ -1,11 +1,13 @@
 /**
  * 多 Agent 协同编排器单测：mock ChatFn（确定性脚本化回复），
- * 覆盖分解/指派/并行执行/审阅返工/汇总全链路与各兜底分支。
+ * 覆盖分解/指派/开工确认/并行执行/审阅返工/失败改派/交叉评审/重规划/汇总
+ * 全链路与各兜底分支。
  */
 import { describe, it, expect } from "vitest";
 import {
   runSquadOrchestration,
   parseSubTasks,
+  classifySubTaskKind,
   type OrchestrationInput,
 } from "../../src/engine/squad/squadOrchestration";
 import type { ChatFn, ChatMessage } from "../../src/engine/squad/squadCollaboration";
@@ -37,6 +39,14 @@ function scriptedChat(script: {
   execute?: (agentId: string, msgs: ChatMessage[], callIndex: number) => string;
   review?: (callIndex: number) => string;
   summarize?: string;
+  /** 开工确认：成员提问（默认 "OK" = 无疑问）。 */
+  kickoff?: (agentId: string) => string;
+  /** 开工确认：leader 批量解答文本。 */
+  kickoffAnswer?: string;
+  /** 交叉评审：成员回复（默认 "OK" = 无需修订）。 */
+  crossReview?: (agentId: string) => string;
+  /** 重规划：leader 回复（默认 "OK" = 不追加）。 */
+  replan?: string;
   calls?: { agentId: string; msgs: ChatMessage[] }[];
 }): ChatFn {
   let execIdx = 0;
@@ -44,6 +54,11 @@ function scriptedChat(script: {
   return async (agentId, msgs) => {
     script.calls?.push({ agentId, msgs });
     const sys = msgs[0]?.content ?? "";
+    // 新步骤标记词先行判定（与 拆解/汇总/审阅 互不冲突）
+    if (sys.includes("批量解答")) return script.kickoffAnswer ?? "已解答。";
+    if (sys.includes("开工确认")) return script.kickoff ? script.kickoff(agentId) : "OK";
+    if (sys.includes("交叉评审")) return script.crossReview ? script.crossReview(agentId) : "OK";
+    if (sys.includes("重规划")) return script.replan ?? "OK";
     if (sys.includes("拆解")) return script.decompose ?? "[]";
     if (sys.includes("汇总")) return script.summarize ?? "汇总交付物";
     if (sys.includes("审阅")) {
@@ -87,6 +102,26 @@ describe("parseSubTasks 容错解析", () => {
   });
 });
 
+describe("classifySubTaskKind 工种分级", () => {
+  it("代码类关键词命中 → code", () => {
+    expect(classifySubTaskKind("实现登录页面", "用 HTML+CSS 开发")).toBe("code");
+    expect(classifySubTaskKind("写一个脚本", "调用下游接口")).toBe("code");
+  });
+
+  it("长文类关键词命中 → long", () => {
+    expect(classifySubTaskKind("竞品分析报告", "调研并输出方案")).toBe("long");
+    expect(classifySubTaskKind("活动文案", "设计传播文案")).toBe("long");
+  });
+
+  it("无关键词 → short（默认）", () => {
+    expect(classifySubTaskKind("订会议室", "确认时间与人数")).toBe("short");
+  });
+
+  it("同时命中时代码类优先", () => {
+    expect(classifySubTaskKind("开发数据报告页面", "实现一个网页报告")).toBe("code");
+  });
+});
+
 describe("runSquadOrchestration", () => {
   it("正常链路：分解 2 子任务 → 并行执行 → 全 PASS → 汇总", async () => {
     const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
@@ -108,9 +143,13 @@ describe("runSquadOrchestration", () => {
     expect(calls.some((c) => c.agentId === "m1")).toBe(true);
     expect(calls.some((c) => c.agentId === "m2")).toBe(true);
     // trace：拆解 1 + 指派 2 + 执行 2 + 审阅 2 + 汇总 1
+    // （新步骤全部默认 OK：开工确认无疑问、交叉评审不修订、重规划不追加，均不落 trace）
     expect(result.traces).toHaveLength(8);
     expect(result.traces.some((t) => t.summary.includes("拆解任务为 2"))).toBe(true);
     expect(result.traces.filter((t) => t.state === "completed")).toHaveLength(3); // 2 审阅 PASS + 汇总
+    expect(result.traces.some((t) => t.summary.includes("开工确认"))).toBe(false);
+    expect(result.traces.some((t) => t.summary.includes("交叉评审"))).toBe(false);
+    expect(result.traces.some((t) => t.summary.includes("重规划"))).toBe(false);
   });
 
   it("分解 JSON 解析失败 → 兜底单子任务（原任务）并路由指派", async () => {
@@ -148,7 +187,9 @@ describe("runSquadOrchestration", () => {
     expect(result.subtasks[0].rounds).toBe(2);
     expect(result.subtasks[0].approved).toBe(true);
     // 第二轮执行消息里带了返工意见
-    const execCalls = calls.filter((c) => c.agentId === "m1");
+    const execCalls = calls.filter(
+      (c) => c.agentId === "m1" && !c.msgs[0]?.content.includes("开工确认"),
+    );
     expect(execCalls).toHaveLength(2);
     expect(execCalls[1].msgs.some((m) => m.content.includes("数据太旧"))).toBe(true);
     // 审阅 trace：先 input-required 后 completed
@@ -170,7 +211,7 @@ describe("runSquadOrchestration", () => {
     expect(result.deliverable).toBe("汇总交付物"); // 汇总照常进行
   });
 
-  it("单成员执行失败不阻塞：记 error，其余子任务与汇总照常", async () => {
+  it("成员执行失败 → 自动改派其他成员重试成功，不阻塞全局", async () => {
     const chat = scriptedChat({
       decompose: JSON.stringify([
         { title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" },
@@ -178,18 +219,107 @@ describe("runSquadOrchestration", () => {
       ]),
       execute: (agentId) => {
         if (agentId === "m1") throw new Error("LLM 超时");
-        return "m2 的产出";
+        return `${agentId} 的产出`;
       },
     });
     const result = await runSquadOrchestration(baseInput({ chat }));
 
     const [s1, s2] = result.subtasks;
+    // m1 失败 → 改派 m2 重试成功
+    expect(s1.assigneeId).toBe("m2");
+    expect(s1.assignedBy).toBe("routing");
+    expect(s1.error).toBeUndefined();
+    expect(s1.approved).toBe(true);
+    expect(s2.approved).toBe(true);
+    // 改派 trace 落「working」，且整个流程无 failed 终态
+    expect(result.traces.some((t) => t.summary.includes("改派给 m2 重试"))).toBe(true);
+    expect(result.traces.some((t) => t.state === "failed")).toBe(false);
+    expect(result.deliverable).toBe("汇总交付物");
+  });
+
+  it("改派也失败 → 维持 error 终态，trace 落 failed", async () => {
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "调研", instruction: "调研竞品", assigneeId: "m1" }]),
+      execute: () => {
+        throw new Error("LLM 超时");
+      },
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+
+    const s1 = result.subtasks[0];
+    // m1 失败 → 改派 m2 → m2 也失败 → error 终态
+    expect(s1.assigneeId).toBe("m2");
+    expect(s1.assignedBy).toBe("routing");
     expect(s1.error).toContain("LLM 超时");
     expect(s1.output).toBeNull();
     expect(s1.approved).toBe(false);
-    expect(s2.approved).toBe(true);
+    expect(result.traces.some((t) => t.summary.includes("改派"))).toBe(true);
     expect(result.traces.some((t) => t.state === "failed")).toBe(true);
-    expect(result.deliverable).toBe("汇总交付物");
+    expect(result.deliverable).toBe("汇总交付物"); // 汇总照常进行
+  });
+
+  it("开工确认：成员提问 → leader 批量解答一次 → 解答注入该成员执行消息", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" },
+        { title: "调研 B", instruction: "调研竞品 B", assigneeId: "m2" },
+      ]),
+      kickoff: (agentId) => (agentId === "m1" ? "两部分的接口格式怎么对齐？" : "OK"),
+      kickoffAnswer: "1. 接口格式统一用 REST JSON。",
+      calls,
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+
+    // leader 批量解答只调用一次
+    const answerCalls = calls.filter((c) => c.msgs[0]?.content.includes("批量解答"));
+    expect(answerCalls).toHaveLength(1);
+    expect(answerCalls[0].agentId).toBe("leader");
+    // 解答文本出现在提问成员 m1 的执行 messages 里
+    const m1Exec = calls.find(
+      (c) => c.agentId === "m1" && c.msgs.some((m) => m.content.includes("REST JSON")),
+    );
+    expect(m1Exec).toBeTruthy();
+    // m2 无疑问，其执行消息不含解答
+    const m2Exec = calls.find(
+      (c) => c.agentId === "m2" && !c.msgs[0]?.content.includes("开工确认") && !c.msgs[0]?.content.includes("交叉评审"),
+    );
+    expect(m2Exec?.msgs.some((m) => m.content.includes("REST JSON"))).toBe(false);
+    // trace 落开工确认
+    expect(result.traces.some((t) => t.summary.includes("开工确认：成员提出 1 个问题"))).toBe(true);
+  });
+
+  it("交叉评审：成员返回修订版 → 产出被替换；返回 OK → 不变", async () => {
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" },
+        { title: "调研 B", instruction: "调研竞品 B", assigneeId: "m2" },
+      ]),
+      crossReview: (agentId) =>
+        agentId === "m1"
+          ? "修订版：结合 B 的产出统一了数据口径与引用格式，这是完整修订版本。"
+          : "OK",
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+
+    expect(result.subtasks[0].output).toContain("修订版");
+    expect(result.subtasks[1].output).toBe("m2 的产出"); // OK → 不替换
+    expect(result.traces.some((t) => t.summary.includes("交叉评审后修订产出"))).toBe(true);
+  });
+
+  it("重规划：leader 返回追加子任务 JSON → 子任务多一条且被执行", async () => {
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" }]),
+      replan: JSON.stringify([{ title: "补充调研 C", instruction: "调研竞品 C", assigneeId: "m2" }]),
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+
+    expect(result.subtasks).toHaveLength(2);
+    expect(result.subtasks[1].title).toBe("补充调研 C");
+    expect(result.subtasks[1].assigneeId).toBe("m2");
+    expect(result.subtasks[1].output).toBe("m2 的产出"); // 追加的子任务真实执行过
+    expect(result.subtasks[1].approved).toBe(true);
+    expect(result.traces.some((t) => t.summary.includes("重规划：追加 1 个子任务"))).toBe(true);
   });
 
   it("persona 注入：有 persona 的成员 system 消息含人格文本", async () => {
@@ -201,7 +331,9 @@ describe("runSquadOrchestration", () => {
     await runSquadOrchestration(
       baseInput({ chat, personas: { m1: "你是一位严谨的分析师。" } }),
     );
-    const execCall = calls.find((c) => c.agentId === "m1");
+    const execCall = calls.find(
+      (c) => c.agentId === "m1" && !c.msgs[0]?.content.includes("开工确认"),
+    );
     expect(execCall?.msgs[0].content).toContain("严谨的分析师");
   });
 });

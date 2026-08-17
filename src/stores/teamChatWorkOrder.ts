@@ -12,6 +12,7 @@ import { useAgentsStore } from '@/stores/agents';
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
 import { createThrottledEventSink, projectRoutingCandidates } from '@/stores/autoWorker';
+import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { runRealChat } from '@/engine/llm/realExecutor';
@@ -64,6 +65,8 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
     const freshTask = useApprovalsStore.getState().tasks.find((t) => t.id === taskId);
     const events: TaskExecutionEvent[] = [...(freshTask?.executionEvents ?? [])];
     const sink = createThrottledEventSink(taskId, events);
+    // P0-3：里程碑 trace 实时广播到团队房间（失败静默，不影响编排）
+    const forwardRoom = createRoomTraceForwarder(team.id);
     let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
     try {
       orch = await runSquadOrchestration({
@@ -79,7 +82,7 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         personas,
         maxRounds: 2,
         chat: (_agentId, messages) => runRealChat(messages, 2048),
-        onTrace: (t) => sink.push(t),
+        onTrace: (t) => { sink.push(t); forwardRoom(t); },
       });
     } finally {
       await sink.flush();

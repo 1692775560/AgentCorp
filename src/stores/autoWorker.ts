@@ -36,6 +36,7 @@ import {
 import { runRealExecution, runRealChat, isRealExecutorAvailable } from '@/engine/llm/realExecutor';
 import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
+import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { invokeIpc } from '@/lib/api-client';
 import { notifyTaskTerminal } from '@/lib/task-notify';
@@ -451,6 +452,8 @@ async function runOne(
           const events: TaskExecutionEvent[] = [...(task.executionEvents ?? [])];
           // 事件节流写回：看板即时可见，但最多每 800ms 落一次库
           const sink = createThrottledEventSink(task.id, events);
+          // P0-3：里程碑 trace 实时广播到团队房间（仅团队任务；失败静默）
+          const forwardRoom = task.teamId ? createRoomTraceForwarder(task.teamId) : null;
           const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
           // 注入各成员 persona（SOUL.md 摘要）；读不到为 null，编排器退回纯身份说明。
           const personas: Record<string, string | null> = {};
@@ -475,7 +478,7 @@ async function runOne(
               // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
               chat: (_agentId, messages) => runRealChat(messages, 2048),
               // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
-              onTrace: (t) => sink.push(t),
+              onTrace: (t) => { sink.push(t); forwardRoom?.(t); },
             });
           } finally {
             // 成功/失败都必须把尾部事件落库，时间线不丢尾
