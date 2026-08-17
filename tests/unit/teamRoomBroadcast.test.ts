@@ -9,7 +9,7 @@
  * mock @/lib/host-api 为内存实现，仿照 teams-store.test.ts 的快照套路。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { TeamSummary, TeamsSnapshot, UpdateTeamRequest } from '@/types/team';
+import type { TeamSummary, TeamsSnapshot, TeamChatEvent } from '@/types/team';
 import type { A2aTraceRecord } from '@/types/evaluation';
 
 function makeTeam(id: string): TeamSummary {
@@ -29,19 +29,24 @@ function makeTeam(id: string): TeamSummary {
 }
 
 let teams: TeamSummary[];
-const putCalls: Array<{ teamId: string; body: UpdateTeamRequest }> = [];
+const appendCalls: Array<{ teamId: string; body: Omit<TeamChatEvent, 'createdAt'> }> = [];
 
 vi.mock('@/lib/host-api', () => ({
   hostApiFetch: vi.fn(async (path: string, init?: RequestInit) => {
     if (path === '/api/teams') {
       return { teams } satisfies TeamsSnapshot;
     }
-    const putMatch = path.match(/^\/api\/teams\/(.+)$/);
-    if (putMatch && init?.method === 'PUT') {
-      const teamId = decodeURIComponent(putMatch[1]);
-      const body = JSON.parse(String(init.body)) as UpdateTeamRequest;
-      putCalls.push({ teamId, body });
-      teams = teams.map((t) => (t.id === teamId ? { ...t, ...body } : t));
+    // 服务端原子 append 端点的内存实现（仿照 teams-store.test.ts 的快照套路）
+    const appendMatch = path.match(/^\/api\/teams\/(.+)\/chat-events$/);
+    if (appendMatch && init?.method === 'POST') {
+      const teamId = decodeURIComponent(appendMatch[1]);
+      const body = JSON.parse(String(init.body)) as Omit<TeamChatEvent, 'createdAt'>;
+      appendCalls.push({ teamId, body });
+      teams = teams.map((t) =>
+        t.id === teamId
+          ? { ...t, chatEvents: [...(t.chatEvents ?? []), { ...body, createdAt: new Date().toISOString() }].slice(-200) }
+          : t,
+      );
       return { teams } satisfies TeamsSnapshot;
     }
     throw new Error(`unexpected path: ${path}`);
@@ -77,7 +82,7 @@ function makeTrace(p: Partial<A2aTraceRecord>): A2aTraceRecord {
 
 beforeEach(() => {
   teams = [makeTeam('team-a')];
-  putCalls.length = 0;
+  appendCalls.length = 0;
   useTeamsStore.setState({ teams: [makeTeam('team-a')], loading: false, error: null });
 });
 
@@ -110,22 +115,22 @@ describe('createRoomTraceForwarder', () => {
     // 非里程碑不转发
     forward(makeTrace({ delegator: 'agent:m-1', summary: '「a」成员回交产出（第1轮）：xx' }));
 
-    await vi.waitFor(() => expect(putCalls).toHaveLength(1));
-    expect(putCalls[0].teamId).toBe('team-a');
-    const events = putCalls[0].body.chatEvents!;
-    expect(events).toHaveLength(1);
-    expect(events[0].from).toBe('leader-1');
-    expect(events[0].to).toBe('team');
-    expect(events[0].content).toBe('Leader 拆解任务为 2 个子任务：a；b');
+    await vi.waitFor(() => expect(appendCalls).toHaveLength(1));
+    expect(appendCalls[0].teamId).toBe('team-a');
+    expect(appendCalls[0].body.from).toBe('leader-1');
+    expect(appendCalls[0].body.to).toBe('team');
+    expect(appendCalls[0].body.content).toBe('Leader 拆解任务为 2 个子任务：a；b');
+    // store 套用端点返回的快照
+    const stored = useTeamsStore.getState().teams.find((t) => t.id === 'team-a')!;
+    expect(stored.chatEvents).toHaveLength(1);
   });
 
   it('delegator 为 team: 开头时 from 用团队 leaderId', async () => {
     const forward = createRoomTraceForwarder('team-a');
     forward(makeTrace({ delegator: 'team:team-a', state: 'failed', summary: '「a」执行失败：x' }));
 
-    await vi.waitFor(() => expect(putCalls).toHaveLength(1));
-    const events = putCalls[0].body.chatEvents!;
-    expect(events[0].from).toBe('leader-1');
-    expect(events[0].to).toBe('team');
+    await vi.waitFor(() => expect(appendCalls).toHaveLength(1));
+    expect(appendCalls[0].body.from).toBe('leader-1');
+    expect(appendCalls[0].body.to).toBe('team');
   });
 });

@@ -26,6 +26,16 @@ export interface TeamChatBubble {
 /** 对话事件前缀：chat:user→<agentId>（用户发言）/ chat:<agentId>→user（成员回复）。 */
 export const TEAM_CHAT_EVENT_PREFIX = 'chat:';
 
+/**
+ * 剥掉编排 trace 参与者 id 上的 `agent:`/`team:` 前缀（如 `agent:writer-01` → `writer-01`），
+ * 还原成纯 id 供 UI 按 agents/teams 查找；无前缀时原样返回。
+ */
+export function stripActorPrefix(id: string): string {
+  if (id.startsWith('agent:')) return id.slice('agent:'.length);
+  if (id.startsWith('team:')) return id.slice('team:'.length);
+  return id;
+}
+
 export function parseTeamChatRoute(type: string | undefined): { from: string; to: string } | null {
   if (!type || !type.startsWith(TEAM_CHAT_EVENT_PREFIX)) return null;
   const route = type.slice(TEAM_CHAT_EVENT_PREFIX.length);
@@ -39,12 +49,13 @@ export function mapEventsToTeamChatBubbles(events: TaskExecutionEvent[]): TeamCh
     const chatRoute = parseTeamChatRoute(e.type);
     if (chatRoute) {
       // 用户发言：右列气泡；成员回复：左列成员气泡（谁说话谁是 actor）。
+      // id 统一剥 agent:/team: 前缀，避免编排 trace 里的前缀泄漏到 UI 查找。
       const isUserSpeaking = chatRoute.from === 'user';
       return {
         id: `chat-${i}`,
         kind: isUserSpeaking ? 'user' : 'a2a',
-        actorId: isUserSpeaking ? 'user' : chatRoute.from,
-        peerId: isUserSpeaking ? chatRoute.to : 'user',
+        actorId: isUserSpeaking ? 'user' : stripActorPrefix(chatRoute.from),
+        peerId: isUserSpeaking ? stripActorPrefix(chatRoute.to) : 'user',
         text: e.content ?? '',
         round: null,
         verdict: null,
@@ -75,8 +86,9 @@ export function mapEventsToTeamChatBubbles(events: TaskExecutionEvent[]): TeamCh
       kind: 'a2a',
       // 发言者 = 箭头终点（delegator 分派时 leader 在说话；交付/审阅时成员在说话）。
       // 这里以「动作接收方」为发言者更贴近群聊观感：事件描述的是 to 一侧的动作结果。
-      actorId: route.to || route.from,
-      peerId: route.to ? route.from : '',
+      // actorId/peerId 统一剥 agent:/team: 前缀，否则 UI 按 id 查 agent 会落空、直接渲染乱码原串。
+      actorId: stripActorPrefix(route.to || route.from),
+      peerId: route.to ? stripActorPrefix(route.from) : '',
       text: (e.content ?? '').replace(/【第\d+轮】/, '').trim(),
       round: roundMatch ? Number(roundMatch[1]) : null,
       verdict,
@@ -248,7 +260,8 @@ export function isNearBottom(
 
 /**
  * 团队房间聊天记录 → 气泡。TeamChatEvent.from 为 'user' 时是老板发言（右列），
- * 否则是成员发言（左列，actorId=from）。
+ * 否则是成员发言（左列，actorId=from）。from/to 同样剥 agent:/team: 前缀，
+ * 防止编排 trace 桥接进来的带前缀 id 泄漏到 UI。
  */
 export function mapTeamChatEventsToBubbles(
   events: Array<{ from: string; to: string; content: string; createdAt: string }>,
@@ -258,8 +271,8 @@ export function mapTeamChatEventsToBubbles(
     return {
       id: `room-${i}`,
       kind: isUser ? 'user' : 'a2a',
-      actorId: isUser ? 'user' : e.from,
-      peerId: isUser ? e.to : 'user',
+      actorId: isUser ? 'user' : stripActorPrefix(e.from),
+      peerId: isUser ? stripActorPrefix(e.to) : 'user',
       text: e.content,
       round: null,
       verdict: null,

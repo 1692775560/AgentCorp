@@ -10,7 +10,9 @@
  *   - 产出中含代码围栏时按语言落文件：html→.html（可直接运行）、
  *     js/javascript→.js、css→.css、py/python→.py、ts/typescript→.ts，
  *     其它语言或无围栏 → 全文存 .md。
- *   - 一个子任务多个同语言围栏 → 追加序号区分。
+ *   - 一个子任务多个同扩展名围栏（含 ```js + ```javascript 这类同义语言）→
+ *     按扩展名追加序号区分，不互相覆盖。
+ *   - 围栏逐行扫描解析，支持 LF/CRLF；未闭合或空围栏不落文件。
  *   - 最前面固定补一份 00-交付汇总.md（leader 汇总全文）。
  */
 import type { SubTaskResult } from './squadOrchestration';
@@ -43,14 +45,28 @@ function slug(text: string, max = 24): string {
   return cleaned || 'untitled';
 }
 
-/** 提取产出中的代码围栏：[{lang, code}]。 */
+/**
+ * 提取产出中的代码围栏：[{lang, code}]。
+ * 逐行扫描（而非正则），支持 LF/CRLF：fence 行须独立成行（```lang，允许行尾空白），
+ * 内容直到下一个独立 fence 行（```）为止；未闭合的围栏丢弃。
+ */
 function extractCodeFences(output: string): Array<{ lang: string; code: string }> {
   const fences: Array<{ lang: string; code: string }> = [];
-  const re = /```([\w+-]*)\n([\s\S]*?)```/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(output)) !== null) {
-    const code = m[2].replace(/\n$/, '');
-    if (code.trim()) fences.push({ lang: (m[1] || '').toLowerCase(), code });
+  const lines = output.split(/\r?\n/);
+  let open: { lang: string; buf: string[] } | null = null;
+  for (const line of lines) {
+    if (!open) {
+      const m = /^```([\w+-]*)\s*$/.exec(line);
+      if (m) open = { lang: (m[1] || '').toLowerCase(), buf: [] };
+      continue;
+    }
+    if (/^```\s*$/.test(line)) {
+      const code = open.buf.join('\n');
+      if (code.trim()) fences.push({ lang: open.lang, code });
+      open = null;
+      continue;
+    }
+    open.buf.push(line);
   }
   return fences;
 }
@@ -76,11 +92,14 @@ export function buildDeliverableFiles(
       files.push({ name: `${base}.md`, content: st.output });
       return;
     }
-    const perLangCount: Record<string, number> = {};
+    // 按扩展名（而非语言名）计数：```js 与 ```javascript 都落 .js，
+    // 按语言计数会让二者同名互相覆盖。
+    const perExtCount: Record<string, number> = {};
     for (const f of codeFences) {
-      perLangCount[f.lang] = (perLangCount[f.lang] ?? 0) + 1;
-      const suffix = perLangCount[f.lang] > 1 ? `-${perLangCount[f.lang]}` : '';
-      files.push({ name: `${base}${suffix}${LANG_EXT[f.lang]}`, content: f.code });
+      const ext = LANG_EXT[f.lang];
+      perExtCount[ext] = (perExtCount[ext] ?? 0) + 1;
+      const suffix = perExtCount[ext] > 1 ? `-${perExtCount[ext]}` : '';
+      files.push({ name: `${base}${suffix}${ext}`, content: f.code });
     }
   });
 

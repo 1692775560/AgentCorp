@@ -3,7 +3,7 @@ import { withConfigLock } from './config-mutex';
 import { listAgentsSnapshot, writeAgentSoulMd } from './agent-config';
 import { listTaskSnapshots } from './task-config';
 import { readStoredTeams, writeStoredTeams } from './openclaw-runtime-metadata';
-import type { Team, TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamStatus } from '../../src/types/team';
+import type { Team, TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamStatus, TeamChatEvent } from '../../src/types/team';
 import { randomUUID } from 'crypto';
 import { buildAgentTaskSummaryMap, buildTeamTaskRollupMap } from '../../src/lib/task-summary-read-model';
 
@@ -366,6 +366,43 @@ export async function updateTeam(teamId: string, updates: UpdateTeamRequest): Pr
     }
 
     return await buildTeamSummary(updatedTeam);
+  });
+}
+
+/**
+ * Atomically append one chat event to a team's room log.
+ *
+ * 前端整包读-改-写再 PUT 会在并发广播时丢消息；这里在 withConfigLock 内
+ * 读最新 teams → append（补 createdAt、封顶 200 条裁最旧）→ 原子写，
+ * 返回更新后的 teams 快照。
+ */
+export async function appendTeamChatEvent(
+  teamId: string,
+  input: { from: string; to: string; content: string },
+): Promise<Team[]> {
+  return await withConfigLock(async () => {
+    const teams = await readTeamsConfig();
+    const teamIndex = teams.findIndex((t) => t.id === teamId);
+
+    if (teamIndex === -1) {
+      throw new Error(`Team not found: ${teamId}`);
+    }
+
+    const team = teams[teamIndex];
+    const event: TeamChatEvent = {
+      from: input.from,
+      to: input.to,
+      content: input.content,
+      createdAt: new Date().toISOString(),
+    };
+
+    teams[teamIndex] = {
+      ...team,
+      chatEvents: [...(team.chatEvents ?? []), event].slice(-200),
+      updatedAt: Date.now(),
+    };
+    await writeTeamsConfig(teams);
+    return teams;
   });
 }
 

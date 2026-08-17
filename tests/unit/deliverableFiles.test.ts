@@ -57,4 +57,35 @@ describe("buildDeliverableFiles", () => {
     const files = buildDeliverableFiles([st('a/b:c*d?"<>|e', "内容")], "汇总");
     expect(files[1].name).toBe("01-abcde.md");
   });
+
+  it("CRLF 围栏：\\r\\n 换行的代码块正常提取", () => {
+    const files = buildDeliverableFiles(
+      [st("脚本", "做好了：\r\n```js\r\nconsole.log(1)\r\n```\r\n完事")],
+      "汇总",
+    );
+    expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "01-脚本.js"]);
+    expect(files[1].content).toBe("console.log(1)");
+  });
+
+  it("同扩展名不同语言（```js 与 ```javascript）按扩展名编号，不互相覆盖", () => {
+    const files = buildDeliverableFiles(
+      [st("脚本", "```js\nconsole.log(1)\n```\n```javascript\nconsole.log(2)\n```")],
+      "汇总",
+    );
+    expect(files.map((f) => f.name)).toEqual([
+      "00-交付汇总.md",
+      "01-脚本.js",
+      "01-脚本-2.js",
+    ]);
+    expect(files[1].content).toBe("console.log(1)");
+    expect(files[2].content).toBe("console.log(2)");
+  });
+
+  it("未闭合围栏与空围栏不产出代码文件，落 .md 全文兜底", () => {
+    const output = "```py\n\n```\n收尾说明\n```js\n这段代码没有闭合";
+    const files = buildDeliverableFiles([st("脚本", output)], "汇总");
+    // 空 py 围栏跳过、js 未闭合丢弃 → 无有效代码围栏 → 全文存 .md
+    expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "01-脚本.md"]);
+    expect(files[1].content).toBe(output);
+  });
 });

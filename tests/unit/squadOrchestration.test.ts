@@ -123,6 +123,69 @@ describe("classifySubTaskKind 工种分级", () => {
 });
 
 describe("runSquadOrchestration", () => {
+  it("审阅判定回归：「REWORK：尚未 PASS」不得误判通过；「PASS，可以合并」正常通过", async () => {
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" },
+      ]),
+      review: (i) =>
+        // 第一轮 leader 回「REWORK：尚未 PASS」（旧 includes('PASS') 会误判通过）；
+        // 第二轮回带尾随标点的 PASS 变体。
+        i === 1 ? "REWORK：尚未 PASS，数据缺口还在" : "PASS，可以合并。",
+    });
+    const result = await runSquadOrchestration(baseInput({ chat, maxRounds: 2 }));
+
+    // 被正确打回并重做到第二轮才通过
+    expect(result.subtasks[0].rounds).toBe(2);
+    expect(result.subtasks[0].approved).toBe(true);
+    expect(result.subtasks[0].verdict).toContain("PASS，可以合并");
+  });
+
+  it("审阅首行既非 PASS 也非 REWORK → 保守视为不通过", async () => {
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "调研", instruction: "调研竞品", assigneeId: "m1" }]),
+      review: () => "我觉得还差一点火候",
+    });
+    const result = await runSquadOrchestration(baseInput({ chat, maxRounds: 2 }));
+    expect(result.subtasks[0].approved).toBe(false);
+    expect(result.subtasks[0].rounds).toBe(2);
+  });
+
+  it("开工确认 OK 归一化：「OK，没问题。」不再被当成提问", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" },
+        { title: "调研 B", instruction: "调研竞品 B", assigneeId: "m2" },
+      ]),
+      kickoff: (agentId) => (agentId === "m1" ? "OK，没问题。" : "ok"),
+      calls,
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+
+    // 两个成员的确认变体都算 OK：不发起 leader 批量解答、不落开工确认 trace
+    expect(calls.some((c) => c.msgs[0]?.content.includes("批量解答"))).toBe(false);
+    expect(result.traces.some((t) => t.summary.includes("开工确认"))).toBe(false);
+  });
+
+  it("交叉评审：「OK，无需调整。」不覆盖产出；过短的修订版（防一句话覆盖）不替换", async () => {
+    const longOutput = `m1 的完整产出。${"数据与分析细节。".repeat(60)}`; // >200 字
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "调研 A", instruction: "调研竞品 A", assigneeId: "m1" },
+        { title: "调研 B", instruction: "调研竞品 B", assigneeId: "m2" },
+      ]),
+      execute: (agentId) => (agentId === "m1" ? longOutput : `${agentId} 的产出`),
+      crossReview: (agentId) =>
+        agentId === "m2" ? "OK，无需调整。" : "短回复：我统一了口径。", // 20 字，远低于原产出的 50%
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+
+    expect(result.subtasks[1].output).toBe("m2 的产出"); // OK 变体不覆盖
+    expect(result.subtasks[0].output).toBe(longOutput); // 过短修订版不覆盖
+    expect(result.traces.some((t) => t.summary.includes("交叉评审后修订产出"))).toBe(false);
+  });
+
   it("正常链路：分解 2 子任务 → 并行执行 → 全 PASS → 汇总", async () => {
     const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
     const chat = scriptedChat({

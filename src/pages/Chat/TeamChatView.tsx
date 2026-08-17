@@ -359,6 +359,9 @@ export function TeamChatView({ teamId }: { teamId: string }) {
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !mentionOpen) {
+                  // 中文输入法组词中的 Enter 是选词，不发送（与 ChatInput 同款守卫）
+                  const nativeEvent = e.nativeEvent as KeyboardEvent;
+                  if (nativeEvent.isComposing || nativeEvent.keyCode === 229) return;
                   e.preventDefault();
                   void handleSend();
                 }

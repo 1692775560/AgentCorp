@@ -11,24 +11,31 @@
 import { useAgentsStore } from '@/stores/agents';
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
-import { createThrottledEventSink, projectRoutingCandidates } from '@/stores/autoWorker';
+import {
+  claimTask,
+  releaseClaim,
+  isTaskClaimed,
+  createThrottledEventSink,
+  projectRoutingCandidates,
+} from '@/stores/autoWorker';
 import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { runRealChat } from '@/engine/llm/realExecutor';
 import { invokeIpc } from '@/lib/api-client';
 import { notifyTaskTerminal } from '@/lib/task-notify';
-import type { TaskExecutionEvent } from '@/types/task';
 
-/** 防止同一任务并发触发两轮编排（连点/重复标记）。 */
-const running = new Set<string>();
-
+/**
+ * 互斥说明：会话派活与 autoWorker 自动领取共用同一份 claimed 集合
+ * （autoWorker 的 claimTask/releaseClaim），受理即占用、结束（含失败）释放；
+ * 占用期间 autoWorker 的 _tick 不会重复领取同一任务。
+ */
 export function isWorkOrderRunning(taskId: string): boolean {
-  return running.has(taskId);
+  return isTaskClaimed(taskId);
 }
 
 /**
- * 执行会话派活。返回是否成功受理（false = 条件不满足，未启动）。
+ * 执行会话派活。返回是否成功受理（false = 条件不满足或任务已被占用，未启动）。
  * @throws 编排或落库失败时抛错，调用方负责提示。
  */
 export async function runTeamChatWorkOrder(taskId: string, instruction: string): Promise<boolean> {
@@ -36,9 +43,10 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
   const task = approvals.tasks.find((t) => t.id === taskId);
   if (!task?.teamId) return false;
   const team = useTeamsStore.getState().teams.find((t) => t.id === task.teamId);
-  if (!team?.leaderId || running.has(taskId)) return false;
+  if (!team?.leaderId) return false;
+  // 与 autoWorker 互斥：任务已被领取（任一通道）则不受理
+  if (!claimTask(taskId)) return false;
 
-  running.add(taskId);
   try {
     // 1) 受理留痕 + 看板转「进行中」
     await approvals.appendTaskExecutionEvent(taskId, {
@@ -60,11 +68,8 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
       }),
     );
 
-    // sink 写回是全量覆盖（PUT executionEvents），必须用最新事件列表预填，
-    // 否则本轮编排会把之前的对话与协作历史从任务上抹掉。
-    const freshTask = useApprovalsStore.getState().tasks.find((t) => t.id === taskId);
-    const events: TaskExecutionEvent[] = [...(freshTask?.executionEvents ?? [])];
-    const sink = createThrottledEventSink(taskId, events);
+    // sink 增量 append 写回（只追加本轮新增事件），无需预填历史事件列表
+    const sink = createThrottledEventSink(taskId);
     // P0-3：里程碑 trace 实时广播到团队房间（失败静默，不影响编排）
     const forwardRoom = createRoomTraceForwarder(team.id);
     let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
@@ -130,14 +135,18 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
       .catch(() => { /* 房间同步失败不阻塞交付 */ });
     return true;
   } catch (err) {
+    // 失败复位：workState 落 failed（看板可人工重试），status 回到进入派活前的列——
+    // 已有交付（workResult 非空）回 review，否则回 todo，避免任务卡在 in-progress。
+    const fresh = useApprovalsStore.getState().tasks.find((t) => t.id === taskId);
     await approvals
       .updateTask(taskId, {
+        status: fresh?.workResult ? 'review' : 'todo',
         workState: 'failed',
         workError: `会话派活执行失败：${err instanceof Error ? err.message : String(err)}`,
       })
       .catch(() => {});
     throw err;
   } finally {
-    running.delete(taskId);
+    releaseClaim(taskId);
   }
 }

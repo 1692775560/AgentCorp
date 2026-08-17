@@ -124,14 +124,64 @@ interface AutoWorkerState {
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticking = false;
 /** 当前在途执行数（模块级，避免并发 tick 之间竞态）。 */
-let inFlight = 0;
-/** 本轮 tick 已在途 / 刚领取的任务 id，避免并发 claim 领到同一条。 */
+let inFlight = 0;/** 本轮 tick 已在途 / 刚领取的任务 id，避免并发 claim 领到同一条。 */
 const claimed = new Set<string>();
+
+/**
+ * 跨执行通道的互斥领取（Bug：房间派活 vs autoWorker 双跑同一任务）。
+ * teamChatWorkOrder 受理会话派活前先 claimTask（占用失败即不受理），
+ * 结束（含失败）后 releaseClaim；autoWorker _tick 领取前查同一集合，天然互斥。
+ */
+export function claimTask(taskId: string): boolean {
+  if (claimed.has(taskId)) return false;
+  claimed.add(taskId);
+  return true;
+}
+
+/** 释放互斥占用（幂等）。 */
+export function releaseClaim(taskId: string): void {
+  claimed.delete(taskId);
+}
+
+/** 只读查询任务是否被任一执行通道占用。 */
+export function isTaskClaimed(taskId: string): boolean {
+  return claimed.has(taskId);
+}
 
 function clearTimer() {
   if (timer) {
     clearInterval(timer);
     timer = null;
+  }
+}
+
+/** 启动恢复：stale working 判定阈值（10 分钟无更新视为中断）。 */
+const STALE_WORKING_MS = 10 * 60_000;
+/** 每次会话只清扫一次（首次 fetchTasks 完成后触发）。 */
+let staleSweepDone = false;
+
+/**
+ * 启动恢复清扫：页面刷新/重启后，遗留在「进行中 + working/starting」且长时间
+ * 无更新的任务（执行进程已死，状态机永远卡住）复位为 failed + 写明原因，
+ * 看板「失败·点我重试」可人工重排队。正在被本 worker/会话派活占用的任务不动。
+ */
+async function sweepStaleWorkingTasks(): Promise<void> {
+  const approvals = useApprovalsStore.getState();
+  const now = Date.now();
+  const stale = approvals.tasks.filter((t) => {
+    if (t.status !== 'in-progress') return false;
+    if (t.workState !== 'working' && t.workState !== 'starting') return false;
+    if (claimed.has(t.id)) return false;
+    const updatedAt = new Date(t.updatedAt).getTime();
+    return Number.isFinite(updatedAt) && now - updatedAt > STALE_WORKING_MS;
+  });
+  for (const t of stale) {
+    await approvals
+      .updateTask(t.id, {
+        workState: 'failed',
+        workError: '执行中断（页面刷新/重启），可重试',
+      })
+      .catch(() => { /* 单条落库失败不阻塞其余清扫 */ });
   }
 }
 
@@ -198,6 +248,11 @@ export const useAutoWorkerStore = create<AutoWorkerState>((set, get) => ({
       const approvals = useApprovalsStore.getState();
       // 拉最新任务快照（真实读主干 /api/tasks）。
       await approvals.fetchTasks();
+      // 启动恢复：首次拿到任务快照后清扫 stale working（刷新/重启遗留的卡死任务）。
+      if (!staleSweepDone) {
+        staleSweepDone = true;
+        await sweepStaleWorkingTasks();
+      }
 
       while (inFlight < concurrency) {
         const tasks = useApprovalsStore.getState().tasks;
@@ -213,7 +268,7 @@ export const useAutoWorkerStore = create<AutoWorkerState>((set, get) => ({
           break;
         }
         // 逻辑 claim：标记后立即占槽，避免并发 tick / 并发循环重复领取。
-        claimed.add(next.id);
+        claimTask(next.id);
         inFlight += 1;
         set((s) => ({
           activeTaskIds: [...s.activeTaskIds, next.id],
@@ -319,36 +374,48 @@ function traceToEvent(t: A2aTraceRecord): TaskExecutionEvent {
   };
 }
 
-/** 执行事件写回节流间隔（ms）：编排期间每条 A2A 消息都立即 PUT 会引发写/渲染风暴。 */
+/** 执行事件写回节流间隔（ms）：编排期间每条 A2A 消息都立即 append 会引发写/渲染风暴。 */
 const EVENT_FLUSH_INTERVAL_MS = 800;
 
 /**
- * 事件写回节流器：事件先攒在内存数组，最多每 800ms 落一次库；
- * flush() 强制落库（任务结束/失败时必须调用，保证时间线不丢尾部事件）。
- * 导出供单测直接验证节流语义。
+ * 事件写回节流器（增量版）：trace 转成事件后攒在本轮待写队列，
+ * 最多每 800ms 把新增事件逐条走 appendTaskExecutionEvent 原子 append 端点落库；
+ * flush() 强制落尾部（任务结束/失败时必须调用，保证时间线不丢尾事件）。
+ *
+ * 为何不再全量 PUT executionEvents：运行期用户在任务会话里发的对话消息
+ * 同样走原子 append 端点，全量 PUT（编排开始时的快照预填）会把这些消息抹掉。
+ * 增量 append 只追加本轮新增，天然不覆盖他人写入；调用方也因此无需再预填
+ * 既有事件列表。导出供单测直接验证节流语义。
  */
-export function createThrottledEventSink(taskId: string, events: TaskExecutionEvent[]) {
+export function createThrottledEventSink(taskId: string) {
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
-  let dirty = false;
-  let inFlightWrite: Promise<unknown> | null = null;
+  /** 本轮已 push 待落库的新增事件（write 时取走并清空）。 */
+  let pending: TaskExecutionEvent[] = [];
+  /** 写链：所有批次串行追加，保证事件顺序且不并发交错。 */
+  let writeChain: Promise<unknown> = Promise.resolve();
 
   const write = (): Promise<unknown> => {
-    dirty = false;
-    inFlightWrite = useApprovalsStore
-      .getState()
-      .updateTask(taskId, { executionEvents: [...events] })
-      .catch(() => { /* 时间线写回失败不阻塞执行 */ });
-    return inFlightWrite;
+    const batch = pending;
+    pending = [];
+    if (batch.length === 0) return writeChain;
+    writeChain = writeChain.then(async () => {
+      for (const event of batch) {
+        await useApprovalsStore
+          .getState()
+          .appendTaskExecutionEvent(taskId, event)
+          .catch(() => { /* 时间线写回失败不阻塞执行 */ });
+      }
+    });
+    return writeChain;
   };
 
   return {
     push(t: A2aTraceRecord): void {
-      events.push(traceToEvent(t));
-      dirty = true;
+      pending.push(traceToEvent(t));
       if (!flushTimer) {
         flushTimer = setTimeout(() => {
           flushTimer = null;
-          if (dirty) void write();
+          void write();
         }, EVENT_FLUSH_INTERVAL_MS);
       }
     },
@@ -357,11 +424,65 @@ export function createThrottledEventSink(taskId: string, events: TaskExecutionEv
         clearTimeout(flushTimer);
         flushTimer = null;
       }
-      if (dirty) await write();
-      // 等最后一次在途写完成，避免与后续终态 PUT 交错丢字段
-      if (inFlightWrite) await inFlightWrite.catch(() => { });
+      // 落尾部批次，并等写链全部完成，避免与后续终态 PUT 交错丢字段
+      await write();
+      await writeChain.catch(() => { });
     },
   };
+}
+
+/**
+ * 网关回退路径的终态回写轮询参数（Bug：拿到 runId 直接假完成）。
+ * chat.send 只返回 runId，网关侧可查询的终态通道是 chat.history RPC
+ * （与 chat 面板 loadHistory 同一通道）：按 sessionKey 拉历史，
+ * 取派发时刻之后最新一条带文本的 assistant 消息作为真实产出。
+ */
+const GATEWAY_RESULT_POLL_MS = 5_000;
+const GATEWAY_RESULT_TIMEOUT_MS = 10 * 60_000;
+/** 时钟偏差容忍：助手消息时间戳略早于派发时刻也接受。 */
+const GATEWAY_RESULT_CLOCK_SKEW_MS = 10_000;
+
+/** 从一条历史消息提取非工具文本（content 为字符串或 text 块数组）；无文本返回空串。 */
+function extractAssistantText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b): b is { type: string; text: string } =>
+      Boolean(b && typeof b === 'object' && (b as { type?: unknown }).type === 'text' && typeof (b as { text?: unknown }).text === 'string'))
+    .map((b) => b.text)
+    .join('\n')
+    .trim();
+}
+
+/**
+ * 轮询网关会话历史，等待本次派发（sinceMs）之后的真实产出；超时返回 null。
+ * 历史查询失败视为瞬态，下轮重试直至超时。
+ */
+async function awaitGatewayRunResult(sessionKey: string, sinceMs: number): Promise<string | null> {
+  const deadline = Date.now() + GATEWAY_RESULT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const data = await useGatewayStore.getState().rpc<Record<string, unknown>>(
+        'chat.history',
+        { sessionKey, limit: 50 },
+        15_000,
+      );
+      const msgs = Array.isArray(data?.messages) ? data.messages as Array<Record<string, unknown>> : [];
+      for (let i = msgs.length - 1; i >= 0; i -= 1) {
+        const m = msgs[i];
+        if (m?.role !== 'assistant') continue;
+        // 无时间戳无法确认是本轮产出，宁可跳过也不拿旧回复冒充
+        const ts = typeof m.timestamp === 'number' ? m.timestamp * 1000 : 0;
+        if (!ts || ts < sinceMs - GATEWAY_RESULT_CLOCK_SKEW_MS) continue;
+        const text = extractAssistantText(m.content);
+        if (text) return text;
+      }
+    } catch {
+      /* 历史查询失败：下轮再试 */
+    }
+    await new Promise((r) => setTimeout(r, GATEWAY_RESULT_POLL_MS));
+  }
+  return null;
 }
 
 /**
@@ -435,6 +556,8 @@ async function runOne(
     let sessionId = task.runtimeSessionId || sessionKey;
     let runId: string | undefined;
     let realOutput: string | null = null;
+    /** 网关派发时刻（ms），终态回写只认这之后的助手产出。 */
+    let dispatchedAt = Date.now();
     /** 交付文件落盘目录（仅编排路径产出）。 */
     let deliverableDir: string | undefined;
 
@@ -448,10 +571,8 @@ async function runOne(
       try {
         if (orchestrate && team) {
           // —— 多成员编排：leader 拆解 → 成员并行执行 → leader 审阅/返工 → 汇总 ——
-          // sink 写回是全量覆盖，预填已有事件，避免重跑时抹掉历史
-          const events: TaskExecutionEvent[] = [...(task.executionEvents ?? [])];
-          // 事件节流写回：看板即时可见，但最多每 800ms 落一次库
-          const sink = createThrottledEventSink(task.id, events);
+          // 事件节流写回（增量 append，无需预填历史事件）：看板即时可见
+          const sink = createThrottledEventSink(task.id);
           // P0-3：里程碑 trace 实时广播到团队房间（仅团队任务；失败静默）
           const forwardRoom = task.teamId ? createRoomTraceForwarder(task.teamId) : null;
           const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
@@ -506,8 +627,7 @@ async function runOne(
           }
         } else if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
           // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
-          const events: TaskExecutionEvent[] = [...(task.executionEvents ?? [])];
-          const sink = createThrottledEventSink(task.id, events);
+          const sink = createThrottledEventSink(task.id);
           let collab: Awaited<ReturnType<typeof runSquadCollaboration>>;
           try {
             collab = await runSquadCollaboration({
@@ -552,6 +672,7 @@ async function runOne(
       }
     } else {
       // 回退：网关真实派活（复用主干标准 RPC 通道 chat.send）。
+      dispatchedAt = Date.now();
       try {
         const rpcResult = await gateway.rpc<{ runId?: string; sessionId?: string }>(
           'chat.send',
@@ -560,6 +681,8 @@ async function runOne(
         );
         runId = rpcResult?.runId;
         if (rpcResult?.sessionId) sessionId = rpcResult.sessionId;
+        // 派发成功只代表网关受理，任务保持进行中，等终态回写（不再直接假完成）
+        await approvals.updateTask(task.id, { status: 'in-progress', workState: 'working' });
       } catch (rpcErr) {
         await approvals.updateTask(task.id, {
           workState: 'failed',
@@ -579,25 +702,36 @@ async function runOne(
       ...(runId ? { entrySessionKey: sessionKey } : {}),
     });
 
+    // 3.5 网关回退路径：轮询会话历史拿真实产出（带超时）。拿不到绝不假装完成——
+    //     诚实降级为 failed + 退回待办，由人工决定是否重试。
+    if (!realOutput) {
+      realOutput = await awaitGatewayRunResult(sessionKey, dispatchedAt);
+      if (!realOutput) {
+        await approvals.updateTask(task.id, {
+          status: 'todo',
+          workState: 'failed',
+          workError: '网关执行结果回写超时（未能在会话历史中确认产出），已退回待办，可人工重试',
+        });
+        attemptCount.delete(task.id);
+        release();
+        return;
+      }
+    }
+
     // 4. 落终态并写入真实产出，流转 review。
-    //    - 真实执行：workResult = 模型真实产出（截断存储，避免过长）。
-    //    - 网关回退：仍是“已派发执行”，真实产出由主干事件流后续推进。
+    //    workResult = 真实产出（真实执行或网关会话回写，截断存储，避免过长）。
     await approvals.updateTask(task.id, {
       status: 'review',
       workState: 'done',
       ...(deliverableDir ? { deliverableDir } : {}),
-      workResult: realOutput
-        ? realOutput.slice(0, 4000)
-        : runId
-          ? `已派发执行（runId=${runId}）`
-          : '已派发执行',
+      workResult: realOutput.slice(0, 4000),
     });
     attemptCount.delete(task.id); // 成功后清计数
-    set({ note: realOutput ? `已完成：${task.title.slice(0, 24)}` : `已派发：${task.title.slice(0, 24)}` });
+    set({ note: `已完成：${task.title.slice(0, 24)}` });
     // 系统通知：真实执行跑完进评审列，提醒用户验收（点击通知直达任务详情）
-    if (realOutput) notifyTaskTerminal(task.id, 'done', task.title);
+    notifyTaskTerminal(task.id, 'done', task.title);
     // 团队任务的交付同步到团队房间：与会话派活同一份内容，房间里直接可见
-    if (realOutput && task.teamId) {
+    if (task.teamId) {
       await useTeamsStore
         .getState()
         .appendTeamChatEvent(task.teamId, {
@@ -638,6 +772,10 @@ async function maybeAutoRetry(
   const attempts = attemptCount.get(task.id) ?? 1;
   const max = get().maxAttempts;
   if (attempts >= max) {
+    // 终态失败：status 一并复位回 todo（不再卡在 in-progress 列），
+    // workState 保持 failed——autoWorker 只领 idle，不会自动死循环；
+    // 看板「失败·点我重试」按钮（复位 todo+idle）是人工重试入口。
+    await useApprovalsStore.getState().updateTask(task.id, { status: 'todo' }).catch(() => { /* 落库失败忽略 */ });
     set({ note: `任务失败且已达重试上限（${attempts}/${max}），终止：${task.title.slice(0, 20)}` });
     attemptCount.delete(task.id);
     // 系统通知：终态失败（不再自动重试），提醒用户处理；原因从 store 取最新
@@ -662,6 +800,7 @@ export function __resetAutoWorkerForTest(): void {
   claimed.clear();
   inFlight = 0;
   ticking = false;
+  staleSweepDone = false;
   realExecutorReady = false;
   realExecutorProbed = false;
   clearTimer();

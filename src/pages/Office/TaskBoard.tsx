@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
@@ -263,6 +264,7 @@ export function TaskBoard() {
   const [zipError, setZipError] = useState<string | null>(null);
   const [deliverableFiles, setDeliverableFiles] = useState<string[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const tasksLoading = useApprovalsStore((s) => s.tasksLoading);
 
   // 系统通知点击跳转：/kanban?task=<id> → 自动选中该任务展开详情，随后清掉参数
   useEffect(() => {
@@ -272,6 +274,15 @@ export function TaskBoard() {
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // 深链选中的任务在列表加载完后仍找不到（已删除/链接过期）：
+  // 明确提示并回到未选中态，不静默空白。加载中（tasksLoading）不判定，避免误报。
+  useEffect(() => {
+    if (!selectedId || tasksLoading) return;
+    if (tasks.some((t) => t.id === selectedId)) return;
+    toast.error('任务不存在或已删除');
+    setSelectedId(null);
+  }, [selectedId, tasks, tasksLoading]);
 
   const handleDownloadZip = async (taskId: string) => {
     if (zipping) return;

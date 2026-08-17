@@ -10,6 +10,7 @@ import {
   parseExecuteMarker,
   parseMentionTarget,
   parseWorkIntent,
+  stripActorPrefix,
   taskTitleFromInstruction,
 } from '@/lib/team-task-chat';
 import { isAvatarImage } from '@/lib/utils';
@@ -345,6 +346,50 @@ describe('mapTeamChatEventsToBubbles', () => {
     expect(bubbles[1]).toMatchObject({ kind: 'a2a', actorId: 'leader-1', peerId: 'user' });
     expect(bubbles[1].verdict).toBeNull();
     expect(bubbles[1].round).toBeNull();
+  });
+});
+
+describe('stripActorPrefix / 编排 trace 前缀剥离', () => {
+  it('stripActorPrefix 剥 agent:/team: 前缀，无前缀原样返回', () => {
+    expect(stripActorPrefix('agent:writer-01')).toBe('writer-01');
+    expect(stripActorPrefix('team:team-1')).toBe('team-1');
+    expect(stripActorPrefix('writer-01')).toBe('writer-01');
+    expect(stripActorPrefix('user')).toBe('user');
+    expect(stripActorPrefix('')).toBe('');
+  });
+
+  it('a2a 事件的 actorId/peerId 剥掉 agent: 前缀（编排 trace 的 id 不再泄漏到 UI）', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('a2a:agent:leader-1 → agent:dev-1', '【第1轮】分派：实现 UI'),
+    ]);
+    expect(bubbles[0].actorId).toBe('dev-1');
+    expect(bubbles[0].peerId).toBe('leader-1');
+  });
+
+  it('a2a 事件的 team: 前缀同样剥离为裸 team id（显示层按 team id 回退团队名）', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('a2a:team:team-1 → agent:dev-1', '团队分派'),
+    ]);
+    expect(bubbles[0].actorId).toBe('dev-1');
+    expect(bubbles[0].peerId).toBe('team-1');
+  });
+
+  it('chat: 对话事件的 id 也剥前缀', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:agent:leader-1→user', '收到'),
+      ev('chat:user→agent:dev-1', '@阿强 改下样式'),
+    ]);
+    expect(bubbles[0].actorId).toBe('leader-1');
+    expect(bubbles[1].peerId).toBe('dev-1');
+  });
+
+  it('房间事件（mapTeamChatEventsToBubbles）同样剥前缀', () => {
+    const bubbles = mapTeamChatEventsToBubbles([
+      { from: 'user', to: 'agent:leader-1', content: '进度如何', createdAt: '2026-08-18T10:00:00Z' },
+      { from: 'agent:leader-1', to: 'user', content: '顺利推进中', createdAt: '2026-08-18T10:00:05Z' },
+    ]);
+    expect(bubbles[0].peerId).toBe('leader-1');
+    expect(bubbles[1].actorId).toBe('leader-1');
   });
 });
 

@@ -244,13 +244,13 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const statusMeta = STATUS_META[task.status];
   const agentOf = (id: string) => agents.find((a) => a.id === id);
   const mentionTargetName = (b: TeamChatBubble) => agentOf(b.peerId)?.name ?? null;
-  /** actorId 可能是 team:<id>（编排器以团队身份发的事件），回退显示团队名而不是原始 ID */
+  /** actorId 可能指向团队（编排器以团队身份发的事件，映射层已剥 team: 前缀），回退显示团队名而不是原始 ID */
   const speakerName = (id: string) => {
     const agent = agentOf(id);
     if (agent) return agent.name;
-    if (id.startsWith('team:')) {
-      return teams.find((t) => id === `team:${t.id}`)?.name ?? team?.name ?? '团队';
-    }
+    const ownerTeam = teams.find((t) => t.id === id || `team:${t.id}` === id);
+    if (ownerTeam) return ownerTeam.name;
+    if (id.startsWith('team:')) return team?.name ?? '团队';
     return id;
   };
 
@@ -337,7 +337,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             const b = item.bubble!;
             if (b.kind === 'system') {
               return (
-                <p className="text-center text-[11px] text-muted-foreground">
+                <p key={item.key} className="text-center text-[11px] text-muted-foreground">
                   {b.text}
                 </p>
               );
@@ -345,7 +345,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             if (b.kind === 'user') {
               const toName = mentionTargetName(b);
               return (
-                <div className="flex items-start justify-end gap-2.5">
+                <div key={item.key} className="flex items-start justify-end gap-2.5">
                   <div className="min-w-0 max-w-[78%]">
                     <div className="mb-1 flex items-center justify-end gap-1.5 text-[11px]">
                       <span className="text-muted-foreground">你{toName ? ` → ${toName}` : ''}</span>
@@ -363,7 +363,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             const speaker = agentOf(b.actorId);
             const isLeader = b.actorId === leaderId;
             return (
-              <div className="flex items-start gap-2.5">
+              <div key={item.key} className="flex items-start gap-2.5">
                 <AgentAvatar
                   avatar={speaker?.avatar}
                   className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[16px]"
@@ -444,6 +444,9 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !mentionOpen) {
+                  // 中文输入法组词中的 Enter 是选词，不发送（与 ChatInput 同款守卫）
+                  const nativeEvent = e.nativeEvent as KeyboardEvent;
+                  if (nativeEvent.isComposing || nativeEvent.keyCode === 229) return;
                   e.preventDefault();
                   void handleSend();
                 }

@@ -115,8 +115,51 @@ describe("saveTaskDeliverables", () => {
     ]);
 
     expect(result.saved.sort()).toEqual(["00-交付汇总.md", "01-深色主题.html"]);
+    expect(result.failed).toEqual([]);
     const remaining = await listTaskDeliverables("task-renew");
     expect(remaining).toEqual(["00-交付汇总.md", "01-深色主题.html"]);
+  });
+
+  it("本轮 0 个文件要写入 → 不清空上一轮旧交付物", async () => {
+    const dir = join(configDir, "deliverables", "task-empty-round");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "旧版.html"), "<html>old</html>");
+
+    const result = await saveTaskDeliverables("task-empty-round", []);
+
+    expect(result.saved).toEqual([]);
+    expect(result.failed).toEqual([]);
+    // 旧文件原样保留
+    expect(await listTaskDeliverables("task-empty-round")).toEqual(["旧版.html"]);
+  });
+
+  it("单文件写入失败 → 跳过并记入 failed，不中断整批", async () => {
+    // 名字消毒成 "." 后 writeFile 必失败（EISDIR），用来模拟单文件失败
+    const result = await saveTaskDeliverables("task-partial", [
+      { name: "ok.md", content: "fine" },
+      { name: ".", content: "boom" },
+      { name: "also-ok.md", content: "fine too" },
+    ]);
+
+    expect(result.saved).toEqual(["ok.md", "also-ok.md"]);
+    expect(result.failed).toEqual(["."]);
+    expect(await listTaskDeliverables("task-partial")).toEqual(["also-ok.md", "ok.md"]);
+  });
+
+  it("同批同名文件 → 后者追加 -2/-3 后缀，内容各自保留", async () => {
+    const result = await saveTaskDeliverables("task-dup", [
+      { name: "report.md", content: "v1" },
+      { name: "report.md", content: "v2" },
+      { name: "report.md", content: "v3" },
+    ]);
+
+    expect(result.saved).toEqual(["report.md", "report-2.md", "report-3.md"]);
+    expect(result.failed).toEqual([]);
+    const dir = result.dir;
+    const { readFileSync } = await import("fs");
+    expect(readFileSync(join(dir, "report.md"), "utf8")).toBe("v1");
+    expect(readFileSync(join(dir, "report-2.md"), "utf8")).toBe("v2");
+    expect(readFileSync(join(dir, "report-3.md"), "utf8")).toBe("v3");
   });
 });
 

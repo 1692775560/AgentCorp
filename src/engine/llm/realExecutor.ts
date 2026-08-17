@@ -73,20 +73,36 @@ export async function runRealExecution(input: {
   };
 }
 
+/** 默认单次 chat 调用超时：上游挂起时不能让用户发送态永久卡死。 */
+export const REAL_CHAT_DEFAULT_TIMEOUT_MS = 120_000;
+
 /**
  * 多轮消息版真实执行（供多 agent A2A 协作编排使用）。
  * 直接把完整 messages 交给真实模型，返回真实文本产出。
- * @throws Error 当未配置 / 上游失败 / 空产出时。
+ * 带超时（默认 120s，可用 timeoutMs 覆盖）：超时抛出明确中文错误，
+ * 视图的 catch 会提示用户、编排器会把对应子任务走失败改派路径。
+ * @throws Error 当未配置 / 上游失败 / 空产出 / 超时时。
  */
 export async function runRealChat(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   maxTokens = 2048,
+  timeoutMs = REAL_CHAT_DEFAULT_TIMEOUT_MS,
 ): Promise<string> {
-  const res = await fetch('/api/llm/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, maxTokens }),
-  });
+  let res: Response;
+  try {
+    res = await fetch('/api/llm/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, maxTokens }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    // AbortSignal.timeout 触发时 fetch 以 TimeoutError 拒绝（旧环境可能叫 AbortError）
+    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new Error(`模型响应超时（${Math.round(timeoutMs / 1000)}s），请重试`, { cause: err });
+    }
+    throw err;
+  }
   const data = (await res.json().catch(() => ({}))) as {
     content?: string;
     error?: string;

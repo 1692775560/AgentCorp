@@ -3,6 +3,7 @@
  * Phase 12-02: chat task creation with create-only vs create-and-start paths
  */
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { hostApiFetch } from '@/lib/host-api';
@@ -44,6 +45,7 @@ export function TaskCreationBubble({
   const agents = useAgentsStore((state) => state.agents);
   const currentAgentId = useChatStore((state) => state.currentAgentId);
   const currentSessionKey = useChatStore((state) => state.currentSessionKey);
+  const navigate = useNavigate();
 
   const finalAssigneeId = assigneeId ?? currentAgentId;
   const assignee = agents.find((agent) => agent.id === finalAssigneeId);
@@ -112,7 +114,8 @@ export function TaskCreationBubble({
           variant="link"
           className="mt-2 h-auto p-0 text-xs"
           onClick={() => {
-            window.location.href = `/kanban?taskId=${createdTask.id}`;
+            // TaskBoard 读 `task` 参数；react-router 跳转避免整页刷新
+            navigate(`/kanban?task=${encodeURIComponent(createdTask.id)}`);
           }}
         >
           查看任务 →

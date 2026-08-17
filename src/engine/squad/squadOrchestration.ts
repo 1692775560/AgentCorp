@@ -144,6 +144,25 @@ function personaSystem(personas: Record<string, string | null> | undefined, agen
   return parts.join('\n\n');
 }
 
+/**
+ * 审阅结论首行判定：精确匹配行首 PASS / REWORK（词边界），先判 REWORK 再判 PASS。
+ * 修复 `includes('PASS')` 把「REWORK：尚未 PASS」误判通过的问题；
+ * 两者都不命中时保守视为未通过（不批准）。
+ */
+export function parseReviewVerdict(firstLine: string): 'PASS' | 'REWORK' {
+  return /^\s*REWORK\b/i.test(firstLine) ? 'REWORK' : /^\s*PASS\b/i.test(firstLine) ? 'PASS' : 'REWORK';
+}
+
+/**
+ * 归一化判定「OK」确认：取首行，去标点/空白/符号后大写，startsWith('OK')。
+ * 容忍「OK，无需调整。」「ok.」等变体，避免把确认误判为修订版正文。
+ */
+export function firstLineIsOk(reply: string): boolean {
+  const firstLine = reply.trim().split(/\r?\n/)[0] ?? '';
+  const normalized = firstLine.replace(/[\s\p{P}\p{S}]/gu, '').toUpperCase();
+  return normalized.startsWith('OK');
+}
+
 /** 容错解析 leader 拆解输出：提取 ```json 块或首个 JSON 数组。 */
 export function parseSubTasks(raw: string): OrchestrationSubTask[] | null {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -345,8 +364,8 @@ export async function runSquadOrchestration(
           content: `子任务要求：\n${instruction}\n\n成员产出：\n${st.output}`,
         },
       ]);
-      const firstLine = reviewRaw.trim().split('\n')[0].toUpperCase();
-      st.approved = firstLine.includes('PASS');
+      const firstLine = reviewRaw.trim().split('\n')[0];
+      st.approved = parseReviewVerdict(firstLine) === 'PASS';
       st.verdict = reviewRaw.trim();
 
       const reviewTrace = makeTrace({
@@ -481,8 +500,7 @@ export async function runSquadOrchestration(
                 content: `指派给你的子任务：「${st.title}」\nLeader 指令：\n${subtasks[idx].instruction}\n\n原任务背景：\n${taskText}`,
               },
             ]);
-            const firstLine = reply.trim().split('\n')[0].trim();
-            if (firstLine !== 'OK') {
+            if (!firstLineIsOk(reply)) {
               questions.push({ idx, assigneeId: st.assigneeId, question: reply.trim().slice(0, 300) });
             }
           } catch {
@@ -563,9 +581,13 @@ export async function runSquadOrchestration(
                   `\n\n其他子任务产出：\n${others}`,
               },
             ]);
-            const firstLine = reply.trim().split('\n')[0].trim();
-            if (firstLine !== 'OK' && reply.trim().length > 20) {
-              st.output = reply.trim();
+            const revised = reply.trim();
+            // 「OK，无需调整。」等确认变体归一化后仍判 OK，不当修订版；
+            // 且修订版必须足够长（> 原产出的 50% 或 >200 字），防止一句话回复覆盖真实产出。
+            const longEnough =
+              revised.length > (st.output?.length ?? 0) * 0.5 || revised.length > 200;
+            if (!firstLineIsOk(reply) && longEnough) {
+              st.output = revised;
               emit(
                 makeTrace({
                   taskId,
