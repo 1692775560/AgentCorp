@@ -99,6 +99,8 @@ export interface ChatSession {
   targetAgentId?: string;
   isPrivateChat?: boolean;
   isLeaderChat?: boolean;
+  /** 团队任务会话：关联的看板任务 id（会话内容由任务执行事件驱动，非网关消息） */
+  teamTaskId?: string;
   agentStatus?: 'online' | 'offline' | 'busy';
   unreadCount?: number;
 }
@@ -158,6 +160,10 @@ interface ChatState {
       isLeaderChat?: boolean;
     },
   ) => string;
+  /** 确保团队任务会话存在（不切换当前会话）；返回 sessionKey。供 autoWorker 后台调用。 */
+  ensureTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => string;
+  /** 打开团队任务会话（切换到该会话）；返回 sessionKey。 */
+  openTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => string;
   newSession: () => void;
   deleteSession: (key: string) => Promise<void>;
   cleanupEmptySession: () => void;
@@ -1397,6 +1403,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
 
+    get().switchSession(sessionKey);
+    return sessionKey;
+  },
+
+  ensureTeamTaskSession: (task) => {
+    const sessionKey = `team-task:${task.id}`;
+    set((state) => {
+      const existing = state.sessions.find((session) => session.key === sessionKey);
+      if (existing) return {};
+      const nextSession: ChatSession = {
+        key: sessionKey,
+        displayName: `团队任务 · ${task.title}`,
+        isTeamSession: true,
+        teamTaskId: task.id,
+        teamId: task.teamId,
+        teamName: task.teamName,
+        updatedAt: Date.now(),
+      };
+      return {
+        sessions: [...state.sessions, nextSession],
+        sessionLabels: { ...state.sessionLabels, [sessionKey]: nextSession.displayName! },
+        sessionLastActivity: { ...state.sessionLastActivity, [sessionKey]: Date.now() },
+      };
+    });
+    return sessionKey;
+  },
+
+  openTeamTaskSession: (task) => {
+    const sessionKey = get().ensureTeamTaskSession(task);
     get().switchSession(sessionKey);
     return sessionKey;
   },

@@ -18,6 +18,7 @@ import { WorkbenchEmptyState } from '@/components/workbench/workbench-empty-stat
 import { ContextRail } from '@/components/workbench/context-rail';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import { TeamTaskChatView } from './TeamTaskChatView';
 import { extractImages, extractText, extractThinking, extractToolUse, isSystemInjectedUserMessage, extractReminderContent } from './message-utils';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,9 @@ export function Chat() {
 
   const messages = useChatStore((s) => s.messages);
   const currentSessionKey = useChatStore((s) => s.currentSessionKey);
+  const sessions = useChatStore((s) => s.sessions);
+  const currentSession = sessions.find((s) => s.key === currentSessionKey) ?? null;
+  const currentTeamTaskId = currentSession?.teamTaskId ?? null;
   const loading = useChatStore((s) => s.loading);
   const sending = useChatStore((s) => s.sending);
   const error = useChatStore((s) => s.error);
@@ -157,6 +161,13 @@ export function Chat() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-[52px] shrink-0 items-center justify-between gap-4 bg-white px-5 dark:bg-background">
           <div ref={agentPickerRef} className="relative flex min-w-0 items-center gap-[6px]">
+          {currentTeamTaskId ? (
+            <div className="flex items-center gap-1 px-2 py-1">
+              <h1 className="truncate text-[15px] font-semibold text-foreground">
+                {currentSession?.displayName ?? '团队任务'}
+              </h1>
+            </div>
+          ) : (
           <button
             type="button"
             onClick={() => setAgentPickerOpen((v) => !v)}
@@ -170,6 +181,7 @@ export function Chat() {
             </h1>
             <span className="text-[12px] text-[#8e8e93]">▾</span>
           </button>
+          )}
           {isRunActive && (
             <span className="text-[12px] font-medium text-muted-foreground whitespace-nowrap">
               {currentAgentName} 正在思考中
@@ -241,6 +253,11 @@ export function Chat() {
 
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col">
+            {currentTeamTaskId ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <TeamTaskChatView taskId={currentTeamTaskId} />
+              </div>
+            ) : (
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-5">
               <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[1000px] flex-col">
                 {isEmpty ? (
@@ -289,6 +306,7 @@ export function Chat() {
                 )}
               </div>
             </div>
+            )}
 
             {error && (
               <div className="border-t border-destructive/20 bg-destructive/10 px-6 py-2">
@@ -308,6 +326,13 @@ export function Chat() {
             )}
 
             <div className="px-2 pb-2 pt-6">
+              {currentTeamTaskId ? (
+                <div className="mx-auto max-w-[1000px] px-6 pb-2">
+                  <p className="rounded-xl border border-black/[0.06] bg-black/[0.02] px-4 py-2.5 text-center text-[12px] text-muted-foreground">
+                    团队任务由编排器自动推进，协作过程实时更新；要单独沟通请使用成员私聊。
+                  </p>
+                </div>
+              ) : (
               <ChatInput
                 onSend={handleSendMessage}
                 onStop={abortRun}
@@ -315,6 +340,7 @@ export function Chat() {
                 sending={sending}
                 isEmpty={isEmpty}
               />
+              )}
             </div>
           </div>
 

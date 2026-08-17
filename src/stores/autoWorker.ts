@@ -26,6 +26,7 @@ import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
+import { useChatStore } from '@/stores/chat';
 import { useEvaluationStore } from '@/stores/evaluation';
 import type { KanbanTask } from '@/types/task';
 import {
@@ -393,6 +394,15 @@ async function runOne(
     const team = task.teamId
       ? useTeamsStore.getState().teams.find((t) => t.id === task.teamId)
       : undefined;
+    // 兜底：老任务（建会话功能上线前创建的团队任务）被领取执行时补建会话条目。
+    if (task.teamId) {
+      useChatStore.getState().ensureTeamTaskSession({
+        id: task.id,
+        title: task.title,
+        teamId: task.teamId,
+        teamName: task.teamName ?? team?.name,
+      });
+    }
     const orchestrate = Boolean(team && team.leaderId && realAvailable);
     const routing = orchestrate
       ? { assigneeId: task.assigneeId, leaderId: team!.leaderId, collaborate: false }

@@ -368,7 +368,30 @@ export function isSystemInjectedUserMessage(message: RawMessage | unknown): bool
   return /^System:\s*\[/i.test(raw)
     || /A scheduled reminder has been triggered/i.test(raw)
     || /\[cron:[^\]]+\]/.test(raw)
-    || /scheduled reminder|定时提醒|cron.*triggered/i.test(raw);
+    || /scheduled reminder|定时提醒|cron.*triggered/i.test(raw)
+    // 网关心跳轮询注入的 HEARTBEAT.md 读取指令（不带 System: 前缀）
+    || /read\s+heartbeat\.md/i.test(raw);
+}
+
+/**
+ * Detect assistant heartbeat acknowledgements ("HEARTBEAT_OK") that are
+ * machine-to-machine noise and should not render as a chat bubble.
+ */
+export function isHeartbeatNoiseReply(message: RawMessage | unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const msg = message as Record<string, unknown>;
+  if (msg.role !== 'assistant') return false;
+  const content = msg.content;
+  let raw = '';
+  if (typeof content === 'string') {
+    raw = content;
+  } else if (Array.isArray(content)) {
+    raw = (content as ContentBlock[])
+      .filter((b) => b.type === 'text' && b.text)
+      .map((b) => b.text!)
+      .join('\n');
+  }
+  return raw.trim() === 'HEARTBEAT_OK';
 }
 
 /**

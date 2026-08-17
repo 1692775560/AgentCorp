@@ -120,10 +120,17 @@ function CreateTeamTaskModal({ teams, onClose }: { teams: TeamSummary[]; onClose
     try {
       // createTask 后端落 status:'todo'，且 isTeamTask = Boolean(teamId)
       // （见 electron/utils/task-config.ts），这里只需带上团队元信息。
-      await createTask({
+      const created = await createTask({
         title: title.trim(),
         description: description.trim(),
         priority: 'medium',
+        teamId: team.id,
+        teamName: team.name,
+      });
+      // 在会话列表静默建一条团队任务会话（不跳页），让协作过程可在「会话」里看。
+      useChatStore.getState().ensureTeamTaskSession({
+        id: created.id,
+        title: created.title,
         teamId: team.id,
         teamName: team.name,
       });
@@ -467,6 +474,25 @@ export function TaskBoard() {
               <div className="flex items-center gap-2">
                 <ClipboardList className="h-4 w-4" style={{ color: 'var(--neu-ink-soft)' }} />
                 <h3 className="min-w-0 flex-1 truncate text-[14px] font-bold" style={{ color: 'var(--neu-ink)' }}>{selected.title}</h3>
+                {selected.teamId && (
+                  <button
+                    type="button"
+                    title="在会话中查看协作过程"
+                    onClick={() => {
+                      useChatStore.getState().openTeamTaskSession({
+                        id: selected.id,
+                        title: selected.title,
+                        teamId: selected.teamId,
+                        teamName: selected.teamName ?? teams.find((t) => t.id === selected.teamId)?.name,
+                      });
+                      navigate('/');
+                    }}
+                    className="neu-btn flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] font-semibold"
+                    style={{ color: '#6366f1' }}
+                  >
+                    <MessageCircle className="h-3 w-3" /> 会话
+                  </button>
+                )}
               </div>
               <p className="mt-1 text-[11.5px] leading-relaxed" style={{ color: 'var(--neu-ink-soft)' }}>{selected.description}</p>
             </div>

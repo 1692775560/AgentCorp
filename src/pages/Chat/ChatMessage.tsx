@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { invokeIpc } from '@/lib/api-client';
 import type { RawMessage, AttachedFileMeta } from '@/stores/chat';
-import { extractText, extractThinking, extractImages, extractToolGroups, formatTimestamp, isSystemInjectedUserMessage } from './message-utils';
+import { extractText, extractThinking, extractImages, extractToolGroups, formatTimestamp, isSystemInjectedUserMessage, isHeartbeatNoiseReply } from './message-utils';
 import { TaskCreationBubble } from './TaskCreationBubble';
 
 interface ChatMessageProps {
@@ -72,6 +72,8 @@ export const ChatMessage = memo(function ChatMessage({
   // Hide system-injected user messages (e.g. scheduled reminder triggers) —
   // the assistant's response already contains the user-facing content.
   if (isSystemInjectedUserMessage(message)) return null;
+  // Hide machine heartbeat acknowledgements ("HEARTBEAT_OK") — pure noise.
+  if (isHeartbeatNoiseReply(message)) return null;
   if (hasOnlyCronToolActivity && !hasText && !visibleThinking && images.length === 0 && attachedFiles.length === 0) return null;
 
   // Render task creation bubble (per D-21)
