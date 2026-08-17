@@ -9,15 +9,18 @@
  */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
+import { useAgentsStore } from '@/stores/agents';
+import { useChatStore } from '@/stores/chat';
 import type { KanbanTask, TaskStatus } from '@/types/task';
 import type { TeamSummary } from '@/types/team';
 import { AutoWorkerBar } from './AutoWorkerBar';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import { invokeIpc } from '@/lib/api-client';
+import { extractA2aParticipants, summarizeA2aEvents, parseA2aRoute } from '@/lib/a2a-timeline';
 
 const COLUMNS: Array<{ key: TaskStatus; label: string; accent: string }> = [
   { key: 'todo', label: '待办', accent: '#9ca3af' },
@@ -233,6 +236,7 @@ function CreateTeamTaskModal({ teams, onClose }: { teams: TeamSummary[]; onClose
 }
 
 export function TaskBoard() {
+  const navigate = useNavigate();
   const tasks = useApprovalsStore((s) => s.tasks);
   const fetchTasks = useApprovalsStore((s) => s.fetchTasks);
   const approvals = useApprovalsStore((s) => s.approvals);
@@ -242,6 +246,8 @@ export function TaskBoard() {
   const updateTask = useApprovalsStore((s) => s.updateTask);
   const teams = useTeamsStore((s) => s.teams);
   const fetchTeams = useTeamsStore((s) => s.fetchTeams);
+  const agents = useAgentsStore((s) => s.agents);
+  const fetchAgents = useAgentsStore((s) => s.fetchAgents);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [teamModalOpen, setTeamModalOpen] = useState(false);
@@ -291,7 +297,8 @@ export function TaskBoard() {
     void fetchTasks();
     void fetchApprovals();
     void fetchTeams();
-  }, [fetchTasks, fetchApprovals, fetchTeams]);
+    void fetchAgents();
+  }, [fetchTasks, fetchApprovals, fetchTeams, fetchAgents]);
 
   // 只列出可下发任务的团队：有 leader 且至少 1 名成员
   const eligibleTeams = useMemo(
@@ -337,6 +344,42 @@ export function TaskBoard() {
       void updateTask(taskId, { status: 'todo', workState: 'idle' });
     },
     [updateTask],
+  );
+
+  // —— A2A 协作过程展示：参与者、统计、私聊入口 ——
+  const selectedEvents = useMemo(() => selected?.executionEvents ?? [], [selected]);
+  const participants = useMemo(() => {
+    const ids = extractA2aParticipants(selectedEvents);
+    if (selected?.assigneeId && !ids.includes(selected.assigneeId)) ids.unshift(selected.assigneeId);
+    return ids;
+  }, [selectedEvents, selected?.assigneeId]);
+  const a2aStats = useMemo(() => summarizeA2aEvents(selectedEvents), [selectedEvents]);
+  const leaderId = useMemo(
+    () => teams.find((t) => t.id === selected?.teamId)?.leaderId ?? null,
+    [teams, selected?.teamId],
+  );
+  const agentName = useCallback(
+    (id: string) => agents.find((a) => a.id === id)?.name ?? id,
+    [agents],
+  );
+  const agentAvatar = useCallback(
+    (id: string) => agents.find((a) => a.id === id)?.avatar ?? '🤖',
+    [agents],
+  );
+  // 私聊：复用 TeamMap 验证过的 openDirectAgentSession 通道，跳到首页聊天
+  const handleOpenAgentChat = useCallback(
+    (agentId: string) => {
+      try {
+        const team = teams.find((t) => t.id === selected?.teamId);
+        useChatStore.getState().openDirectAgentSession(agentId, {
+          ...(team ? { teamId: team.id, teamName: team.name, isLeaderChat: agentId === team.leaderId } : {}),
+        });
+        navigate('/');
+      } catch {
+        /* agent 不存在时忽略 */
+      }
+    },
+    [navigate, teams, selected?.teamId],
   );
 
   return (
@@ -451,23 +494,60 @@ export function TaskBoard() {
               </div>
             )}
             <div className="flex-1 overflow-y-auto px-4 py-3">
+              {/* 参与成员：谁参与了这次协作，点头像旁按钮可直接私聊 */}
+              {participants.length > 0 && (
+                <div className="mb-3">
+                  <p className="mb-1.5 text-[11px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>参与成员</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {participants.map((id) => (
+                      <span
+                        key={id}
+                        className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold"
+                        style={{ background: 'var(--neu-bg, #f1f3f8)', color: 'var(--neu-ink)' }}
+                      >
+                        <span>{agentAvatar(id)}</span>
+                        <span className="max-w-[90px] truncate">{agentName(id)}</span>
+                        {id === leaderId && (
+                          <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#FFD23333', color: '#b8860b' }}>leader</span>
+                        )}
+                        <button
+                          type="button"
+                          title={`私聊 ${agentName(id)}`}
+                          onClick={() => handleOpenAgentChat(id)}
+                          className="flex items-center justify-center rounded-full p-0.5 transition-colors hover:bg-white"
+                          style={{ color: '#6366f1' }}
+                        >
+                          <MessageCircle className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {a2aStats.total > 0 && (
+                    <p className="mt-1.5 text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
+                      共 {a2aStats.rounds || 1} 轮协作 · {a2aStats.pass} 次通过
+                      {a2aStats.rework > 0 ? ` · ${a2aStats.rework} 次返工` : ''}
+                    </p>
+                  )}
+                </div>
+              )}
               <p className="mb-2 text-[11px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>执行过程</p>
               <ol className="relative flex flex-col gap-3 border-l pl-4" style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 20%, transparent)' }}>
                 {(selected.executionEvents ?? []).length === 0 ? (
                   <li className="text-[12px]" style={{ color: 'var(--neu-ink-soft)' }}>尚未开始执行</li>
                 ) : (selected.executionEvents ?? []).map((e, i) => {
-                  const isA2a = typeof e.type === 'string' && e.type.startsWith('a2a:');
-                  const route = isA2a ? e.type.slice(4) : '';
-                  const isReview = isA2a && (e.content?.includes('PASS') || e.content?.includes('REWORK'));
+                  const a2a = parseA2aRoute(e.type);
+                  const isReview = a2a !== null && (e.content?.includes('PASS') || e.content?.includes('REWORK'));
                   const passed = !!e.content?.includes('PASS');
                   return (
                   <li key={i} className="relative">
                     <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full"
                       style={{ background: e.status === 'done' ? '#22c55e' : e.status === 'waiting_approval' ? '#f59e0b' : e.status === 'failed' ? '#ef4444' : '#3b82f6' }} />
-                    {isA2a && (
+                    {a2a && (
                       <div className="mb-0.5 flex items-center gap-1 text-[9.5px] font-semibold" style={{ color: isReview ? (passed ? '#22c55e' : '#f59e0b') : '#6366f1' }}>
                         <span className="rounded px-1 py-px" style={{ background: isReview ? (passed ? '#22c55e22' : '#f59e0b22') : '#6366f122' }}>A2A</span>
-                        <span className="truncate">{route}</span>
+                        <span className="truncate">
+                          {agentAvatar(a2a.from)} {agentName(a2a.from)} → {a2a.to ? `${agentAvatar(a2a.to)} ${agentName(a2a.to)}` : ''}
+                        </span>
                       </div>
                     )}
                     <p className="text-[12px] leading-snug" style={{ color: 'var(--neu-ink)' }}>{e.content}</p>
