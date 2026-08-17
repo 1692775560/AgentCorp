@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw } from 'lucide-react';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
@@ -325,6 +325,20 @@ export function TaskBoard() {
     [updateTask, fetchTasks],
   );
 
+  // 评审验收：通过 → 完成列；驳回 → 回待办由 AutoWorker 重跑
+  const handleAcceptTask = useCallback(
+    (taskId: string) => {
+      void updateTask(taskId, { status: 'done' });
+    },
+    [updateTask],
+  );
+  const handleSendBackTask = useCallback(
+    (taskId: string) => {
+      void updateTask(taskId, { status: 'todo', workState: 'idle' });
+    },
+    [updateTask],
+  );
+
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden px-6 py-5">
       {/* 自动任务 worker 控制条（S8/S9/S10）+ 团队任务发起入口 */}
@@ -413,6 +427,29 @@ export function TaskBoard() {
               </div>
               <p className="mt-1 text-[11.5px] leading-relaxed" style={{ color: 'var(--neu-ink-soft)' }}>{selected.description}</p>
             </div>
+            {/* 评审验收条：review 态任务在此由人拍板——通过进「完成」，驳回回「待办」重跑 */}
+            {selected.status === 'review' && (
+              <div className="flex items-center gap-2 border-b px-4 py-2.5" style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 14%, transparent)' }}>
+                <span className="text-[11.5px] font-semibold" style={{ color: '#f59e0b' }}>待你验收</span>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => handleSendBackTask(selected.id)}
+                  className="neu-btn flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                  style={{ color: '#ef4444' }}
+                >
+                  <RotateCcw className="h-3 w-3" /> 驳回重做
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAcceptTask(selected.id)}
+                  className="neu-btn flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                  style={{ color: '#22c55e' }}
+                >
+                  <CheckCircle2 className="h-3 w-3" /> 验收通过
+                </button>
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto px-4 py-3">
               <p className="mb-2 text-[11px] font-semibold" style={{ color: 'var(--neu-ink-soft)' }}>执行过程</p>
               <ol className="relative flex flex-col gap-3 border-l pl-4" style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 20%, transparent)' }}>
