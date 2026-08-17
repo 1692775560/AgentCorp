@@ -12,8 +12,8 @@ import { parseA2aRoute } from '@/lib/a2a-timeline';
 
 export interface TeamChatBubble {
   id: string;
-  kind: 'a2a' | 'system';
-  /** 发言者 agentId（system 气泡为空） */
+  kind: 'a2a' | 'system' | 'user';
+  /** 发言者 agentId（system 气泡为空；user 气泡固定为 'user'） */
   actorId: string;
   /** 协作对端（审阅时是 leader，执行时是 leader；供「回复给谁」展示） */
   peerId: string;
@@ -23,8 +23,34 @@ export interface TeamChatBubble {
   createdAt?: string;
 }
 
+/** 对话事件前缀：chat:user→<agentId>（用户发言）/ chat:<agentId>→user（成员回复）。 */
+export const TEAM_CHAT_EVENT_PREFIX = 'chat:';
+
+export function parseTeamChatRoute(type: string | undefined): { from: string; to: string } | null {
+  if (!type || !type.startsWith(TEAM_CHAT_EVENT_PREFIX)) return null;
+  const route = type.slice(TEAM_CHAT_EVENT_PREFIX.length);
+  const sep = route.indexOf('→');
+  if (sep === -1) return null;
+  return { from: route.slice(0, sep).trim(), to: route.slice(sep + 1).trim() };
+}
+
 export function mapEventsToTeamChatBubbles(events: TaskExecutionEvent[]): TeamChatBubble[] {
   return events.map((e, i) => {
+    const chatRoute = parseTeamChatRoute(e.type);
+    if (chatRoute) {
+      // 用户发言：右列气泡；成员回复：左列成员气泡（谁说话谁是 actor）。
+      const isUserSpeaking = chatRoute.from === 'user';
+      return {
+        id: `chat-${i}`,
+        kind: isUserSpeaking ? 'user' : 'a2a',
+        actorId: isUserSpeaking ? 'user' : chatRoute.from,
+        peerId: isUserSpeaking ? chatRoute.to : 'user',
+        text: e.content ?? '',
+        round: null,
+        verdict: null,
+        createdAt: e.createdAt,
+      };
+    }
     const route = parseA2aRoute(e.type);
     if (!route) {
       return {
@@ -57,4 +83,65 @@ export function mapEventsToTeamChatBubbles(events: TaskExecutionEvent[]): TeamCh
       createdAt: e.createdAt,
     };
   });
+}
+
+/**
+ * 解析用户输入里的 @ 提及。命中成员名（@名字 或 @名字 出现在文中）即返回该成员，
+ * 并给出去掉提及后的正文；未命中返回 null（调用方默认发给 leader）。
+ */
+export function parseMentionTarget(
+  text: string,
+  members: Array<{ id: string; name: string }>,
+): { targetId: string; cleanText: string } | null {
+  for (const m of members) {
+    const token = `@${m.name}`;
+    if (!text.includes(token)) continue;
+    return { targetId: m.id, cleanText: text.replace(token, ' ').replace(/\s{2,}/g, ' ').trim() };
+  }
+  return null;
+}
+
+export interface TeamChatContext {
+  taskTitle: string;
+  taskDescription?: string;
+  teamName?: string;
+  /** 最近交付摘要（截断后注入，帮成员对齐上下文） */
+  workResultExcerpt?: string;
+}
+
+/**
+ * 构建发给真实模型的多轮消息：system 立人设 + 任务背景，
+ * 历史只取 chat: 对话事件（协作 trace 不混入，避免上下文爆炸）。
+ */
+export function buildTeamChatMessages(
+  agent: { id: string; name: string; persona?: string; responsibility?: string; isLeader: boolean },
+  ctx: TeamChatContext,
+  history: TeamChatBubble[],
+  userText: string,
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  const systemParts = [
+    `你是团队${ctx.teamName ? `「${ctx.teamName}」` : ''}的${agent.isLeader ? '负责人（leader）' : '成员'}「${agent.name}」。`,
+    agent.persona ? `人设：${agent.persona}` : '',
+    agent.responsibility ? `职责：${agent.responsibility}` : '',
+    `你正在和老板就团队任务「${ctx.taskTitle}」直接沟通。`,
+    ctx.taskDescription ? `任务要求：${ctx.taskDescription}` : '',
+    ctx.workResultExcerpt ? `当前交付进展摘要：${ctx.workResultExcerpt}` : '',
+    '回复要求：中文、口语化、简明扼要，像同事在群里回话，不要堆砌格式。',
+  ].filter(Boolean);
+
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: systemParts.join('\n') },
+  ];
+  for (const b of history) {
+    if (b.kind === 'user') {
+      // 发给其他成员的话标注对象，避免当前成员误以为在问自己
+      const toOther = b.peerId && b.peerId !== agent.id;
+      messages.push({ role: 'user', content: toOther ? `（对另一位成员说）${b.text}` : b.text });
+    } else if (b.kind === 'a2a' && b.peerId === 'user' && b.actorId === agent.id) {
+      // 只有自己说过的话算 assistant；其他成员的回复不混入，保持人设单一
+      messages.push({ role: 'assistant', content: b.text });
+    }
+  }
+  messages.push({ role: 'user', content: userText });
+  return messages;
 }

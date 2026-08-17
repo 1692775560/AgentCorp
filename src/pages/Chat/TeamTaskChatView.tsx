@@ -1,21 +1,31 @@
 /**
  * src/pages/Chat/TeamTaskChatView.tsx
- * 团队任务会话视图：把看板任务的 A2A 协作过程渲染成群聊。
+ * 团队任务会话视图：把看板任务的 A2A 协作过程渲染成群聊，
+ * 并支持与团队直接对话——默认 leader 接话，@成员名 可点名任意成员。
  *
  * 数据来自 useApprovalsStore 的任务执行事件（autoWorker 节流写回），
- * 随任务推进实时刷新；不经过网关消息通道。输入由 Chat 页替换成提示条——
- * 团队任务由编排器自动推进，需要沟通可走成员私聊。
+ * 随任务推进实时刷新；对话通过 appendTaskExecutionEvent 以 chat: 前缀事件
+ * 持久化到任务上（看板时间线同样可见，诚实留痕），回复走 runRealChat 真实模型，
+ * 不经过网关消息通道。
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardCheck, Users } from 'lucide-react';
+import { AtSign, ClipboardCheck, Loader2, SendHorizonal, Users } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
-import { mapEventsToTeamChatBubbles } from '@/lib/team-task-chat';
+import {
+  buildTeamChatMessages,
+  mapEventsToTeamChatBubbles,
+  parseMentionTarget,
+  type TeamChatBubble,
+} from '@/lib/team-task-chat';
 import { summarizeA2aEvents } from '@/lib/a2a-timeline';
+import { runRealChat } from '@/engine/llm/realExecutor';
+import { cn } from '@/lib/utils';
 import type { KanbanTask } from '@/types/task';
 
 const STATUS_META: Record<KanbanTask['status'], { label: string; color: string }> = {
@@ -29,27 +39,115 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const navigate = useNavigate();
   const tasks = useApprovalsStore((s) => s.tasks);
   const fetchTasks = useApprovalsStore((s) => s.fetchTasks);
+  const appendEvent = useApprovalsStore((s) => s.appendTaskExecutionEvent);
   const agents = useAgentsStore((s) => s.agents);
   const teams = useTeamsStore((s) => s.teams);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
 
   useEffect(() => {
     void fetchTasks();
   }, [fetchTasks]);
 
   const task = tasks.find((t) => t.id === taskId) ?? null;
-  const leaderId = task?.teamId
-    ? teams.find((t) => t.id === task.teamId)?.leaderId ?? null
-    : null;
+  const team = task?.teamId ? teams.find((t) => t.id === task.teamId) ?? null : null;
+  const leaderId = team?.leaderId ?? task?.assigneeId ?? null;
+
+  // 可对话成员：leader 在前，其余成员随后（@ 候选 + 默认接话人）
+  const members = useMemo(() => {
+    if (!team) return [];
+    const ids = [team.leaderId, ...team.memberIds];
+    return ids
+      .map((id) => agents.find((a) => a.id === id))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a));
+  }, [team, agents]);
 
   const events = useMemo(() => task?.executionEvents ?? [], [task]);
   const bubbles = useMemo(() => mapEventsToTeamChatBubbles(events), [events]);
   const stats = useMemo(() => summarizeA2aEvents(events), [events]);
+  // 对话历史（chat: 事件映射出的用户/成员气泡），供组装多轮上下文
+  const chatHistory = useMemo(
+    () => bubbles.filter((b) => b.kind === 'user' || (b.kind === 'a2a' && b.peerId === 'user')),
+    [bubbles],
+  );
 
   // 新事件到达时滚到底部（群聊观感）
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [bubbles.length, task?.workResult]);
+
+  // @ 提及候选：输入尾部出现 @xxx 时弹出成员列表
+  const mentionQuery = useMemo(() => {
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(draft);
+    return m ? m[1] : null;
+  }, [draft]);
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    return members.filter((a) => a.name.toLowerCase().includes(mentionQuery.toLowerCase()));
+  }, [members, mentionQuery]);
+
+  useEffect(() => {
+    setMentionOpen(mentionQuery !== null && mentionCandidates.length > 0);
+  }, [mentionQuery, mentionCandidates.length]);
+
+  const applyMention = useCallback(
+    (name: string) => {
+      setDraft((prev) => prev.replace(/(?:^|\s)@([^\s@]*)$/, (s) => `${s.startsWith(' ') ? ' ' : ''}@${name} `));
+      setMentionOpen(false);
+      inputRef.current?.focus();
+    },
+    [],
+  );
+
+  const handleSend = useCallback(async () => {
+    const text = draft.trim();
+    if (!text || sending || !task) return;
+    const mention = parseMentionTarget(text, members.map((a) => ({ id: a.id, name: a.name })));
+    const targetId = mention?.targetId ?? leaderId;
+    const target = agents.find((a) => a.id === targetId);
+    if (!targetId || !target) {
+      toast.error('团队还没有可接话的成员，请先检查团队配置');
+      return;
+    }
+    const userText = mention?.cleanText || text;
+
+    setSending(true);
+    setDraft('');
+    setMentionOpen(false);
+    try {
+      // 1) 用户发言落事件（右列气泡 + 看板留痕）
+      await appendEvent(task.id, { type: `chat:user→${targetId}`, content: text });
+      // 2) 组上下文调真实模型，拿成员回复
+      const messages = buildTeamChatMessages(
+        {
+          id: target.id,
+          name: target.name,
+          persona: target.persona,
+          responsibility: target.responsibility,
+          isLeader: targetId === leaderId,
+        },
+        {
+          taskTitle: task.title,
+          taskDescription: task.description,
+          teamName: team?.name ?? task.teamName,
+          workResultExcerpt: task.workResult ? task.workResult.slice(0, 800) : undefined,
+        },
+        chatHistory,
+        userText,
+      );
+      const reply = await runRealChat(messages);
+      // 3) 成员回复落事件（左列气泡）
+      await appendEvent(task.id, { type: `chat:${targetId}→user`, content: reply });
+    } catch (err) {
+      toast.error(`发送失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSending(false);
+    }
+  }, [agents, appendEvent, chatHistory, draft, leaderId, members, sending, task, team]);
 
   if (!task) {
     return (
@@ -62,6 +160,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
 
   const statusMeta = STATUS_META[task.status];
   const agentOf = (id: string) => agents.find((a) => a.id === id);
+  const mentionTargetName = (b: TeamChatBubble) => agentOf(b.peerId)?.name ?? null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -101,7 +200,7 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
           {bubbles.length === 0 && (
             <p className="py-8 text-center text-[12.5px] text-muted-foreground">
               {task.status === 'todo'
-                ? '任务已派发，等待编排器领取。团队成员开始协作后，过程会实时出现在这里。'
+                ? '任务已派发，等待编排器领取。你可以先在下面和团队 leader 聊聊需求。'
                 : '还没有协作记录。'}
             </p>
           )}
@@ -111,6 +210,24 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                 <p key={b.id} className="text-center text-[11px] text-muted-foreground">
                   {b.text}
                 </p>
+              );
+            }
+            if (b.kind === 'user') {
+              const toName = mentionTargetName(b);
+              return (
+                <div key={b.id} className="flex items-start justify-end gap-2.5">
+                  <div className="min-w-0 max-w-[78%]">
+                    <div className="mb-1 flex items-center justify-end gap-1.5 text-[11px]">
+                      <span className="text-muted-foreground">你{toName ? ` → ${toName}` : ''}</span>
+                    </div>
+                    <div className="rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[13px] leading-relaxed text-white" style={{ background: '#6366f1' }}>
+                      {b.text}
+                    </div>
+                  </div>
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[16px]" style={{ background: '#6366f122' }}>
+                    👤
+                  </span>
+                </div>
               );
             }
             const speaker = agentOf(b.actorId);
@@ -137,7 +254,11 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                     )}
                   </div>
                   <div className="rounded-2xl rounded-tl-md border border-black/[0.05] bg-black/[0.03] px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground">
-                    {b.text}
+                    {b.peerId === 'user' ? (
+                      <MarkdownContent content={b.text} className="text-[13px] leading-relaxed" />
+                    ) : (
+                      b.text
+                    )}
                   </div>
                 </div>
               </div>
@@ -163,7 +284,80 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
               </div>
             </div>
           )}
+          {sending && (
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              成员正在回复…
+            </div>
+          )}
           <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* 对话输入：默认 leader 接话，@ 可点名任意成员 */}
+      <div className="shrink-0 border-t border-black/[0.06] px-8 py-3">
+        <div className="relative mx-auto max-w-[1000px]">
+          {mentionOpen && (
+            <div className="absolute bottom-full left-0 mb-2 w-[220px] overflow-hidden rounded-xl border border-black/[0.08] bg-white shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
+              {mentionCandidates.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => applyMention(a.name)}
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[#f2f2f7]"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[13px]">
+                    {a.avatar ?? '🤖'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                  {a.id === leaderId && (
+                    <span className="shrink-0 rounded px-1 py-px text-[9px] font-bold" style={{ background: '#FFD23333', color: '#b8860b' }}>leader</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2 rounded-2xl border border-black/[0.08] bg-white px-3.5 py-2.5">
+            <AtSign
+              className="mb-1 h-4 w-4 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => {
+                setDraft((prev) => `${prev}${prev.endsWith(' ') || prev === '' ? '' : ' '}@`);
+                inputRef.current?.focus();
+              }}
+            />
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !mentionOpen) {
+                  e.preventDefault();
+                  void handleSend();
+                }
+              }}
+              rows={1}
+              disabled={sending}
+              placeholder={
+                leaderId
+                  ? `和团队聊聊…（默认 ${agentOf(leaderId)?.name ?? 'leader'} 接话，@ 可点名成员）`
+                  : '和团队聊聊…'
+              }
+              className={cn(
+                'max-h-32 min-h-[22px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed outline-none',
+                'placeholder:text-muted-foreground/70 disabled:opacity-60',
+              )}
+            />
+            <button
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={sending || !draft.trim()}
+              className="mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white transition-opacity disabled:opacity-40"
+              style={{ background: '#6366f1' }}
+              aria-label="发送"
+            >
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SendHorizonal className="h-3.5 w-3.5" />}
+            </button>
+          </div>
         </div>
       </div>
     </div>

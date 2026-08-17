@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { mapEventsToTeamChatBubbles } from '@/lib/team-task-chat';
+import {
+  buildTeamChatMessages,
+  mapEventsToTeamChatBubbles,
+  parseMentionTarget,
+} from '@/lib/team-task-chat';
 import type { TaskExecutionEvent } from '@/types/task';
 
 function ev(type: string, content: string, createdAt = '2026-08-17T12:00:00Z'): TaskExecutionEvent {
@@ -70,5 +74,98 @@ describe('mapEventsToTeamChatBubbles', () => {
     ]);
     expect(bubbles.map((b) => b.kind)).toEqual(['system', 'a2a']);
     expect(bubbles[1].createdAt).toBe('2026-08-17T12:01:00Z');
+  });
+});
+
+
+describe('chat: 对话事件映射', () => {
+  it('chat:user→agent 映射为右列用户气泡，peerId 是目标成员', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:user→dev-1', '@阿强 这个样式再改改'),
+    ]);
+    expect(bubbles[0].kind).toBe('user');
+    expect(bubbles[0].actorId).toBe('user');
+    expect(bubbles[0].peerId).toBe('dev-1');
+    expect(bubbles[0].verdict).toBeNull();
+  });
+
+  it('chat:agent→user 映射为左列成员气泡，actorId 是发言成员', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:leader-1→user', '收到，我来安排'),
+    ]);
+    expect(bubbles[0].kind).toBe('a2a');
+    expect(bubbles[0].actorId).toBe('leader-1');
+    expect(bubbles[0].peerId).toBe('user');
+  });
+
+  it('chat: 事件不参与 PASS/REWORK 解析，轮次为 null', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:leader-1→user', '这版 PASS 了，别担心'),
+    ]);
+    expect(bubbles[0].verdict).toBeNull();
+    expect(bubbles[0].round).toBeNull();
+  });
+});
+
+describe('parseMentionTarget', () => {
+  const members = [
+    { id: 'leader-1', name: '阿明' },
+    { id: 'dev-1', name: '阿强' },
+  ];
+
+  it('命中 @成员名 返回该成员并剥离提及', () => {
+    const r = parseMentionTarget('@阿强 样式再改改', members);
+    expect(r?.targetId).toBe('dev-1');
+    expect(r?.cleanText).toBe('样式再改改');
+  });
+
+  it('提及出现在文中也能命中', () => {
+    const r = parseMentionTarget('麻烦 @阿明 看一下进度', members);
+    expect(r?.targetId).toBe('leader-1');
+    expect(r?.cleanText).toBe('麻烦 看一下进度');
+  });
+
+  it('未命中返回 null（调用方默认发 leader）', () => {
+    expect(parseMentionTarget('进度怎么样了', members)).toBeNull();
+    expect(parseMentionTarget('@不存在的人 你好', members)).toBeNull();
+  });
+});
+
+describe('buildTeamChatMessages', () => {
+  const leader = { id: 'leader-1', name: '阿明', persona: '沉稳可靠', responsibility: '拆解与审阅', isLeader: true };
+  const ctx = { taskTitle: '做一个计算器', taskDescription: '支持加减乘除', teamName: '交付一组' };
+  const history = mapEventsToTeamChatBubbles([
+    ev('a2a:leader-1→dev-1', '【第1轮】分派：实现 UI'),           // 协作 trace，不进对话上下文
+    ev('chat:user→leader-1', '进度怎么样？'),
+    ev('chat:leader-1→user', '第一轮已通过，正在收尾'),
+    ev('chat:user→dev-1', '@阿强 样式改下'),                      // 发给别人的话
+  ]);
+
+  it('system 含人设、职责与任务背景', () => {
+    const msgs = buildTeamChatMessages(leader, ctx, history, '新消息');
+    expect(msgs[0].role).toBe('system');
+    expect(msgs[0].content).toContain('阿明');
+    expect(msgs[0].content).toContain('沉稳可靠');
+    expect(msgs[0].content).toContain('做一个计算器');
+    expect(msgs[0].content).toContain('负责人');
+  });
+
+  it('历史只含 chat: 对话，协作 trace 不混入；本人回复为 assistant', () => {
+    const msgs = buildTeamChatMessages(leader, ctx, history, '新消息');
+    const roles = msgs.map((m) => m.role);
+    expect(roles).toEqual(['system', 'user', 'assistant', 'user', 'user']);
+    expect(msgs[1].content).toBe('进度怎么样？');
+    expect(msgs[2].content).toBe('第一轮已通过，正在收尾');
+    // 发给其他成员的话标注对象，避免误会
+    expect(msgs[3].content).toContain('（对另一位成员说）');
+    // 最后一条是新用户消息
+    expect(msgs[4].content).toBe('新消息');
+    // 协作 trace 不出现
+    expect(msgs.some((m) => m.content.includes('分派：实现 UI'))).toBe(false);
+  });
+
+  it('交付摘要截断注入 system', () => {
+    const msgs = buildTeamChatMessages(leader, { ...ctx, workResultExcerpt: '已完成 9/9 回归' }, [], '问');
+    expect(msgs[0].content).toContain('已完成 9/9 回归');
   });
 });

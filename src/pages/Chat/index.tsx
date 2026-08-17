@@ -326,13 +326,7 @@ export function Chat() {
             )}
 
             <div className="px-2 pb-2 pt-6">
-              {currentTeamTaskId ? (
-                <div className="mx-auto max-w-[1000px] px-6 pb-2">
-                  <p className="rounded-xl border border-black/[0.06] bg-black/[0.02] px-4 py-2.5 text-center text-[12px] text-muted-foreground">
-                    团队任务由编排器自动推进，协作过程实时更新；要单独沟通请使用成员私聊。
-                  </p>
-                </div>
-              ) : (
+              {!currentTeamTaskId && (
               <ChatInput
                 onSend={handleSendMessage}
                 onStop={abortRun}
