@@ -102,7 +102,8 @@ export function parseMentionTarget(
 }
 
 export interface TeamChatContext {
-  taskTitle: string;
+  /** 任务标题；团队房间日常沟通时不传 */
+  taskTitle?: string;
   taskDescription?: string;
   teamName?: string;
   /** 最近交付摘要（截断后注入，帮成员对齐上下文） */
@@ -123,7 +124,7 @@ export function buildTeamChatMessages(
     `你是团队${ctx.teamName ? `「${ctx.teamName}」` : ''}的${agent.isLeader ? '负责人（leader）' : '成员'}「${agent.name}」。`,
     agent.persona ? `人设：${agent.persona}` : '',
     agent.responsibility ? `职责：${agent.responsibility}` : '',
-    `你正在和老板就团队任务「${ctx.taskTitle}」直接沟通。`,
+    `你正在和老板${ctx.taskTitle ? `就团队任务「${ctx.taskTitle}」` : '进行团队日常'}直接沟通。`,
     ctx.taskDescription ? `任务要求：${ctx.taskDescription}` : '',
     ctx.workResultExcerpt ? `当前交付进展摘要：${ctx.workResultExcerpt}` : '',
     '回复要求：中文、口语化、简明扼要，像同事在群里回话，不要堆砌格式。',
@@ -222,4 +223,32 @@ export function isNearBottom(
   threshold = 80,
 ): boolean {
   return scrollHeight - scrollTop - clientHeight <= threshold;
+}
+
+/**
+ * 团队房间聊天记录 → 气泡。TeamChatEvent.from 为 'user' 时是老板发言（右列），
+ * 否则是成员发言（左列，actorId=from）。
+ */
+export function mapTeamChatEventsToBubbles(
+  events: Array<{ from: string; to: string; content: string; createdAt: string }>,
+): TeamChatBubble[] {
+  return events.map((e, i) => {
+    const isUser = e.from === 'user';
+    return {
+      id: `room-${i}`,
+      kind: isUser ? 'user' : 'a2a',
+      actorId: isUser ? 'user' : e.from,
+      peerId: isUser ? e.to : 'user',
+      text: e.content,
+      round: null,
+      verdict: null,
+      createdAt: e.createdAt,
+    };
+  });
+}
+
+/** 从派活指令生成看板任务标题：取首行，截断 24 字。 */
+export function taskTitleFromInstruction(text: string): string {
+  const firstLine = text.split('\n').map((s) => s.trim()).find(Boolean) ?? '团队任务';
+  return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine;
 }

@@ -275,6 +275,8 @@ export async function updateTeam(teamId: string, updates: UpdateTeamRequest): Pr
       ...(updates.name !== undefined && { name: updates.name }),
       ...(updates.description !== undefined && { description: updates.description }),
       ...(updates.memberIds !== undefined && { memberIds: updates.memberIds }),
+      // 团队房间聊天记录：整体替换 + 封顶 200 条（裁最旧）
+      ...(updates.chatEvents !== undefined && { chatEvents: updates.chatEvents.slice(-200) }),
       updatedAt: Date.now(),
     };
 

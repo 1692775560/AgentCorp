@@ -6,8 +6,10 @@ import {
   buildWorkOrderClassifierMessages,
   isNearBottom,
   mapEventsToTeamChatBubbles,
+  mapTeamChatEventsToBubbles,
   parseExecuteMarker,
   parseMentionTarget,
+  taskTitleFromInstruction,
 } from '@/lib/team-task-chat';
 import { isAvatarImage } from '@/lib/utils';
 import type { TaskExecutionEvent } from '@/types/task';
@@ -313,5 +315,44 @@ describe('isNearBottom', () => {
 
   it('内容不足一屏时始终在底部', () => {
     expect(isNearBottom(400, 0, 500)).toBe(true);
+  });
+});
+
+
+describe('mapTeamChatEventsToBubbles', () => {
+  it('from=user 为右列用户气泡，from=agentId 为左列成员气泡', () => {
+    const bubbles = mapTeamChatEventsToBubbles([
+      { from: 'user', to: 'leader-1', content: '进度如何', createdAt: '2026-08-18T10:00:00Z' },
+      { from: 'leader-1', to: 'user', content: '顺利推进中', createdAt: '2026-08-18T10:00:05Z' },
+    ]);
+    expect(bubbles[0]).toMatchObject({ kind: 'user', actorId: 'user', peerId: 'leader-1' });
+    expect(bubbles[1]).toMatchObject({ kind: 'a2a', actorId: 'leader-1', peerId: 'user' });
+    expect(bubbles[1].verdict).toBeNull();
+    expect(bubbles[1].round).toBeNull();
+  });
+});
+
+describe('taskTitleFromInstruction', () => {
+  it('取首行，超过 24 字截断加省略号', () => {
+    expect(taskTitleFromInstruction('做一个计算器\n详细要求如下')).toBe('做一个计算器');
+    expect(taskTitleFromInstruction('把计算器改成深色主题并且加一个历史记录功能还要支持键盘')).toBe('把计算器改成深色主题并且加一个历史记录功能还要支…');
+  });
+
+  it('空文本回退默认标题', () => {
+    expect(taskTitleFromInstruction('\n  \n')).toBe('团队任务');
+  });
+});
+
+describe('buildTeamChatMessages 团队房间场景', () => {
+  it('不传 taskTitle 时是日常沟通口吻', () => {
+    const msgs = buildTeamChatMessages(
+      { id: 'leader-1', name: '阿明', isLeader: true },
+      { teamName: '马斯克团队' },
+      [],
+      '最近怎么样',
+    );
+    expect(msgs[0].content).toContain('团队日常');
+    expect(msgs[0].content).toContain('马斯克团队');
+    expect(msgs[0].content).not.toContain('任务「');
   });
 });

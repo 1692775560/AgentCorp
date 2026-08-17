@@ -56,3 +56,41 @@ describe('团队任务会话', () => {
     expect(session?.displayName).toBe('团队任务 · 无团队任务');
   });
 });
+
+
+describe('团队房间会话', () => {
+  const TEAM = { id: 'team-1', name: '马斯克团队' };
+
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('ensureTeamSession 建房间条目，不带 teamTaskId（区别于任务会话）', () => {
+    const key = useChatStore.getState().ensureTeamSession(TEAM);
+
+    expect(key).toBe('team:team-1');
+    const session = useChatStore.getState().sessions.find((s) => s.key === key);
+    expect(session?.isTeamSession).toBe(true);
+    expect(session?.teamId).toBe('team-1');
+    expect(session?.teamTaskId).toBeUndefined();
+    expect(session?.displayName).toBe('马斯克团队');
+    // 不切换当前会话
+    expect(useChatStore.getState().currentSessionKey).toBe(PREV_KEY);
+  });
+
+  it('幂等；团队改名时同步显示名', () => {
+    useChatStore.getState().ensureTeamSession(TEAM);
+    useChatStore.getState().ensureTeamSession(TEAM);
+    expect(useChatStore.getState().sessions.filter((s) => s.key === 'team:team-1')).toHaveLength(1);
+
+    useChatStore.getState().ensureTeamSession({ id: 'team-1', name: '火星团队' });
+    const session = useChatStore.getState().sessions.find((s) => s.key === 'team:team-1');
+    expect(session?.displayName).toBe('火星团队');
+    expect(useChatStore.getState().sessionLabels['team:team-1']).toBe('火星团队');
+  });
+
+  it('openTeamSession 建条目并切换为当前会话', () => {
+    const key = useChatStore.getState().openTeamSession(TEAM);
+    expect(useChatStore.getState().currentSessionKey).toBe(key);
+  });
+});

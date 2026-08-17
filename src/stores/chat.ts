@@ -164,6 +164,10 @@ interface ChatState {
   ensureTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => string;
   /** 打开团队任务会话（切换到该会话）；返回 sessionKey。 */
   openTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => string;
+  /** 确保团队房间会话存在（不切换当前会话）；返回 sessionKey。 */
+  ensureTeamSession: (team: { id: string; name: string }) => string;
+  /** 打开团队房间会话（切换到该会话）；返回 sessionKey。 */
+  openTeamSession: (team: { id: string; name: string }) => string;
   newSession: () => void;
   deleteSession: (key: string) => Promise<void>;
   cleanupEmptySession: () => void;
@@ -1432,6 +1436,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   openTeamTaskSession: (task) => {
     const sessionKey = get().ensureTeamTaskSession(task);
+    get().switchSession(sessionKey);
+    return sessionKey;
+  },
+
+  ensureTeamSession: (team) => {
+    const sessionKey = `team:${team.id}`;
+    set((state) => {
+      const existing = state.sessions.find((session) => session.key === sessionKey);
+      // 团队改名时同步会话显示名
+      if (existing) {
+        if (existing.displayName === team.name) return {};
+        return {
+          sessions: state.sessions.map((s) => (s.key === sessionKey ? { ...s, displayName: team.name } : s)),
+          sessionLabels: { ...state.sessionLabels, [sessionKey]: team.name },
+        };
+      }
+      const nextSession: ChatSession = {
+        key: sessionKey,
+        displayName: team.name,
+        isTeamSession: true,
+        teamId: team.id,
+        teamName: team.name,
+        updatedAt: Date.now(),
+      };
+      return {
+        sessions: [...state.sessions, nextSession],
+        sessionLabels: { ...state.sessionLabels, [sessionKey]: team.name },
+        sessionLastActivity: { ...state.sessionLastActivity, [sessionKey]: Date.now() },
+      };
+    });
+    return sessionKey;
+  },
+
+  openTeamSession: (team) => {
+    const sessionKey = get().ensureTeamSession(team);
     get().switchSession(sessionKey);
     return sessionKey;
   },

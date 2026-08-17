@@ -11,6 +11,7 @@ import { useChatStore, type RawMessage } from '@/stores/chat';
 import { toast } from 'sonner';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
+import { useTeamsStore } from '@/stores/teams';
 import { useRightPanelStore } from '@/stores/rightPanelStore';
 import { useSettingsStore } from '@/stores/settings';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
@@ -19,6 +20,7 @@ import { ContextRail } from '@/components/workbench/context-rail';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { TeamTaskChatView } from './TeamTaskChatView';
+import { TeamChatView } from './TeamChatView';
 import { extractImages, extractText, extractThinking, extractToolUse, isSystemInjectedUserMessage, extractReminderContent } from './message-utils';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -44,6 +46,10 @@ export function Chat() {
   const sessions = useChatStore((s) => s.sessions);
   const currentSession = sessions.find((s) => s.key === currentSessionKey) ?? null;
   const currentTeamTaskId = currentSession?.teamTaskId ?? null;
+  // 团队房间：isTeamSession 且不带具体任务
+  const currentTeamRoomId = currentSession?.isTeamSession && !currentTeamTaskId
+    ? currentSession.teamId ?? null
+    : null;
   const loading = useChatStore((s) => s.loading);
   const sending = useChatStore((s) => s.sending);
   const error = useChatStore((s) => s.error);
@@ -63,6 +69,8 @@ export function Chat() {
   const configuredChannelTypes = useAgentsStore((s) => s.configuredChannelTypes);
   const channelOwners = useAgentsStore((s) => s.channelOwners);
   const fetchAgents = useAgentsStore((s) => s.fetchAgents);
+  const teams = useTeamsStore((s) => s.teams);
+  const fetchTeams = useTeamsStore((s) => s.fetchTeams);
 
   const minLoading = useMinLoading(loading && messages.length > 0);
   const { contentRef, scrollRef } = useStickToBottomInstant(currentSessionKey);
@@ -104,7 +112,14 @@ export function Chat() {
 
   useEffect(() => {
     void fetchAgents();
-  }, [fetchAgents]);
+    void fetchTeams();
+  }, [fetchAgents, fetchTeams]);
+
+  // 团队房间：为每个团队确保一条会话条目（组建团队即出现在会话列表）
+  useEffect(() => {
+    const ensure = useChatStore.getState().ensureTeamSession;
+    teams.forEach((t) => ensure({ id: t.id, name: t.name }));
+  }, [teams]);
 
   useEffect(() => {
     if (currentSessionKey || agents.length === 0) return;
@@ -161,10 +176,10 @@ export function Chat() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-[52px] shrink-0 items-center justify-between gap-4 bg-white px-5 dark:bg-background">
           <div ref={agentPickerRef} className="relative flex min-w-0 items-center gap-[6px]">
-          {currentTeamTaskId ? (
+          {currentTeamTaskId || currentTeamRoomId ? (
             <div className="flex items-center gap-1 px-2 py-1">
               <h1 className="truncate text-[15px] font-semibold text-foreground">
-                {currentSession?.displayName ?? '团队任务'}
+                {currentSession?.displayName ?? '团队'}
               </h1>
             </div>
           ) : (
@@ -257,6 +272,10 @@ export function Chat() {
               <div className="flex min-h-0 flex-1 flex-col">
                 <TeamTaskChatView taskId={currentTeamTaskId} />
               </div>
+            ) : currentTeamRoomId ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <TeamChatView teamId={currentTeamRoomId} />
+              </div>
             ) : (
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-5">
               <div ref={contentRef} className="mx-auto flex min-h-full w-full max-w-[1000px] flex-col">
@@ -326,7 +345,7 @@ export function Chat() {
             )}
 
             <div className="px-2 pb-2 pt-6">
-              {!currentTeamTaskId && (
+              {!currentTeamTaskId && !currentTeamRoomId && (
               <ChatInput
                 onSend={handleSendMessage}
                 onStop={abortRun}
