@@ -20,6 +20,7 @@ import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
+  buildWorkOrderClassifierMessages,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
@@ -159,12 +160,25 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
       // 3) 成员回复落事件（左列气泡）；leader 回复里的 [EXECUTE] 标记剥离后展示
       const { text: replyText, execute } = parseExecuteMarker(reply);
       await appendEvent(task.id, { type: `chat:${targetId}→user`, content: replyText });
-      // 4) leader 判定为派活 → 触发真实编排（a2a 过程实时回流到本会话与看板）
-      if (execute && targetId === leaderId) {
-        toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
-        void runTeamChatWorkOrder(task.id, userText).catch((err) => {
-          toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
-        });
+      // 4) leader 判定为派活 → 触发真实编排（a2a 过程实时回流到本会话与看板）。
+      //    双保险：模型没按约定输出标记时，再用独立的 YES/NO 分类器判一次意图，
+      //    避免「嘴上答应实际没执行」。
+      if (targetId === leaderId) {
+        let shouldExecute = execute;
+        if (!shouldExecute) {
+          try {
+            const verdict = await runRealChat(buildWorkOrderClassifierMessages(userText), 4);
+            shouldExecute = /^\s*YES/i.test(verdict);
+          } catch {
+            /* 分类器失败则保守不执行 */
+          }
+        }
+        if (shouldExecute) {
+          toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
+          void runTeamChatWorkOrder(task.id, userText).catch((err) => {
+            toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
       }
     } catch (err) {
       toast.error(`发送失败：${err instanceof Error ? err.message : String(err)}`);

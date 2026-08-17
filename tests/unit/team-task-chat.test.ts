@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
+  buildWorkOrderClassifierMessages,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
@@ -281,5 +282,18 @@ describe('buildTeamChatMessages 派活约定', () => {
       '样式改下',
     );
     expect(msgs[0].content).not.toContain('[EXECUTE]');
+  });
+});
+
+
+describe('buildWorkOrderClassifierMessages', () => {
+  it('分类器为独立 YES/NO 小调用，携带待判文本', () => {
+    const msgs = buildWorkOrderClassifierMessages('把样式改炫酷一点');
+    expect(msgs).toHaveLength(2);
+    expect(msgs[0].role).toBe('system');
+    expect(msgs[0].content).toContain('YES');
+    expect(msgs[0].content).toContain('NO');
+    expect(msgs[0].content).toContain('闲聊');
+    expect(msgs[1]).toEqual({ role: 'user', content: '把样式改炫酷一点' });
   });
 });

@@ -195,3 +195,21 @@ export function parseExecuteMarker(reply: string): { text: string; execute: bool
   if (!m) return { text: reply, execute: false };
   return { text: reply.slice(0, m.index).trimEnd(), execute: true };
 }
+
+/**
+ * 派活意图分类器的消息组（独立小调用，不污染 leader 人设回复）。
+ * 只答 YES/NO；调用方用 runRealChat(msgs, 4) 后判 YES。
+ */
+export function buildWorkOrderClassifierMessages(
+  text: string,
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  return [
+    {
+      role: 'system',
+      content:
+        '判断老板对团队说的话是否是在派活、提修改意见或追加需求（需要团队实际动手执行）。' +
+        '闲聊、打招呼、问进度、问团队成员、纯讨论都不算派活。只回答 YES 或 NO，不要输出任何其它内容。',
+    },
+    { role: 'user', content: text },
+  ];
+}
