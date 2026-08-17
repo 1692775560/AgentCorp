@@ -249,7 +249,7 @@ interface LeaderRouting {
 }
 
 /** 把团队成员（含 leader）投影成路由所需的最简画像（真实数据，离职/淘汰标 inactive）。 */
-function projectRoutingCandidates(team: Team): RoutingCandidate[] {
+export function projectRoutingCandidates(team: Team): RoutingCandidate[] {
   const agents = useAgentsStore.getState().agents;
   const profiles = useEvaluationStore.getState().profiles;
   const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));

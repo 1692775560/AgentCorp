@@ -127,6 +127,12 @@ export function buildTeamChatMessages(
     ctx.taskDescription ? `任务要求：${ctx.taskDescription}` : '',
     ctx.workResultExcerpt ? `当前交付进展摘要：${ctx.workResultExcerpt}` : '',
     '回复要求：中文、口语化、简明扼要，像同事在群里回话，不要堆砌格式。',
+    // 派活判定约定：leader 识别到工作指令时输出执行标记，前端据此触发真实编排
+    agent.isLeader
+      ? '另外：如果老板这条消息是在派活、提修改意见或追加需求（而不是闲聊、问进度或纯讨论），' +
+        '先在正文里用一两句话说明你的安排，然后在回复最后另起一行只输出 [EXECUTE]；' +
+        '如果只是聊天、答疑或汇报，绝对不要输出该标记。'
+      : '',
   ].filter(Boolean);
 
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -177,4 +183,15 @@ export function buildTeamChatRenderItems(
   }
   items.splice(insertAt, 0, { key: '__delivery__', delivery: true });
   return items;
+}
+
+/**
+ * 解析 leader 回复里的执行标记 [EXECUTE]。
+ * 命中时返回剥离标记后的正文 + execute=true，调用方据此触发真实编排。
+ * 标记必须出现在行尾独立成行，避免正文里偶然提到该词被误判。
+ */
+export function parseExecuteMarker(reply: string): { text: string; execute: boolean } {
+  const m = /(?:^|\n)\s*\[EXECUTE\]\s*$/.exec(reply);
+  if (!m) return { text: reply, execute: false };
+  return { text: reply.slice(0, m.index).trimEnd(), execute: true };
 }

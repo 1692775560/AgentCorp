@@ -21,9 +21,11 @@ import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
   mapEventsToTeamChatBubbles,
+  parseExecuteMarker,
   parseMentionTarget,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
+import { runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
 import { summarizeA2aEvents } from '@/lib/a2a-timeline';
 import { runRealChat } from '@/engine/llm/realExecutor';
 import { cn, isAvatarImage } from '@/lib/utils';
@@ -154,8 +156,16 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
         userText,
       );
       const reply = await runRealChat(messages);
-      // 3) 成员回复落事件（左列气泡）
-      await appendEvent(task.id, { type: `chat:${targetId}→user`, content: reply });
+      // 3) 成员回复落事件（左列气泡）；leader 回复里的 [EXECUTE] 标记剥离后展示
+      const { text: replyText, execute } = parseExecuteMarker(reply);
+      await appendEvent(task.id, { type: `chat:${targetId}→user`, content: replyText });
+      // 4) leader 判定为派活 → 触发真实编排（a2a 过程实时回流到本会话与看板）
+      if (execute && targetId === leaderId) {
+        toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
+        void runTeamChatWorkOrder(task.id, userText).catch((err) => {
+          toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
     } catch (err) {
       toast.error(`发送失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {

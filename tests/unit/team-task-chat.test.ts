@@ -4,6 +4,7 @@ import {
   buildTeamChatMessages,
   buildTeamChatRenderItems,
   mapEventsToTeamChatBubbles,
+  parseExecuteMarker,
   parseMentionTarget,
 } from '@/lib/team-task-chat';
 import { isAvatarImage } from '@/lib/utils';
@@ -228,5 +229,57 @@ describe('buildTeamChatRenderItems', () => {
     const items = buildTeamChatRenderItems([], true);
     expect(items).toHaveLength(1);
     expect(items[0].delivery).toBe(true);
+  });
+});
+
+
+describe('parseExecuteMarker', () => {
+  it('行尾独立 [EXECUTE] 被识别并剥离', () => {
+    const r = parseExecuteMarker('收到，我这就安排阿强改样式。\n[EXECUTE]');
+    expect(r.execute).toBe(true);
+    expect(r.text).toBe('收到，我这就安排阿强改样式。');
+  });
+
+  it('标记前后有空白也能识别', () => {
+    const r = parseExecuteMarker('马上办。\n  [EXECUTE]  ');
+    expect(r.execute).toBe(true);
+    expect(r.text).toBe('马上办。');
+  });
+
+  it('正文中间提到 [EXECUTE] 不误判', () => {
+    const r = parseExecuteMarker('我不会输出 [EXECUTE] 标记，因为这只是闲聊。');
+    expect(r.execute).toBe(false);
+    expect(r.text).toContain('[EXECUTE]');
+  });
+
+  it('普通回复原样返回', () => {
+    const r = parseExecuteMarker('团队成员有阿强和阿珍。');
+    expect(r.execute).toBe(false);
+    expect(r.text).toBe('团队成员有阿强和阿珍。');
+  });
+});
+
+describe('buildTeamChatMessages 派活约定', () => {
+  const ctx = { taskTitle: '做一个计算器', teamName: '交付一组' };
+
+  it('leader 的 system 含 [EXECUTE] 标记约定', () => {
+    const msgs = buildTeamChatMessages(
+      { id: 'leader-1', name: '阿明', isLeader: true },
+      ctx,
+      [],
+      '把样式改炫酷点',
+    );
+    expect(msgs[0].content).toContain('[EXECUTE]');
+    expect(msgs[0].content).toContain('派活');
+  });
+
+  it('普通成员的 system 不含执行标记约定', () => {
+    const msgs = buildTeamChatMessages(
+      { id: 'dev-1', name: '阿强', isLeader: false },
+      ctx,
+      [],
+      '样式改下',
+    );
+    expect(msgs[0].content).not.toContain('[EXECUTE]');
   });
 });
