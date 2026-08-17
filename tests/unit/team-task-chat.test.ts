@@ -5,6 +5,7 @@ import {
   mapEventsToTeamChatBubbles,
   parseMentionTarget,
 } from '@/lib/team-task-chat';
+import { isAvatarImage } from '@/lib/utils';
 import type { TaskExecutionEvent } from '@/types/task';
 
 function ev(type: string, content: string, createdAt = '2026-08-17T12:00:00Z'): TaskExecutionEvent {
@@ -167,5 +168,21 @@ describe('buildTeamChatMessages', () => {
   it('交付摘要截断注入 system', () => {
     const msgs = buildTeamChatMessages(leader, { ...ctx, workResultExcerpt: '已完成 9/9 回归' }, [], '问');
     expect(msgs[0].content).toContain('已完成 9/9 回归');
+  });
+});
+
+
+describe('isAvatarImage', () => {
+  it('data URI / http URL / 路径判定为图片', () => {
+    expect(isAvatarImage('data:image/png;base64,WQ9InZpZXZ')).toBe(true);
+    expect(isAvatarImage('https://example.com/a.png')).toBe(true);
+    expect(isAvatarImage('/avatars/a.png')).toBe(true);
+  });
+
+  it('emoji 与空值按文本处理', () => {
+    expect(isAvatarImage('🤖')).toBe(false);
+    expect(isAvatarImage('')).toBe(false);
+    expect(isAvatarImage(null)).toBe(false);
+    expect(isAvatarImage(undefined)).toBe(false);
   });
 });

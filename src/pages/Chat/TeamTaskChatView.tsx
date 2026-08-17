@@ -25,7 +25,7 @@ import {
 } from '@/lib/team-task-chat';
 import { summarizeA2aEvents } from '@/lib/a2a-timeline';
 import { runRealChat } from '@/engine/llm/realExecutor';
-import { cn } from '@/lib/utils';
+import { cn, isAvatarImage } from '@/lib/utils';
 import type { KanbanTask } from '@/types/task';
 
 const STATUS_META: Record<KanbanTask['status'], { label: string; color: string }> = {
@@ -34,6 +34,14 @@ const STATUS_META: Record<KanbanTask['status'], { label: string; color: string }
   review: { label: '待验收', color: '#f59e0b' },
   done: { label: '已完成', color: '#22c55e' },
 };
+
+/** 头像可能是 emoji 也可能是 base64/URL 图片，按形态渲染，避免图片串当文本显示成乱码。 */
+function AgentAvatar({ avatar, className }: { avatar?: string | null; className?: string }) {
+  if (isAvatarImage(avatar)) {
+    return <img src={avatar!} alt="" className={cn('rounded-full object-cover', className)} />;
+  }
+  return <span className={className}>{avatar ?? '🤖'}</span>;
+}
 
 export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const navigate = useNavigate();
@@ -161,6 +169,15 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const statusMeta = STATUS_META[task.status];
   const agentOf = (id: string) => agents.find((a) => a.id === id);
   const mentionTargetName = (b: TeamChatBubble) => agentOf(b.peerId)?.name ?? null;
+  /** actorId 可能是 team:<id>（编排器以团队身份发的事件），回退显示团队名而不是原始 ID */
+  const speakerName = (id: string) => {
+    const agent = agentOf(id);
+    if (agent) return agent.name;
+    if (id.startsWith('team:')) {
+      return teams.find((t) => id === `team:${t.id}`)?.name ?? team?.name ?? '团队';
+    }
+    return id;
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -234,12 +251,13 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             const isLeader = b.actorId === leaderId;
             return (
               <div key={b.id} className="flex items-start gap-2.5">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[16px]">
-                  {speaker?.avatar ?? '🤖'}
-                </span>
+                <AgentAvatar
+                  avatar={speaker?.avatar}
+                  className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[16px]"
+                />
                 <div className="min-w-0 max-w-[78%]">
                   <div className="mb-1 flex items-center gap-1.5 text-[11px]">
-                    <span className="font-semibold text-foreground">{speaker?.name ?? b.actorId}</span>
+                    <span className="font-semibold text-foreground">{speakerName(b.actorId)}</span>
                     {isLeader && (
                       <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#FFD23333', color: '#b8860b' }}>
                         leader
@@ -268,13 +286,14 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
           {/* 最终交付：leader 身份汇总发言，Markdown 渲染 */}
           {task.workResult && (
             <div className="flex items-start gap-2.5">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FFD233]/30 text-[16px]">
-                {leaderId ? (agentOf(leaderId)?.avatar ?? '🤖') : '📦'}
-              </span>
+              <AgentAvatar
+                avatar={leaderId ? (agentOf(leaderId)?.avatar ?? null) : '📦'}
+                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FFD233]/30 text-[16px]"
+              />
               <div className="min-w-0 max-w-[85%]">
                 <div className="mb-1 flex items-center gap-1.5 text-[11px]">
                   <span className="font-semibold text-foreground">
-                    {leaderId ? (agentOf(leaderId)?.name ?? leaderId) : '团队'}
+                    {leaderId ? speakerName(leaderId) : '团队'}
                   </span>
                   <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#22c55e22', color: '#22c55e' }}>最终交付</span>
                 </div>
@@ -306,9 +325,10 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                   onClick={() => applyMention(a.name)}
                   className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[#f2f2f7]"
                 >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[13px]">
-                    {a.avatar ?? '🤖'}
-                  </span>
+                  <AgentAvatar
+                    avatar={a.avatar}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[13px]"
+                  />
                   <span className="min-w-0 flex-1 truncate">{a.name}</span>
                   {a.id === leaderId && (
                     <span className="shrink-0 rounded px-1 py-px text-[9px] font-bold" style={{ background: '#FFD23333', color: '#b8860b' }}>leader</span>

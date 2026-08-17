@@ -21,6 +21,7 @@ import { AutoWorkerBar } from './AutoWorkerBar';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import { invokeIpc } from '@/lib/api-client';
 import { extractA2aParticipants, summarizeA2aEvents, parseA2aRoute } from '@/lib/a2a-timeline';
+import { isAvatarImage } from '@/lib/utils';
 
 const COLUMNS: Array<{ key: TaskStatus; label: string; accent: string }> = [
   { key: 'todo', label: '待办', accent: '#9ca3af' },
@@ -373,6 +374,18 @@ export function TaskBoard() {
     (id: string) => agents.find((a) => a.id === id)?.avatar ?? '🤖',
     [agents],
   );
+  /** 头像可能是 base64/URL 图片，图片形态渲染 img，emoji 形态渲染文本 */
+  const renderAgentAvatar = useCallback(
+    (id: string) => {
+      const avatar = agentAvatar(id);
+      return isAvatarImage(avatar) ? (
+        <img src={avatar} alt="" className="h-4 w-4 rounded-full object-cover" />
+      ) : (
+        <span>{avatar}</span>
+      );
+    },
+    [agentAvatar],
+  );
   // 私聊：复用 TeamMap 验证过的 openDirectAgentSession 通道，跳到首页聊天
   const handleOpenAgentChat = useCallback(
     (agentId: string) => {
@@ -531,7 +544,7 @@ export function TaskBoard() {
                         className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold"
                         style={{ background: 'var(--neu-bg, #f1f3f8)', color: 'var(--neu-ink)' }}
                       >
-                        <span>{agentAvatar(id)}</span>
+                        <span className="flex items-center">{renderAgentAvatar(id)}</span>
                         <span className="max-w-[90px] truncate">{agentName(id)}</span>
                         {id === leaderId && (
                           <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#FFD23333', color: '#b8860b' }}>leader</span>
@@ -571,8 +584,8 @@ export function TaskBoard() {
                     {a2a && (
                       <div className="mb-0.5 flex items-center gap-1 text-[9.5px] font-semibold" style={{ color: isReview ? (passed ? '#22c55e' : '#f59e0b') : '#6366f1' }}>
                         <span className="rounded px-1 py-px" style={{ background: isReview ? (passed ? '#22c55e22' : '#f59e0b22') : '#6366f122' }}>A2A</span>
-                        <span className="truncate">
-                          {agentAvatar(a2a.from)} {agentName(a2a.from)} → {a2a.to ? `${agentAvatar(a2a.to)} ${agentName(a2a.to)}` : ''}
+                        <span className="flex items-center gap-1 truncate">
+                          {renderAgentAvatar(a2a.from)} {agentName(a2a.from)} → {a2a.to ? <>{renderAgentAvatar(a2a.to)} {agentName(a2a.to)}</> : null}
                         </span>
                       </div>
                     )}
