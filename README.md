@@ -1,6 +1,11 @@
-# AgentCorp
+# AgentCorp：Agent 适配与协同平台
+<img width="376" height="380" alt="e39900a59e427a887368dc6f694de7ea" src="https://github.com/user-attachments/assets/090ea2ca-fa0b-415c-849c-bd5aa8e93e21" />
 
-> **跑分测的是模型，不是你的真实工作。**
+
+> **LLM跑分测的是模型能力，却不是你的真实工作。**
+> 面对日渐膨胀的Agent选择，你是否常常陷入到一种「Agent选择困难症」中？
+> 面对日新月异的各种功能，什么样的数字员工最能够契合你真实的工作流程？
+> 
 > AgentCorp 用同一套工种实测题、同一份评分标准，把「该用哪个 Agent」
 > 从凭感觉，变成可测量、可复现、可追溯的判断。
 
