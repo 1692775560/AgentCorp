@@ -19,9 +19,11 @@ import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
+  acceptTaskRework,
   buildTaskIntakeMessages,
   buildTeamChatMessages,
   buildTeamChatRenderItems,
+  createTaskFromChatIntake,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
@@ -203,37 +205,31 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
         }
         const intent = execute ? 'rework' : (intake?.intent ?? 'chat');
         if (intent === 'rework') {
-          toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
-          void runTeamChatWorkOrder(task.id, userText).catch((err) => {
-            toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
-          });
+          // 受理成功才提示「开始执行」；任务被占用时提示稍后再试，不先报喜
+          await acceptTaskRework(task.id, userText, { runWorkOrder: runTeamChatWorkOrder, toast });
         } else if (intent === 'new' && task.teamId) {
-          try {
-            // intake 已按对话上下文归纳标题与需求；缺失时回退原文（原行为）
-            const created = await createTask({
+          // intake 已按对话上下文归纳标题与需求；缺失时回退原文（原行为）。
+          // 知会消息 best-effort：执行触发不依赖它（append 抛错不能卡住派活）。
+          await createTaskFromChatIntake(
+            {
+              taskId: task.id,
+              teamId: task.teamId,
+              teamName: team?.name ?? task.teamName ?? '',
+              leaderId: targetId,
+            },
+            {
               title: intake?.title ?? taskTitleFromInstruction(userText),
-              description: intake?.requirement ?? userText,
-              priority: 'medium',
-              teamId: task.teamId,
-              teamName: team?.name ?? task.teamName,
-            });
-            useChatStore.getState().ensureTeamTaskSession({
-              id: created.id,
-              title: created.title,
-              teamId: task.teamId,
-              teamName: team?.name ?? task.teamName,
-            });
-            await appendEvent(task.id, {
-              type: `chat:${targetId}→user`,
-              content: `这是件新活，我已立项「${created.title}」并开始执行，过程在对应的任务会话里同步。`,
-            });
-            toast.info(`已立项「${created.title}」并开始执行`);
-            void runTeamChatWorkOrder(created.id, userText).catch((err) => {
-              toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
-            });
-          } catch (err) {
-            toast.error(`立项失败：${err instanceof Error ? err.message : String(err)}`);
-          }
+              requirement: intake?.requirement ?? userText,
+            },
+            userText,
+            {
+              createTask,
+              ensureTeamTaskSession: (t) => useChatStore.getState().ensureTeamTaskSession(t),
+              appendTaskEvent: appendEvent,
+              runWorkOrder: runTeamChatWorkOrder,
+              toast,
+            },
+          );
         }
       }
     } catch (err) {

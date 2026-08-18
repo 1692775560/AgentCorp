@@ -1,13 +1,13 @@
 /**
  * src/lib/team-task-chat.ts
- * 团队任务会话视图的气泡映射（纯函数）。
+ * 团队任务会话视图的气泡映射与会话派活动作（纯函数/依赖注入，可单测）。
  *
  * 把任务的 executionEvents（含 A2A trace 事件）映射成群聊风格气泡：
  * 每条 A2A 事件 = delegatee 的一条发言（谁产出谁说话，箭头方向语义
  * 「delegator → delegatee」表示 delegatee 在干活/回话）；
  * 非 A2A 事件 = 居中系统提示行。
  */
-import type { TaskExecutionEvent } from '@/types/task';
+import type { CreateTaskRequest, KanbanTask, TaskExecutionEvent } from '@/types/task';
 import { parseA2aRoute } from '@/lib/a2a-timeline';
 
 export interface TeamChatBubble {
@@ -473,4 +473,235 @@ export function parseDirectAssignTarget(
  */
 export function buildDirectAssignInstruction(memberName: string, instruction: string): string {
   return `【指定执行：@${memberName}】${instruction}`;
+}
+
+// ── 会话派活动作（依赖注入，视图层只收依赖与按钮状态）────────────────
+// 承载「立项/开工/打回」的关键路径时序，约束：
+// - 先建任务、后落 confirmed 处置：createTask 失败时卡片保持待确认可重试；
+//   反向失败（任务已建但处置落库失败）容忍——继续开工，卡片状态下次刷新
+//   由 collectTaskDraftResolutions 决定。
+// - 知会消息一律 best-effort，执行触发不依赖它（知会挂掉不能卡住派活）。
+// - 生效指令在 createTask 时就写进 task.description：AutoWorker 执行用的是
+//   任务本身的 title/description，指令随任务走，谁领到都不丢。
+// - runWorkOrder 返回值必须检查：false = 任务被占用，提示而非静默。
+
+export interface WorkOrderToast {
+  info: (msg: string) => void;
+  error: (msg: string) => void;
+}
+
+export interface RoomWorkOrderDeps {
+  createTask: (input: CreateTaskRequest) => Promise<KanbanTask>;
+  appendRoomEvent: (teamId: string, event: { from: string; to: string; content: string }) => Promise<unknown>;
+  ensureTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => unknown;
+  runWorkOrder: (taskId: string, instruction: string) => Promise<boolean>;
+  toast: WorkOrderToast;
+}
+
+/** 触发会话派活：受理失败（任务已被占用）提示在执行队列中而非静默；抛错统一 toast。 */
+function triggerWorkOrder(
+  deps: Pick<RoomWorkOrderDeps, 'runWorkOrder' | 'toast'>,
+  taskId: string,
+  instruction: string,
+): void {
+  void deps
+    .runWorkOrder(taskId, instruction)
+    .then((accepted) => {
+      // 任务已被 AutoWorker/另一通道领走：指令已随 description 走，提示即可
+      if (!accepted) deps.toast.info('任务已在执行队列中');
+    })
+    .catch((err) => {
+      deps.toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+    });
+}
+
+/** 草稿确认开工时写进任务描述的生效指令（完整文本随任务走）。 */
+export function buildConfirmedDraftInstruction(requirement: string): string {
+  return `草稿已确认，按立项需求执行。\n${requirement}`;
+}
+
+/**
+ * 立项确认卡「确认开工」：先 createTask，成功后才落 confirmed 处置事件。
+ * createTask 抛错直接上抛（视图统一 toast），不落处置、不开工。
+ */
+export async function confirmTaskDraftAndRun(
+  card: TaskDraftCard,
+  team: { id: string; name: string },
+  leaderId: string,
+  deps: RoomWorkOrderDeps,
+): Promise<void> {
+  const instruction = buildConfirmedDraftInstruction(card.requirement);
+  const created = await deps.createTask({
+    title: card.title,
+    description: instruction,
+    priority: 'medium',
+    teamId: team.id,
+    teamName: team.name,
+  });
+  // 任务已建成，confirmed 处置落库失败不阻断开工
+  try {
+    await deps.appendRoomEvent(team.id, {
+      from: 'user',
+      to: leaderId,
+      content: buildTaskDraftResolution(card.id, 'confirmed'),
+    });
+  } catch {
+    deps.toast.info('任务已立项，确认记录同步失败，卡片状态稍后刷新');
+  }
+  deps.ensureTeamTaskSession({
+    id: created.id,
+    title: created.title,
+    teamId: team.id,
+    teamName: team.name,
+  });
+  // 知会消息 best-effort：不在执行触发的关键路径上
+  void deps
+    .appendRoomEvent(team.id, {
+      from: leaderId,
+      to: 'user',
+      content: `已立项「${created.title}」，我这就拆解分派，执行过程在任务会话里同步。`,
+    })
+    .catch(() => { /* 知会失败不阻断开工 */ });
+  deps.toast.info('已立项，团队开始执行，过程可在任务会话中查看');
+  triggerWorkOrder(deps, created.id, instruction);
+}
+
+/**
+ * @成员直派立项：生效指令（含【指定执行】前缀）直接写进 task.description，
+ * AutoWorker 抢先领走任务时指令也不丢；知会 best-effort。
+ */
+export async function runDirectAssign(
+  team: { id: string; name: string },
+  leaderId: string | null,
+  directAssign: { targetId: string; targetName: string; instruction: string },
+  deps: RoomWorkOrderDeps,
+): Promise<void> {
+  const instruction = buildDirectAssignInstruction(directAssign.targetName, directAssign.instruction);
+  const created = await deps.createTask({
+    title: taskTitleFromInstruction(directAssign.instruction),
+    description: instruction,
+    priority: 'medium',
+    teamId: team.id,
+    teamName: team.name,
+    assigneeId: directAssign.targetId,
+    assigneeRole: directAssign.targetName,
+  });
+  deps.ensureTeamTaskSession({
+    id: created.id,
+    title: created.title,
+    teamId: team.id,
+    teamName: team.name,
+  });
+  if (leaderId) {
+    void deps
+      .appendRoomEvent(team.id, {
+        from: leaderId,
+        to: 'user',
+        content: `收到，已直接指派给 @${directAssign.targetName}：「${created.title}」，我盯进度，执行过程在任务会话里同步。`,
+      })
+      .catch(() => { /* 知会失败不阻断开工 */ });
+  }
+  deps.toast.info(`已立项「${created.title}」并直接指派给 ${directAssign.targetName}`);
+  triggerWorkOrder(deps, created.id, instruction);
+}
+
+export interface ReworkWorkOrderDeps {
+  updateTask: (taskId: string, updates: Partial<KanbanTask>) => Promise<unknown>;
+  runWorkOrder: (taskId: string, instruction: string) => Promise<boolean>;
+  toast: WorkOrderToast;
+}
+
+/**
+ * 打回重做：回 in-progress 后复用编排管线重跑。受理失败（任务被占用）时
+ * 把状态改回 review 并提示，避免任务永久卡在 in-progress；返回是否受理。
+ * runWorkOrder 抛错直接上抛（其内部已复位任务状态，视图统一 toast）。
+ */
+export async function rejectDeliveryAndRework(
+  task: { id: string },
+  feedback: string,
+  deps: ReworkWorkOrderDeps,
+): Promise<boolean> {
+  await deps.updateTask(task.id, { status: 'in-progress' });
+  const accepted = await deps.runWorkOrder(task.id, `打回重做：${feedback}`);
+  if (!accepted) {
+    await deps.updateTask(task.id, { status: 'review' });
+    deps.toast.error('任务正被占用，稍后再试');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 任务会话 rework 指令：受理成功才提示「开始执行」；未受理（任务被占用）
+ * 提示稍后再试，不再先报喜。
+ */
+export async function acceptTaskRework(
+  taskId: string,
+  instruction: string,
+  deps: Pick<ReworkWorkOrderDeps, 'runWorkOrder' | 'toast'>,
+): Promise<void> {
+  try {
+    const accepted = await deps.runWorkOrder(taskId, instruction);
+    if (accepted) deps.toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
+    else deps.toast.error('任务正被占用，稍后再试');
+  } catch (err) {
+    deps.toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export interface NewTaskFromChatDeps {
+  createTask: (input: CreateTaskRequest) => Promise<KanbanTask>;
+  ensureTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => unknown;
+  appendTaskEvent: (taskId: string, event: { type: string; content: string }) => Promise<unknown>;
+  runWorkOrder: (taskId: string, instruction: string) => Promise<boolean>;
+  toast: WorkOrderToast;
+}
+
+/**
+ * 任务会话里立新任务（intent==='new'）：知会消息 best-effort，
+ * 执行触发不依赖它（知会 append 抛错不能卡住派活）。
+ */
+export async function createTaskFromChatIntake(
+  source: { taskId: string; teamId: string; teamName: string; leaderId: string },
+  draft: { title: string; requirement: string },
+  instruction: string,
+  deps: NewTaskFromChatDeps,
+): Promise<void> {
+  try {
+    const created = await deps.createTask({
+      title: draft.title,
+      description: draft.requirement,
+      priority: 'medium',
+      teamId: source.teamId,
+      teamName: source.teamName,
+    });
+    deps.ensureTeamTaskSession({
+      id: created.id,
+      title: created.title,
+      teamId: source.teamId,
+      teamName: source.teamName,
+    });
+    void deps
+      .appendTaskEvent(source.taskId, {
+        type: `chat:${source.leaderId}→user`,
+        content: `这是件新活，我已立项「${created.title}」并开始执行，过程在对应的任务会话里同步。`,
+      })
+      .catch(() => { /* 知会失败不阻断开工 */ });
+    deps.toast.info(`已立项「${created.title}」并开始执行`);
+    triggerWorkOrder(deps, created.id, instruction);
+  } catch (err) {
+    deps.toast.error(`立项失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * 房间对话历史快照：在 append 用户消息「之前」取——append 是 await，期间
+ * 并发广播可能插入新事件，事后按「最后一条是我刚发的」slice(0,-1) 会裁错。
+ * 返回的气泡列表是一份拷贝，之后的事件变动不影响它，可直接作
+ * buildTeamChatMessages / buildTaskIntakeMessages 的 history。
+ */
+export function snapshotRoomHistory(
+  events: Array<{ from: string; to: string; content: string; createdAt: string }>,
+): TeamChatBubble[] {
+  return mapTeamChatEventsToBubbles(events);
 }

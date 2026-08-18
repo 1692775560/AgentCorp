@@ -18,13 +18,13 @@ import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
-  buildDirectAssignInstruction,
   buildTaskDraftEvent,
   buildTaskDraftResolution,
   buildTaskIntakeMessages,
   buildTeamChatMessages,
   buildWorkIntentClassifierMessages,
   collectTaskDraftResolutions,
+  confirmTaskDraftAndRun,
   findReviewTaskForDelivery,
   isNearBottom,
   isTaskProtocolContent,
@@ -35,6 +35,9 @@ import {
   parseTaskDraftEvent,
   parseTaskIntake,
   parseWorkIntent,
+  rejectDeliveryAndRework,
+  runDirectAssign,
+  snapshotRoomHistory,
   taskTitleFromInstruction,
   type TaskDraftAction,
   type TaskDraftCard,
@@ -220,13 +223,16 @@ export function TeamChatView({ teamId }: { teamId: string }) {
           to: team.leaderId,
           content: `🔁 「${task.title}」打回重做：${feedback}`,
         });
-        await updateTask(task.id, { status: 'in-progress' });
+        // 受理失败（任务被占用）时状态已回 review 并提示，不清理输入方便重试
+        const accepted = await rejectDeliveryAndRework(task, feedback, {
+          updateTask,
+          runWorkOrder: runTeamChatWorkOrder,
+          toast,
+        });
+        if (!accepted) return;
         setRejectTaskId(null);
         setRejectDraft('');
         toast.info('已打回，leader 重新拆解分派中');
-        void runTeamChatWorkOrder(task.id, `打回重做：${feedback}`).catch((err) => {
-          toast.error(`打回重做执行失败：${err instanceof Error ? err.message : String(err)}`);
-        });
       } catch (err) {
         toast.error(`打回失败：${err instanceof Error ? err.message : String(err)}`);
       } finally {
@@ -236,14 +242,14 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     [appendRoomEvent, rejectDraft, reviewBusy, team, teamId, updateTask],
   );
 
-  /** 立项确认卡处置：先落处置事件（卡片状态即时更新）；确认 → 立项并开工，取消 → 搁置 */
+  /** 立项确认卡处置：确认 → 先立项成功再落 confirmed 并开工（顺序反了会卡片显示已确认但任务没建）；取消 → 搁置 */
   const handleDraftResolution = useCallback(
     async (card: TaskDraftCard, action: 'confirmed' | 'cancelled') => {
       if (reviewBusy || !team || !leaderId) return;
       setReviewBusy(true);
       try {
-        await appendRoomEvent(teamId, { from: 'user', to: leaderId, content: buildTaskDraftResolution(card.id, action) });
         if (action === 'cancelled') {
+          await appendRoomEvent(teamId, { from: 'user', to: leaderId, content: buildTaskDraftResolution(card.id, 'cancelled') });
           await appendRoomEvent(teamId, {
             from: leaderId,
             to: 'user',
@@ -251,27 +257,12 @@ export function TeamChatView({ teamId }: { teamId: string }) {
           });
           return;
         }
-        const created = await createTask({
-          title: card.title,
-          description: card.requirement,
-          priority: 'medium',
-          teamId: team.id,
-          teamName: team.name,
-        });
-        useChatStore.getState().ensureTeamTaskSession({
-          id: created.id,
-          title: created.title,
-          teamId: team.id,
-          teamName: team.name,
-        });
-        await appendRoomEvent(teamId, {
-          from: leaderId,
-          to: 'user',
-          content: `已立项「${created.title}」，我这就拆解分派，执行过程在任务会话里同步。`,
-        });
-        toast.info('已立项，团队开始执行，过程可在任务会话中查看');
-        void runTeamChatWorkOrder(created.id, `草稿已确认，按立项需求执行。\n${card.requirement}`).catch((err) => {
-          toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+        await confirmTaskDraftAndRun(card, { id: team.id, name: team.name }, leaderId, {
+          createTask,
+          appendRoomEvent,
+          ensureTeamTaskSession: (t) => useChatStore.getState().ensureTeamTaskSession(t),
+          runWorkOrder: runTeamChatWorkOrder,
+          toast,
         });
       } catch (err) {
         toast.error(`处理失败：${err instanceof Error ? err.message : String(err)}`);
@@ -299,11 +290,16 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     setMentionOpen(false);
     nearBottomRef.current = true;
     try {
+      // 历史快照先取：append 是 await，期间并发广播可能插入新事件，
+      // 事后按「最后一条是我刚发的」slice(0,-1) 裁剪会裁错消息
+      const history = snapshotRoomHistory(
+        useTeamsStore.getState().teams.find((t) => t.id === teamId)?.chatEvents ?? [],
+      );
       // 1) 老板发言落房间
       await appendRoomEvent(teamId, { from: 'user', to: targetId, content: text });
       // 1.5) @非 leader 成员且语义是派活 → 直派：立项并把 assignee 指到该成员，
-      //      编排指令加「【指定执行：@成员】」前缀让 leader 拆解时带上指定人；
-      //      leader 模板知会（快且确定）。闲聊则维持原成员对话路径。
+      //      生效指令（含【指定执行：@成员】前缀）写进任务描述，随任务走不丢；
+      //      leader 模板知会 best-effort，不在执行触发的关键路径上。
       const directAssign = parseDirectAssignTarget(
         text,
         members.map((a) => ({ id: a.id, name: a.name })),
@@ -318,42 +314,17 @@ export function TeamChatView({ teamId }: { teamId: string }) {
           /* 分类器失败按闲聊处理，不擅自立项 */
         }
         if (isWork) {
-          const created = await createTask({
-            title: taskTitleFromInstruction(directAssign.instruction),
-            description: directAssign.instruction,
-            priority: 'medium',
-            teamId: team.id,
-            teamName: team.name,
-            assigneeId: directAssign.targetId,
-            assigneeRole: directAssign.targetName,
-          });
-          useChatStore.getState().ensureTeamTaskSession({
-            id: created.id,
-            title: created.title,
-            teamId: team.id,
-            teamName: team.name,
-          });
-          if (leaderId) {
-            await appendRoomEvent(teamId, {
-              from: leaderId,
-              to: 'user',
-              content: `收到，已直接指派给 @${directAssign.targetName}：「${created.title}」，我盯进度，执行过程在任务会话里同步。`,
-            });
-          }
-          toast.info(`已立项「${created.title}」并直接指派给 ${directAssign.targetName}`);
-          void runTeamChatWorkOrder(
-            created.id,
-            buildDirectAssignInstruction(directAssign.targetName, directAssign.instruction),
-          ).catch((err) => {
-            toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+          await runDirectAssign({ id: team.id, name: team.name }, leaderId, directAssign, {
+            createTask,
+            appendRoomEvent,
+            ensureTeamTaskSession: (t) => useChatStore.getState().ensureTeamTaskSession(t),
+            runWorkOrder: runTeamChatWorkOrder,
+            toast,
           });
           return;
         }
       }
-      // 2) 组上下文调真实模型
-      const history = mapTeamChatEventsToBubbles(
-        useTeamsStore.getState().teams.find((t) => t.id === teamId)?.chatEvents ?? [],
-      );
+      // 2) 组上下文调真实模型（快照即历史，不再裁「最后一条」）
       const messages = buildTeamChatMessages(
         {
           id: target.id,
@@ -363,7 +334,7 @@ export function TeamChatView({ teamId }: { teamId: string }) {
           isLeader: targetId === leaderId,
         },
         { teamName: team.name },
-        history.slice(0, -1), // 去掉刚写入的这条，作为最后一条 user 消息传入
+        history,
         userText,
       );
       const reply = await runRealChat(messages);
