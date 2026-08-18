@@ -150,7 +150,7 @@ interface ChatState {
   thinkingLevel: string | null;
 
   // Actions
-  loadSessions: () => Promise<void>;
+  loadSessions: (force?: boolean) => Promise<void>;
   switchSession: (key: string) => void;
   openDirectAgentSession: (
     agentId: string,
@@ -171,7 +171,7 @@ interface ChatState {
   newSession: () => void;
   deleteSession: (key: string) => Promise<void>;
   cleanupEmptySession: () => void;
-  loadHistory: (quiet?: boolean) => Promise<void>;
+  loadHistory: (quiet?: boolean, force?: boolean) => Promise<void>;
   sendMessage: (
     text: string,
     attachments?: Array<{ fileName: string; mimeType: string; fileSize: number; stagedPath: string; preview: string | null }>,
@@ -923,7 +923,12 @@ function buildSessionSwitchPatch(
   >,
   nextSessionKey: string,
 ): Partial<ChatState> {
-  const leavingEmpty = !state.currentSessionKey.endsWith(':main') && state.messages.length === 0;
+  // 本地专属会话（team:/team-task:/:private-）是结构性入口，即使 messages 为空也保留：
+  // 这些会话的内容由任务事件/房间记录驱动，网关 messages 恒为空，
+  // 按「空会话即清理」会把刚建的任务会话入口冲掉（切走再回来就消失）。
+  const leavingEmpty = !state.currentSessionKey.endsWith(':main')
+    && !isLocalOnlySessionKey(state.currentSessionKey)
+    && state.messages.length === 0;
   const nextSessions = leavingEmpty
     ? state.sessions.filter((session) => session.key !== state.currentSessionKey)
     : state.sessions;
@@ -1235,13 +1240,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // ── Load sessions via sessions.list ──
 
-  loadSessions: async () => {
+  loadSessions: async (force = false) => {
     const now = Date.now();
     if (_loadSessionsInFlight) {
       await _loadSessionsInFlight;
       return;
     }
-    if (now - _lastLoadSessionsAt < SESSION_LOAD_MIN_INTERVAL_MS) {
+    if (!force && now - _lastLoadSessionsAt < SESSION_LOAD_MIN_INTERVAL_MS) {
       return;
     }
 
@@ -1479,12 +1484,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   ensureTeamTaskSession: (task) => {
     const sessionKey = `team-task:${task.id}`;
+    const displayName = `团队任务 · ${task.title}`;
     set((state) => {
       const existing = state.sessions.find((session) => session.key === sessionKey);
-      if (existing) return {};
+      // 任务改名时同步会话显示名（与 ensureTeamSession 的团队改名同步一致）
+      if (existing) {
+        if (existing.displayName === displayName) return {};
+        return {
+          sessions: state.sessions.map((s) => (s.key === sessionKey ? { ...s, displayName } : s)),
+          sessionLabels: { ...state.sessionLabels, [sessionKey]: displayName },
+        };
+      }
       const nextSession: ChatSession = {
         key: sessionKey,
-        displayName: `团队任务 · ${task.title}`,
+        displayName,
         isTeamSession: true,
         teamTaskId: task.id,
         teamId: task.teamId,
@@ -1673,7 +1686,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // ── Load chat history ──
 
-  loadHistory: async (quiet = false) => {
+  loadHistory: async (quiet = false, force = false) => {
     // 私聊会话（agent:X:private-X）直接以自身 key 走网关，与主会话完全隔离。
     const { currentSessionKey } = get();
     const existingLoad = _historyLoadInFlight.get(currentSessionKey);
@@ -1683,14 +1696,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const lastLoadAt = _lastHistoryLoadAtBySession.get(currentSessionKey) || 0;
-    if (quiet && Date.now() - lastLoadAt < HISTORY_LOAD_MIN_INTERVAL_MS) {
+    // force 用于「刚切过来、消息区已被清空」的场景：节流会让界面空白数秒
+    if (!force && quiet && Date.now() - lastLoadAt < HISTORY_LOAD_MIN_INTERVAL_MS) {
       return;
     }
 
     if (!quiet) set({ loading: true, error: null });
 
     const loadPromise = (async () => {
+      // 陈旧守卫：RPC 在途期间用户可能已切到别的会话，响应到达时
+  // 若 currentSessionKey 已变，整条结果丢弃（否则会话 B 的视图被会话 A 的历史覆盖）。
+      const requestedKey = currentSessionKey;
+      const isStale = () => get().currentSessionKey !== requestedKey;
       const applyLoadedMessages = (rawMessages: RawMessage[], thinkingLevel: string | null) => {
+      if (isStale()) return;
       // Before filtering: attach images/files from tool_result messages to the next assistant message
       const messagesWithToolImages = enrichWithToolResultFiles(rawMessages);
       const filteredMessages = messagesWithToolImages.filter((msg) => !isToolResultRole(msg.role));
@@ -1813,7 +1832,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const fallbackMessages = await loadCronFallbackMessages(currentSessionKey, 200);
           if (fallbackMessages.length > 0) {
             applyLoadedMessages(fallbackMessages, null);
-          } else {
+          } else if (!isStale()) {
             set({ messages: [], loading: false });
           }
         }
@@ -1822,7 +1841,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const fallbackMessages = await loadCronFallbackMessages(currentSessionKey, 200);
         if (fallbackMessages.length > 0) {
           applyLoadedMessages(fallbackMessages, null);
-        } else {
+        } else if (!isStale()) {
           set({ messages: [], loading: false });
         }
       }
@@ -1868,7 +1887,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (targetSessionKey !== get().currentSessionKey) {
       set((s) => buildSessionSwitchPatch(s, targetSessionKey));
-      await get().loadHistory(true);
+      // 消息区刚被清空，force 绕过 quiet 节流，避免界面空白数秒
+      await get().loadHistory(true, true);
     }
 
     const currentSessionKey = targetSessionKey;

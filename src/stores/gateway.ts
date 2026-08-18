@@ -79,13 +79,14 @@ function shouldProcessGatewayEvent(event: Record<string, unknown>): boolean {
 }
 
 function maybeLoadSessions(
-  state: { loadSessions: () => Promise<void> },
+  state: { loadSessions: (force?: boolean) => Promise<void> },
   force = false,
 ): void {
   const now = Date.now();
   if (!force && now - lastLoadSessionsAt < LOAD_SESSIONS_MIN_INTERVAL_MS) return;
   lastLoadSessionsAt = now;
-  void state.loadSessions();
+  // force 透传：chat 侧还有一层节流，不透传会把强制刷新吞掉（新会话入口迟迟不出现）
+  void state.loadSessions(force);
 }
 
 function maybeLoadHistory(

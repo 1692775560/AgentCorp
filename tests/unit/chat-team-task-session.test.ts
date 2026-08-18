@@ -49,6 +49,16 @@ describe('团队任务会话', () => {
     expect(useChatStore.getState().currentSessionKey).toBe(key);
   });
 
+  it('任务改名后 ensureTeamTaskSession 同步会话显示名', () => {
+    useChatStore.getState().ensureTeamTaskSession(TASK);
+    useChatStore.getState().ensureTeamTaskSession({ ...TASK, title: '做一个番茄钟' });
+
+    const state = useChatStore.getState();
+    expect(state.sessions.filter((s) => s.key === 'team-task:task-1')).toHaveLength(1);
+    expect(state.sessions.find((s) => s.key === 'team-task:task-1')?.displayName).toBe('团队任务 · 做一个番茄钟');
+    expect(state.sessionLabels['team-task:task-1']).toBe('团队任务 · 做一个番茄钟');
+  });
+
   it('不带团队元信息时也能建条目', () => {
     const key = useChatStore.getState().ensureTeamTaskSession({ id: 'task-2', title: '无团队任务' });
     const session = useChatStore.getState().sessions.find((s) => s.key === key);
@@ -56,8 +66,6 @@ describe('团队任务会话', () => {
     expect(session?.displayName).toBe('团队任务 · 无团队任务');
   });
 });
-
-
 describe('团队房间会话', () => {
   const TEAM = { id: 'team-1', name: '马斯克团队' };
 
@@ -92,5 +100,51 @@ describe('团队房间会话', () => {
   it('openTeamSession 建条目并切换为当前会话', () => {
     const key = useChatStore.getState().openTeamSession(TEAM);
     expect(useChatStore.getState().currentSessionKey).toBe(key);
+  });
+});
+
+describe('切换会话时空会话清理', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('回归：任务会话/团队房间/私聊切走后入口保留（messages 恒为空也不能清）', () => {
+    const store = useChatStore.getState();
+    const taskKey = store.ensureTeamTaskSession(TASK);
+    const roomKey = store.ensureTeamSession({ id: 'team-1', name: '马斯克团队' });
+
+    // 切进任务会话（messages 为空），再切去别的会话
+    store.switchSession(taskKey);
+    expect(useChatStore.getState().currentSessionKey).toBe(taskKey);
+    useChatStore.getState().switchSession(roomKey);
+
+    const keys = useChatStore.getState().sessions.map((s) => s.key);
+    expect(keys).toContain(taskKey);
+    expect(keys).toContain(roomKey);
+    expect(useChatStore.getState().sessionLabels[taskKey]).toBe('团队任务 · 做一个计算器');
+
+    // 房间再切去主会话，房间入口仍在
+    useChatStore.getState().switchSession(PREV_KEY);
+    expect(useChatStore.getState().sessions.map((s) => s.key)).toContain(roomKey);
+  });
+
+  it('普通网关空会话切走后仍被清理（原行为不变）', () => {
+    const ghostKey = 'agent:main:session-ghost';
+    useChatStore.setState({
+      sessions: [
+        { key: PREV_KEY, displayName: PREV_KEY },
+        { key: ghostKey, displayName: ghostKey },
+      ],
+      sessionLabels: { [ghostKey]: 'ghost' },
+      sessionLastActivity: { [ghostKey]: 1 },
+      currentSessionKey: ghostKey,
+      messages: [],
+    } as never);
+
+    useChatStore.getState().switchSession(PREV_KEY);
+
+    const state = useChatStore.getState();
+    expect(state.sessions.map((s) => s.key)).not.toContain(ghostKey);
+    expect(state.sessionLabels[ghostKey]).toBeUndefined();
   });
 });
