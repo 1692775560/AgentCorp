@@ -288,6 +288,60 @@ export function taskTitleFromInstruction(text: string): string {
 }
 
 /**
+ * 立项需求草稿的消息组（独立小调用，不污染 leader 人设回复）。
+ * 「开工吧」「就按刚才说的做」这类指代性指令的真实需求藏在对话上下文里，
+ * 只拿最后一句话立项会让 leader 在真空中编造项目。这里让模型按最近对话
+ * 归纳出正式的任务标题与需求描述，只输出 JSON：{"title":"…","requirement":"…"}。
+ */
+export function buildTaskDraftMessages(
+  userText: string,
+  history: TeamChatBubble[],
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+  const dialogue = history
+    .filter((b) => b.kind === 'user' || (b.kind === 'a2a' && b.peerId === 'user'))
+    .slice(-10)
+    .map((b) => `${b.kind === 'user' ? '老板' : '团队'}：${b.text.slice(0, 300)}`)
+    .join('\n');
+  return [
+    {
+      role: 'system',
+      content:
+        '你是需求整理助手。根据老板与团队的最近对话和老板的最新指令，整理出一份正式的任务立项信息。' +
+        '只输出一个 JSON 对象，不要输出任何其它文字：' +
+        '{"title":"不超过 20 字的任务标题","requirement":"完整需求描述：背景、目标、交付物形态与关键约束"}。' +
+        '如果最新指令短或含糊（如「开工吧」「开始做」「就按说的来」），真实需求以对话上下文为准来归纳；' +
+        '不要编造上下文里没有的需求。requirement 控制在 300 字内。',
+    },
+    {
+      role: 'user',
+      content:
+        `【最近对话】\n${dialogue || '（无）'}\n\n【老板最新指令】\n${userText}`,
+    },
+  ];
+}
+
+/**
+ * 解析立项需求草稿：容忍代码围栏与前后杂散文字，提取首个 JSON 对象。
+ * 字段缺失/不是字符串/为空一律返回 null（调用方回退为原文立项）。
+ */
+export function parseTaskDraft(reply: string): { title: string; requirement: string } | null {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(reply);
+  const raw = fenced ? fenced[1] : reply;
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { title?: unknown; requirement?: unknown };
+    const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+    const requirement = typeof parsed.requirement === 'string' ? parsed.requirement.trim() : '';
+    if (!title || !requirement) return null;
+    return { title: title.length > 24 ? `${title.slice(0, 24)}…` : title, requirement };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 从房间交付消息反查可验收任务。交付消息内容形如「标题」交付完成，请验收：…
  * （teamChatWorkOrder / autoWorker 同步到房间时不带 taskId），按标题匹配
  * 当前 status==='review' 的任务：唯一匹配才返回（多义/非 review 一律不显示按钮，

@@ -767,3 +767,45 @@ describe("experience 团队经验卡", () => {
     expect(decomposeCall?.msgs[0].content).not.toContain("团队既往经验");
   });
 });
+
+describe("SUMMARIZE 续写拼接（chatRich）", () => {
+  /** chatRich 假实现：汇总首轮返回 length，续写轮返回 stop；记录调用。 */
+  function scriptedChatRich(segments: { content: string; finishReason: string | null }[]) {
+    const calls: ChatMessage[][] = [];
+    let summarizeIdx = 0;
+    const chatRich = async (_agentId: string, msgs: ChatMessage[]) => {
+      calls.push(msgs);
+      const user = msgs[msgs.length - 1]?.content ?? "";
+      const isContinuation = user.includes("请紧接着上文继续");
+      const seg = segments[Math.min(isContinuation ? ++summarizeIdx : summarizeIdx, segments.length - 1)];
+      if (!isContinuation) summarizeIdx = 0;
+      return seg;
+    };
+    return { chatRich, calls };
+  }
+
+  it("汇总被腰斩（finishReason=length）→ 自动续写拼接为完整交付物", async () => {
+    const { chatRich } = scriptedChatRich([
+      { content: "前半段报告", finishReason: "length" },
+      { content: "后半段报告", finishReason: "stop" },
+    ]);
+    const result = await runSquadOrchestration(baseInput({ chatRich }));
+    expect(result.deliverable).toBe("前半段报告后半段报告");
+  });
+
+  it("续写最多 2 次：仍 length 则按现有内容收尾并留 trace", async () => {
+    const { chatRich } = scriptedChatRich([
+      { content: "段1", finishReason: "length" },
+      { content: "段2", finishReason: "length" },
+      { content: "段3", finishReason: "length" },
+    ]);
+    const result = await runSquadOrchestration(baseInput({ chatRich }));
+    expect(result.deliverable).toBe("段1段2段3");
+    expect(result.traces.some((t) => t.summary.includes("续写 2 次后仍达输出上限"))).toBe(true);
+  });
+
+  it("未提供 chatRich → 退回单次 chat 汇总（原行为）", async () => {
+    const result = await runSquadOrchestration(baseInput({}));
+    expect(result.deliverable).toBe("汇总交付物");
+  });
+});

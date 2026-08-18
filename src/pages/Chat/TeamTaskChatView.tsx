@@ -19,6 +19,7 @@ import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
+  buildTaskDraftMessages,
   buildTeamChatMessages,
   buildTeamChatRenderItems,
   buildWorkIntentClassifierMessages,
@@ -26,6 +27,7 @@ import {
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
+  parseTaskDraft,
   parseWorkIntent,
   taskTitleFromInstruction,
   type TeamChatBubble,
@@ -211,9 +213,23 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
           });
         } else if (intent === 'new' && task.teamId) {
           try {
+            // 与团队房间一致：先按对话上下文草拟标题与需求，避免指代性
+            // 指令（「开工吧」之类）让 leader 在真空中编造项目；失败回退原文。
+            let draftTitle = taskTitleFromInstruction(userText);
+            let draftRequirement = userText;
+            try {
+              const draftRaw = await runRealChat(buildTaskDraftMessages(userText, chatHistory), 800);
+              const draft = parseTaskDraft(draftRaw);
+              if (draft) {
+                draftTitle = draft.title;
+                draftRequirement = draft.requirement;
+              }
+            } catch {
+              /* 需求草稿失败回退原文立项 */
+            }
             const created = await createTask({
-              title: taskTitleFromInstruction(userText),
-              description: userText,
+              title: draftTitle,
+              description: draftRequirement,
               priority: 'medium',
               teamId: task.teamId,
               teamName: team?.name ?? task.teamName,

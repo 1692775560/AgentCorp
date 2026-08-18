@@ -23,7 +23,7 @@ import { usePerformanceStore, subtasksToOutcomes } from '@/stores/performance';
 import { useExperienceStore, buildExperienceText, reflectExperience } from '@/stores/experience';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
-import { runRealChat } from '@/engine/llm/realExecutor';
+import { runRealChat, runRealChatRich } from '@/engine/llm/realExecutor';
 import { invokeIpc } from '@/lib/api-client';
 import { notifyTaskTerminal } from '@/lib/task-notify';
 
@@ -119,6 +119,8 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         ...(experienceText ? { experience: experienceText } : {}),
         // maxTokens 8192：长交付物（动态上限最高 16000 字）需要足够的输出额度，2048 会腰斩。
         chat: (agentId, messages) => runRealChat(messages, 8192, { taskId, teamId: team.id, agentId }),
+        // SUMMARIZE 续写拼接依赖 finishReason 识别腰斩（见 squadOrchestration.chatRich）
+        chatRich: (agentId, messages) => runRealChatRich(messages, 8192, { taskId, teamId: team.id, agentId }),
         onTrace: (t) => { sink.push(t); forwardRoom(t); },
       });
     } finally {

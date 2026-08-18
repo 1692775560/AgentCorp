@@ -119,6 +119,20 @@ export async function runRealChat(
   timeoutOrCtx: number | LlmCallContext = REAL_CHAT_DEFAULT_TIMEOUT_MS,
   maybeCtx?: LlmCallContext,
 ): Promise<string> {
+  return (await runRealChatRich(messages, maxTokens, timeoutOrCtx, maybeCtx)).content;
+}
+
+/**
+ * runRealChat 的富返回版：额外带出 finishReason。
+ * 编排器的 SUMMARIZE 等长产出步骤靠它识别「输出被 maxTokens 腰斩」
+ * （finishReason === 'length'）并发起续写拼接，避免交付物断在半句。
+ */
+export async function runRealChatRich(
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+  maxTokens = 2048,
+  timeoutOrCtx: number | LlmCallContext = REAL_CHAT_DEFAULT_TIMEOUT_MS,
+  maybeCtx?: LlmCallContext,
+): Promise<{ content: string; finishReason: string | null }> {
   const timeoutMs = typeof timeoutOrCtx === 'number' ? timeoutOrCtx : REAL_CHAT_DEFAULT_TIMEOUT_MS;
   const ctx = typeof timeoutOrCtx === 'object' ? timeoutOrCtx : maybeCtx;
   let res: Response;
@@ -138,6 +152,7 @@ export async function runRealChat(
   }
   const data = (await res.json().catch(() => ({}))) as {
     content?: string;
+    finishReason?: string | null;
     usage?: unknown;
     model?: string;
     error?: string;
@@ -151,5 +166,5 @@ export async function runRealChat(
   const content = (data.content ?? '').trim();
   if (!content) throw new Error('真实执行返回空产出（模型无有效 content）');
   reportUsage(data.usage ?? null, data.model ?? null, ctx);
-  return content;
+  return { content, finishReason: data.finishReason ?? null };
 }

@@ -82,6 +82,12 @@ export interface OrchestrationInput {
   /** E：LLM 调用预算上限，默认 80（qualityMode 时默认 120）；SUMMARIZE 保底不受拦截。 */
   callBudget?: number;
   chat: ChatFn;
+  /**
+   * 可选富返回通道：带出 finishReason。提供时 SUMMARIZE 用它识别
+   * 「输出被 maxTokens 腰斩」（finishReason === 'length'）并自动续写拼接，
+   * 避免长交付物断在半句/半张表；未提供时退回单次 chat 调用（原行为）。
+   */
+  chatRich?: (agentId: string, messages: ChatMessage[]) => Promise<{ content: string; finishReason: string | null }>;
   /** 每产生一条 A2A trace 时回调（用于实时展示 / 落盘）。 */
   onTrace?: (trace: A2aTraceRecord) => void;
 }
@@ -932,19 +938,57 @@ export async function runSquadOrchestration(
   // 固定小上限会让多子任务报告在句子中间被砍断（真实事故：6 子任务调研报告限 4000 字）。
   // E 预算护栏③：SUMMARIZE 永远保底执行（不受预算拦截），预算受限时如实标注。
   const summarizeLimit = Math.min(6000 + assigned.length * 2000, 16000);
-  const deliverableRaw = await call(team.leaderId, [
-    {
-      role: 'system',
-      content: personaSystem(
-        personas,
-        team.leaderId,
-        '你是团队 leader。下面是各成员对子任务的真实产出，请汇总成一份完整、连贯的最终交付物交付给用户。' +
-          '如实反映各部分质量（含失败/未通过部分），不要编造不存在的内容。' +
-          `交付物可以写得完整充分，上限 ${summarizeLimit} 字；不要为压缩篇幅砍掉实质内容（数据、表格、案例都要保留）。`,
-      ),
-    },
-    { role: 'user', content: `原任务：\n${taskText}\n\n${buildDigest(assigned)}` },
-  ]);
+  const summarizeSystem = personaSystem(
+    personas,
+    team.leaderId,
+    '你是团队 leader。下面是各成员对子任务的真实产出，请汇总成一份完整、连贯的最终交付物交付给用户。' +
+      '如实反映各部分质量（含失败/未通过部分），不要编造不存在的内容。' +
+      `交付物可以写得完整充分，上限 ${summarizeLimit} 字；不要为压缩篇幅砍掉实质内容（数据、表格、案例都要保留）。`,
+  );
+  const summarizeUser = `原任务：\n${taskText}\n\n${buildDigest(assigned)}`;
+  let deliverableRaw: string;
+  if (input.chatRich) {
+    // 续写拼接：汇总被 maxTokens 腰斩（finishReason === 'length'）时，把已产出前段
+    // 回喂给 leader 让它接着写，最多续 2 次；写不完宁可在标注后收尾，也不交半句话。
+    llmCalls += 1;
+    let rich = await input.chatRich(team.leaderId, [
+      { role: 'system', content: summarizeSystem },
+      { role: 'user', content: summarizeUser },
+    ]);
+    deliverableRaw = rich.content;
+    for (let cont = 0; rich.finishReason === 'length' && cont < 2; cont += 1) {
+      llmCalls += 1;
+      rich = await input.chatRich(team.leaderId, [
+        { role: 'system', content: summarizeSystem },
+        {
+          role: 'user',
+          content:
+            `${summarizeUser}\n\n【你已写出的交付物前段】\n${deliverableRaw}\n\n` +
+            '上次的输出在长度上限处戛然而止。请紧接着上文继续写完剩余部分（不要重复已写内容），' +
+            '写到最后并自然收尾。',
+        },
+      ]);
+      deliverableRaw += rich.content;
+    }
+    if (rich.finishReason === 'length') {
+      emit(
+        makeTrace({
+          taskId,
+          rootId,
+          delegator: `agent:${team.leaderId}`,
+          delegatee: `team:${team.id}`,
+          round: 1,
+          state: 'working',
+          summary: '汇总交付续写 2 次后仍达输出上限，按现有内容收尾',
+        }),
+      );
+    }
+  } else {
+    deliverableRaw = await call(team.leaderId, [
+      { role: 'system', content: summarizeSystem },
+      { role: 'user', content: summarizeUser },
+    ]);
+  }
   const deliverable = budgetLimited
     ? `${deliverableRaw}\n\n（预算受限，提前收敛）`
     : deliverableRaw;

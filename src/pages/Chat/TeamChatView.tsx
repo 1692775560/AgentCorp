@@ -19,6 +19,7 @@ import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
   buildDirectAssignInstruction,
+  buildTaskDraftMessages,
   buildTeamChatMessages,
   buildWorkIntentClassifierMessages,
   findReviewTaskForDelivery,
@@ -27,6 +28,7 @@ import {
   parseDirectAssignTarget,
   parseExecuteMarker,
   parseMentionTarget,
+  parseTaskDraft,
   parseWorkIntent,
   taskTitleFromInstruction,
   type TeamChatBubble,
@@ -307,9 +309,24 @@ export function TeamChatView({ teamId }: { teamId: string }) {
           }
         }
         if (shouldExecute) {
+          // 立项前先按对话上下文草拟标题与需求描述：「开工吧」这类指代性
+          // 指令的真实需求在上下文里，只拿最后一句话立项会让 leader 在
+          // 真空中编造项目。草稿调用失败回退为原文立项（原行为）。
+          let draftTitle = taskTitleFromInstruction(userText);
+          let draftRequirement = userText;
+          try {
+            const draftRaw = await runRealChat(buildTaskDraftMessages(userText, history), 800);
+            const draft = parseTaskDraft(draftRaw);
+            if (draft) {
+              draftTitle = draft.title;
+              draftRequirement = draft.requirement;
+            }
+          } catch {
+            /* 需求草稿失败回退原文立项 */
+          }
           const created = await createTask({
-            title: taskTitleFromInstruction(userText),
-            description: userText,
+            title: draftTitle,
+            description: draftRequirement,
             priority: 'medium',
             teamId: team.id,
             teamName: team.name,
