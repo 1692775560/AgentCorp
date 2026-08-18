@@ -94,7 +94,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 vi.mock('@/lib/task-notify', () => ({ notifyTaskTerminal: vi.fn() }));
 
-import { runTeamChatWorkOrder, isWorkOrderRunning } from '@/stores/teamChatWorkOrder';
+import { runTeamChatWorkOrder, isWorkOrderRunning, retryFailedTask } from '@/stores/teamChatWorkOrder';
 import { claimTask, releaseClaim, __resetAutoWorkerForTest } from '@/stores/autoWorker';
 
 function makeTask(overrides: Partial<KanbanTask> = {}): KanbanTask {
@@ -197,5 +197,43 @@ describe('runTeamChatWorkOrder · 状态流转', () => {
     expect(t1.workState).toBe('failed');
     expect(t1.status).toBe('review');
     expect(isWorkOrderRunning('t1')).toBe(false);
+  });
+});
+
+describe('retryFailedTask · 失败自救', () => {
+  it('failed 任务 → 重新排队（status 回 todo、workState 回 idle），返回 true', async () => {
+    tasks = [makeTask({ status: 'todo', workState: 'failed', workError: 'LLM 超时' })];
+    const ok = await retryFailedTask('t1');
+    expect(ok).toBe(true);
+    const t1 = tasks.find((t) => t.id === 't1')!;
+    expect(t1.status).toBe('todo');
+    expect(t1.workState).toBe('idle');
+  });
+
+  it('有既有交付的失败任务也回 todo 重排（AutoWorker 重领从头跑）', async () => {
+    tasks = [makeTask({ status: 'review', workState: 'failed', workResult: '上一版交付', workError: '编排爆炸' })];
+    const ok = await retryFailedTask('t1');
+    expect(ok).toBe(true);
+    expect(tasks.find((t) => t.id === 't1')!.status).toBe('todo');
+  });
+
+  it('非 failed 任务 → 不受理（不 update）', async () => {
+    tasks = [makeTask({ status: 'review', workState: 'done' })];
+    const ok = await retryFailedTask('t1');
+    expect(ok).toBe(false);
+    expect(updateTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('任务被占用（编排执行中）→ 不重排，返回 false', async () => {
+    tasks = [makeTask({ status: 'todo', workState: 'failed', workError: 'x' })];
+    expect(claimTask('t1')).toBe(true);
+    const ok = await retryFailedTask('t1');
+    expect(ok).toBe(false);
+    expect(updateTaskMock).not.toHaveBeenCalled();
+    releaseClaim('t1');
+  });
+
+  it('任务不存在 → false', async () => {
+    expect(await retryFailedTask('ghost')).toBe(false);
   });
 });

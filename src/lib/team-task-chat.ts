@@ -286,3 +286,43 @@ export function taskTitleFromInstruction(text: string): string {
   const firstLine = text.split('\n').map((s) => s.trim()).find(Boolean) ?? '团队任务';
   return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine;
 }
+
+/**
+ * 从房间交付消息反查可验收任务。交付消息内容形如「标题」交付完成，请验收：…
+ * （teamChatWorkOrder / autoWorker 同步到房间时不带 taskId），按标题匹配
+ * 当前 status==='review' 的任务：唯一匹配才返回（多义/非 review 一律不显示按钮，
+ * 防止误验收别的任务或给已处理的消息重复挂按钮）。
+ */
+export function findReviewTaskForDelivery<T extends { id: string; title: string; status: string }>(
+  content: string,
+  tasks: T[],
+): T | null {
+  const m = /^\s*「(.+?)」交付完成，请验收/.exec(content);
+  if (!m) return null;
+  const matches = tasks.filter((t) => t.status === 'review' && t.title === m[1]);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * @成员直派解析：消息 @ 了非 leader 成员且去掉提及后仍有指令正文 → 直派该成员。
+ * 返回 null 时维持现状（@leader / 无 @ 走 leader 三路意图分类管线）。
+ */
+export function parseDirectAssignTarget(
+  text: string,
+  members: Array<{ id: string; name: string }>,
+  leaderId: string | null,
+): { targetId: string; targetName: string; instruction: string } | null {
+  const mention = parseMentionTarget(text, members);
+  if (!mention || mention.targetId === leaderId) return null;
+  if (!mention.cleanText) return null;
+  const targetName = members.find((m) => m.id === mention.targetId)?.name ?? '';
+  return { targetId: mention.targetId, targetName, instruction: mention.cleanText };
+}
+
+/**
+ * 直派编排指令：加「【指定执行：@成员名】」前缀，leader 拆解（DECOMPOSE）时
+ * 自然会把活分给该成员——不动编排 prompt 也能把指定执行人传进管线。
+ */
+export function buildDirectAssignInstruction(memberName: string, instruction: string): string {
+  return `【指定执行：@${memberName}】${instruction}`;
+}

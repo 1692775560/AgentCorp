@@ -3,6 +3,7 @@ import {
   BarChart3,
   Building2,
   ChevronRight,
+  DollarSign,
   HelpCircle,
   Home,
   LayoutDashboard,
@@ -267,6 +268,12 @@ export function Sidebar() {
       label: tSidebar('arena', 'Arena 对决'),
       path: '/arena',
       icon: Swords,
+    },
+    // 成本看板：LLM token 用量按 agent/团队/任务归集 + DeepSeek 刊例估价
+    {
+      label: tSidebar('llmCosts', '成本'),
+      path: '/llm-costs',
+      icon: DollarSign,
     },
   ];
 

@@ -832,22 +832,9 @@ function buildFallbackMainSessionKey(agentId: string): string {
   return `agent:${normalizeAgentId(agentId)}:main`;
 }
 
-function isPrivateSessionKey(sessionKey: string): boolean {
-  return sessionKey.startsWith('agent:') && sessionKey.includes(':private-');
-}
-
 function buildPrivateSessionKey(agentId: string): string {
   const normalizedAgentId = normalizeAgentId(agentId);
   return `agent:${normalizedAgentId}:private-${normalizedAgentId}`;
-}
-
-function getEffectiveSessionKey(sessionKey: string): string {
-  if (!isPrivateSessionKey(sessionKey)) {
-    return sessionKey;
-  }
-
-  const agentId = getAgentIdFromSessionKey(sessionKey);
-  return resolveMainSessionKeyForAgent(agentId) ?? sessionKey;
 }
 
 function resolveMainSessionKeyForAgent(agentId: string | undefined | null): string | null {
@@ -1600,8 +1587,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ── Load chat history ──
 
   loadHistory: async (quiet = false) => {
+    // 私聊会话（agent:X:private-X）直接以自身 key 走网关，与主会话完全隔离。
     const { currentSessionKey } = get();
-    const effectiveSessionKey = getEffectiveSessionKey(currentSessionKey);
     const existingLoad = _historyLoadInFlight.get(currentSessionKey);
     if (existingLoad) {
       await existingLoad;
@@ -1725,13 +1712,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       try {
         const data = await useGatewayStore.getState().rpc<Record<string, unknown>>(
           'chat.history',
-          { sessionKey: effectiveSessionKey, limit: 200 },
+          { sessionKey: currentSessionKey, limit: 200 },
         );
         if (data) {
           let rawMessages = Array.isArray(data.messages) ? data.messages as RawMessage[] : [];
           const thinkingLevel = data.thinkingLevel ? String(data.thinkingLevel) : null;
-          if (rawMessages.length === 0 && isCronSessionKey(effectiveSessionKey)) {
-            rawMessages = await loadCronFallbackMessages(effectiveSessionKey, 200);
+          if (rawMessages.length === 0 && isCronSessionKey(currentSessionKey)) {
+            rawMessages = await loadCronFallbackMessages(currentSessionKey, 200);
           }
 
           applyLoadedMessages(rawMessages, thinkingLevel);
@@ -1745,7 +1732,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       } catch (err) {
         console.warn('Failed to load chat history:', err);
-        const fallbackMessages = await loadCronFallbackMessages(effectiveSessionKey, 200);
+        const fallbackMessages = await loadCronFallbackMessages(currentSessionKey, 200);
         if (fallbackMessages.length > 0) {
           applyLoadedMessages(fallbackMessages, null);
         } else {
@@ -1784,7 +1771,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const targetSessionKey = targetAgentId ? (resolveMainSessionKeyForAgent(targetAgentId) ?? get().currentSessionKey) : get().currentSessionKey;
-    const rpcSessionKey = getEffectiveSessionKey(targetSessionKey);
+    // 私聊会话（agent:X:private-X）原样作为网关 sessionKey：网关按 key 隔离 JSONL 历史，
+    // 不再映射回该成员的主会话，避免私聊与主会话串台。
+    const rpcSessionKey = targetSessionKey;
     const blockedSessionAgent = findAgentBySessionKey(useAgentsStore.getState().agents, rpcSessionKey);
     if (blockedSessionAgent && isDirectMainSessionBlocked(blockedSessionAgent, rpcSessionKey)) {
       throw buildLeaderOnlyDirectChatError(blockedSessionAgent.id);

@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildDirectAssignInstruction,
   buildTeamChatMessages,
   buildTeamChatRenderItems,
   buildWorkIntentClassifierMessages,
+  findReviewTaskForDelivery,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   mapTeamChatEventsToBubbles,
+  parseDirectAssignTarget,
   parseExecuteMarker,
   parseMentionTarget,
   parseWorkIntent,
@@ -432,5 +435,72 @@ describe('buildTeamChatMessages 诚实约束', () => {
     const msgs = buildTeamChatMessages(agent, { teamName: '交付一组' }, [], '在吗');
     expect(msgs[0].content).toContain('无法真的去执行或发送');
     expect(msgs[0].content).not.toContain('交付物已保存到本地');
+  });
+});
+
+
+describe('findReviewTaskForDelivery（房间交付消息 → 可验收任务）', () => {
+  const tasks = [
+    { id: 't1', title: '做调研', status: 'review' },
+    { id: 't2', title: '写文案', status: 'done' },
+    { id: 't3', title: '画海报', status: 'in-progress' },
+  ];
+
+  it('唯一匹配 review 任务 → 返回该任务（显示验收按钮）', () => {
+    const t = findReviewTaskForDelivery('「做调研」交付完成，请验收：\n\n结果内容', tasks);
+    expect(t?.id).toBe('t1');
+  });
+
+  it('同名任务有多个在 review → 多义不显示', () => {
+    const dup = [
+      { id: 't1', title: '做调研', status: 'review' },
+      { id: 't4', title: '做调研', status: 'review' },
+    ];
+    expect(findReviewTaskForDelivery('「做调研」交付完成，请验收：x', dup)).toBeNull();
+  });
+
+  it('匹配到任务但非 review 态（done/in-progress）→ 不显示', () => {
+    expect(findReviewTaskForDelivery('「写文案」交付完成，请验收：x', tasks)).toBeNull();
+    expect(findReviewTaskForDelivery('「画海报」交付完成，请验收：x', tasks)).toBeNull();
+  });
+
+  it('非交付消息 / 无对应任务 → 不显示', () => {
+    expect(findReviewTaskForDelivery('进度汇报：一切顺利', tasks)).toBeNull();
+    expect(findReviewTaskForDelivery('「不存在的任务」交付完成，请验收：x', tasks)).toBeNull();
+  });
+});
+
+describe('parseDirectAssignTarget（@成员直派解析）', () => {
+  const members = [
+    { id: 'leader-1', name: '阿明' },
+    { id: 'dev-1', name: '阿强' },
+    { id: 'design-1', name: '阿珍' },
+  ];
+
+  it('@非 leader 成员 + 指令正文 → 直派该成员', () => {
+    const r = parseDirectAssignTarget('@阿强 把登录页样式重构一下', members, 'leader-1');
+    expect(r).toEqual({ targetId: 'dev-1', targetName: '阿强', instruction: '把登录页样式重构一下' });
+  });
+
+  it('@leader → 不直派（维持 leader 三路意图管线）', () => {
+    expect(parseDirectAssignTarget('@阿明 安排个新活', members, 'leader-1')).toBeNull();
+  });
+
+  it('不 @ 任何人 → 不直派', () => {
+    expect(parseDirectAssignTarget('做个小游戏', members, 'leader-1')).toBeNull();
+  });
+
+  it('只 @ 人没有指令内容 → 不直派', () => {
+    expect(parseDirectAssignTarget('@阿强', members, 'leader-1')).toBeNull();
+  });
+
+  it('@不存在的成员 → 不直派', () => {
+    expect(parseDirectAssignTarget('@路人甲 干活', members, 'leader-1')).toBeNull();
+  });
+});
+
+describe('buildDirectAssignInstruction', () => {
+  it('加指定执行前缀，leader 拆解时带上指定人', () => {
+    expect(buildDirectAssignInstruction('阿强', '重构登录页')).toBe('【指定执行：@阿强】重构登录页');
   });
 });

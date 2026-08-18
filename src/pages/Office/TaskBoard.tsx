@@ -9,13 +9,14 @@
  */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
 import { useAgentsStore } from '@/stores/agents';
 import { useChatStore } from '@/stores/chat';
+import { retryFailedTask } from '@/stores/teamChatWorkOrder';
 import type { KanbanTask, TaskStatus } from '@/types/task';
 import type { TeamSummary } from '@/types/team';
 import { AutoWorkerBar } from './AutoWorkerBar';
@@ -57,19 +58,29 @@ const TaskCard = memo(function TaskCard({
 }) {
   const pr = PRIORITY_META[t.priority];
   const waiting = t.workState === 'waiting_approval';
+  const failed = t.workState === 'failed';
   return (
     <button type="button" onClick={() => onSelect(t.id)}
       className={`neu-btn flex flex-col gap-1.5 rounded-xl px-3 py-2.5 text-left ${selected ? 'ring-2' : ''}`}
-      style={{ ...(selected ? { boxShadow: `0 0 0 2px ${accent}` } : {}) }}>
+      style={{
+        ...(selected ? { boxShadow: `0 0 0 2px ${accent}` } : {}),
+        // 失败任务整卡红边醒目提示，看板扫一眼即可定位
+        ...(failed && !selected ? { boxShadow: '0 0 0 1.5px #ef444488' } : {}),
+      }}>
       <div className="flex items-start gap-2">
         <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug" style={{ color: 'var(--neu-ink)' }}>{t.title}</span>
+        {failed && (
+          <span className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[9.5px] font-bold" style={{ background: '#ef4444', color: '#fff' }}>
+            <TriangleAlert className="h-3 w-3" />失败
+          </span>
+        )}
         <span className="shrink-0 rounded px-1 py-0.5 text-[9.5px] font-bold" style={{ backgroundColor: `${pr.color}22`, color: pr.color }}>{pr.label}</span>
       </div>
       <div className="flex items-center gap-2 text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
         {t.assigneeRole && <span className="truncate">{t.assigneeRole}</span>}
         {t.isTeamTask && <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#6366f122', color: '#6366f1' }}>A2A协作</span>}
         {waiting && <span className="flex items-center gap-0.5" style={{ color: '#f59e0b' }}><Clock className="h-3 w-3" />待审批</span>}
-        {t.workState === 'failed' && (
+        {failed && (
           // 失败任务（含重试上限后停住的）一键重新排队，AutoWorker 下一轮自动领取
           <span
             role="button"
@@ -81,7 +92,7 @@ const TaskCard = memo(function TaskCard({
             className="flex cursor-pointer items-center gap-0.5 rounded px-1 py-px text-[9.5px] font-bold"
             style={{ background: '#ef444422', color: '#ef4444' }}
           >
-            失败·点我重试
+            点我重试
           </span>
         )}
         <span className="ml-auto flex items-center gap-0.5"><ChevronRight className="h-3 w-3" /></span>
@@ -366,9 +377,10 @@ export function TaskBoard() {
   const handleSelectTask = useCallback((taskId: string) => setSelectedId(taskId), []);
   const handleRetryTask = useCallback(
     (taskId: string) => {
-      void updateTask(taskId, { status: 'todo', workState: 'idle' }).then(() => fetchTasks());
+      // 与房间/任务会话失败条共用同一重试入口（teamChatWorkOrder.retryFailedTask）
+      void retryFailedTask(taskId).then(() => fetchTasks());
     },
-    [updateTask, fetchTasks],
+    [fetchTasks],
   );
 
   // 评审验收：通过 → 完成列；驳回 → 回待办由 AutoWorker 重跑

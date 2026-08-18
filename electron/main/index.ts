@@ -41,6 +41,7 @@ import { acquireProcessInstanceFileLock } from './process-instance-lock';
 import { getSetting } from '../utils/store';
 import { ensureBuiltinSkillsInstalled, ensurePreinstalledSkillsInstalled } from '../utils/skill-config';
 import { startHostApiServer } from '../api/server';
+import { startTeamScheduler } from '../utils/team-scheduler';
 import { HostEventBus } from '../api/event-bus';
 import { deviceOAuthManager } from '../utils/device-oauth';
 import { browserOAuthManager } from '../utils/browser-oauth';
@@ -363,6 +364,9 @@ async function initialize(): Promise<void> {
   });
 
   loadWindowContents(window);
+
+  // 团队定时任务调度器：每 60s 扫一次 schedules.json，到期自动创建团队任务
+  startTeamScheduler();
 
   const enabledMcpServers = loadMcpConfig().servers.filter((server) => server.enabled);
   if (enabledMcpServers.length > 0) {

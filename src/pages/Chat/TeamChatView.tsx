@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AtSign, ClipboardList, Loader2, MessageCircle, SendHorizonal, Users } from 'lucide-react';
+import { AtSign, CheckCircle2, ClipboardList, Loader2, MessageCircle, RotateCcw, SendHorizonal, TriangleAlert, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAgentsStore } from '@/stores/agents';
@@ -18,19 +18,23 @@ import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
+  buildDirectAssignInstruction,
   buildTeamChatMessages,
   buildWorkIntentClassifierMessages,
+  findReviewTaskForDelivery,
   isNearBottom,
   mapTeamChatEventsToBubbles,
+  parseDirectAssignTarget,
   parseExecuteMarker,
   parseMentionTarget,
   parseWorkIntent,
   taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
-import { runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
+import { retryFailedTask, runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
 import { runRealChat } from '@/engine/llm/realExecutor';
 import { cn, isAvatarImage } from '@/lib/utils';
+import type { KanbanTask } from '@/types/task';
 
 /** 头像可能是 emoji 也可能是 base64/URL 图片，按形态渲染。 */
 function AgentAvatar({ avatar, className }: { avatar?: string | null; className?: string }) {
@@ -47,6 +51,7 @@ export function TeamChatView({ teamId }: { teamId: string }) {
   const agents = useAgentsStore((s) => s.agents);
   const tasks = useApprovalsStore((s) => s.tasks);
   const createTask = useApprovalsStore((s) => s.createTask);
+  const updateTask = useApprovalsStore((s) => s.updateTask);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -55,6 +60,10 @@ export function TeamChatView({ teamId }: { teamId: string }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
+  // 房间内一键验收/打回：reviewBusy 防连点；rejectTaskId 记录正在填打回意见的任务
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [rejectTaskId, setRejectTaskId] = useState<string | null>(null);
+  const [rejectDraft, setRejectDraft] = useState('');
 
   useEffect(() => {
     void fetchTeams();
@@ -77,6 +86,29 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     () => mapTeamChatEventsToBubbles(team?.chatEvents ?? []),
     [team?.chatEvents],
   );
+
+  // 失败自救：本团队失败态任务，房间顶部出失败条 + 重试入口
+  const failedTasks = useMemo(
+    () => teamTasks.filter((t) => t.workState === 'failed'),
+    [teamTasks],
+  );
+
+  // 交付消息 → 可验收任务（按「标题」唯一匹配 review 任务；同一任务只把按钮挂在最新一条交付气泡上，
+  // 返工循环里的历史交付消息不再重复出现按钮）
+  const reviewActionByBubble = useMemo(() => {
+    const latestBubbleByTask = new Map<string, string>();
+    for (const b of bubbles) {
+      if (b.kind === 'user') continue;
+      const t = findReviewTaskForDelivery(b.text, teamTasks);
+      if (t) latestBubbleByTask.set(t.id, b.id);
+    }
+    const byBubble = new Map<string, KanbanTask>();
+    for (const [taskId, bubbleId] of latestBubbleByTask) {
+      const t = teamTasks.find((x) => x.id === taskId);
+      if (t) byBubble.set(bubbleId, t);
+    }
+    return byBubble;
+  }, [bubbles, teamTasks]);
 
   useEffect(() => {
     if (nearBottomRef.current) {
@@ -113,6 +145,67 @@ export function TeamChatView({ teamId }: { teamId: string }) {
   /** 追加一条房间消息（走 teams store，基于最新状态 + 200 条封顶） */
   const appendRoomEvent = useTeamsStore((s) => s.appendTeamChatEvent);
 
+  /** 失败自救：房间失败条/任务会话失败条共用 teamChatWorkOrder 的 retryFailedTask */
+  const handleRetryFailed = useCallback(async (taskId: string) => {
+    try {
+      const ok = await retryFailedTask(taskId);
+      if (ok) toast.info('已重新排队，AutoWorker 会重新领取执行');
+      else toast.error('重试未受理：任务不在失败态或正在执行中');
+    } catch (err) {
+      toast.error(`重试失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, []);
+
+  /** 房间内一键验收：任务转 done + 房间留一条「老板已验收」 */
+  const handleAcceptDelivery = useCallback(
+    async (task: KanbanTask) => {
+      if (reviewBusy || !team) return;
+      setReviewBusy(true);
+      try {
+        await updateTask(task.id, { status: 'done' });
+        await appendRoomEvent(teamId, {
+          from: 'user',
+          to: team.leaderId,
+          content: `✅ 已验收「${task.title}」，这版通过，辛苦了！`,
+        });
+        toast.success(`已验收「${task.title}」`);
+      } catch (err) {
+        toast.error(`验收失败：${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setReviewBusy(false);
+      }
+    },
+    [appendRoomEvent, reviewBusy, team, teamId, updateTask],
+  );
+
+  /** 房间内打回重做：填意见 → 回 in-progress + 复用编排管线重跑 */
+  const handleRejectDelivery = useCallback(
+    async (task: KanbanTask) => {
+      const feedback = rejectDraft.trim();
+      if (!feedback || reviewBusy || !team) return;
+      setReviewBusy(true);
+      try {
+        await appendRoomEvent(teamId, {
+          from: 'user',
+          to: team.leaderId,
+          content: `🔁 「${task.title}」打回重做：${feedback}`,
+        });
+        await updateTask(task.id, { status: 'in-progress' });
+        setRejectTaskId(null);
+        setRejectDraft('');
+        toast.info('已打回，leader 重新拆解分派中');
+        void runTeamChatWorkOrder(task.id, `打回重做：${feedback}`).catch((err) => {
+          toast.error(`打回重做执行失败：${err instanceof Error ? err.message : String(err)}`);
+        });
+      } catch (err) {
+        toast.error(`打回失败：${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setReviewBusy(false);
+      }
+    },
+    [appendRoomEvent, rejectDraft, reviewBusy, team, teamId, updateTask],
+  );
+
   const handleSend = useCallback(async () => {
     const text = draft.trim();
     if (!text || sending || !team) return;
@@ -132,6 +225,55 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     try {
       // 1) 老板发言落房间
       await appendRoomEvent(teamId, { from: 'user', to: targetId, content: text });
+      // 1.5) @非 leader 成员且语义是派活 → 直派：立项并把 assignee 指到该成员，
+      //      编排指令加「【指定执行：@成员】」前缀让 leader 拆解时带上指定人；
+      //      leader 模板知会（快且确定）。闲聊则维持原成员对话路径。
+      const directAssign = parseDirectAssignTarget(
+        text,
+        members.map((a) => ({ id: a.id, name: a.name })),
+        leaderId,
+      );
+      if (directAssign) {
+        let isWork = false;
+        try {
+          const verdict = await runRealChat(buildWorkIntentClassifierMessages(directAssign.instruction, false), 8);
+          isWork = parseWorkIntent(verdict) !== 'chat';
+        } catch {
+          /* 分类器失败按闲聊处理，不擅自立项 */
+        }
+        if (isWork) {
+          const created = await createTask({
+            title: taskTitleFromInstruction(directAssign.instruction),
+            description: directAssign.instruction,
+            priority: 'medium',
+            teamId: team.id,
+            teamName: team.name,
+            assigneeId: directAssign.targetId,
+            assigneeRole: directAssign.targetName,
+          });
+          useChatStore.getState().ensureTeamTaskSession({
+            id: created.id,
+            title: created.title,
+            teamId: team.id,
+            teamName: team.name,
+          });
+          if (leaderId) {
+            await appendRoomEvent(teamId, {
+              from: leaderId,
+              to: 'user',
+              content: `收到，已直接指派给 @${directAssign.targetName}：「${created.title}」，我盯进度，执行过程在任务会话里同步。`,
+            });
+          }
+          toast.info(`已立项「${created.title}」并直接指派给 ${directAssign.targetName}`);
+          void runTeamChatWorkOrder(
+            created.id,
+            buildDirectAssignInstruction(directAssign.targetName, directAssign.instruction),
+          ).catch((err) => {
+            toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+          });
+          return;
+        }
+      }
       // 2) 组上下文调真实模型
       const history = mapTeamChatEventsToBubbles(
         useTeamsStore.getState().teams.find((t) => t.id === teamId)?.chatEvents ?? [],
@@ -264,6 +406,30 @@ export function TeamChatView({ teamId }: { teamId: string }) {
         </div>
       </div>
 
+      {/* 失败自救条：本团队有失败任务时置顶提示，一键重新排队（AutoWorker 重领） */}
+      {failedTasks.length > 0 && (
+        <div className="shrink-0 border-b border-black/[0.06] px-8 py-2" style={{ background: '#ef444408' }}>
+          <div className="mx-auto flex max-w-[1000px] flex-col gap-1.5">
+            {failedTasks.map((t) => (
+              <div key={t.id} className="flex items-center gap-2 text-[12px]" style={{ color: '#ef4444' }}>
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                <span className="font-semibold">「{t.title}」执行失败</span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{t.workError ?? ''}</span>
+                <button
+                  type="button"
+                  onClick={() => void handleRetryFailed(t.id)}
+                  className="flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5"
+                  style={{ color: '#ef4444' }}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  重试
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 房间消息流 */}
       <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
         <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-4">
@@ -294,6 +460,8 @@ export function TeamChatView({ teamId }: { teamId: string }) {
             }
             const speaker = agentOf(b.actorId);
             const isLeader = b.actorId === leaderId;
+            // 交付消息关联到唯一 review 任务才挂验收/打回按钮（多义或已处理不显示）
+            const reviewTask = reviewActionByBubble.get(b.id) ?? null;
             return (
               <div key={b.id} className="flex items-start gap-2.5">
                 <AgentAvatar
@@ -310,6 +478,62 @@ export function TeamChatView({ teamId }: { teamId: string }) {
                   <div className="rounded-2xl rounded-tl-md border border-black/[0.05] bg-black/[0.03] px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground">
                     <MarkdownContent content={b.text} className="text-[13px] leading-relaxed" />
                   </div>
+                  {reviewTask && (
+                    <div className="mt-1.5 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={reviewBusy}
+                          onClick={() => void handleAcceptDelivery(reviewTask)}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5 disabled:opacity-50"
+                          style={{ color: '#22c55e' }}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          验收
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reviewBusy}
+                          onClick={() => {
+                            setRejectTaskId(rejectTaskId === reviewTask.id ? null : reviewTask.id);
+                            setRejectDraft('');
+                          }}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5 disabled:opacity-50"
+                          style={{ color: '#ef4444' }}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          打回重做
+                        </button>
+                      </div>
+                      {rejectTaskId === reviewTask.id && (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={rejectDraft}
+                            onChange={(e) => setRejectDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const nativeEvent = e.nativeEvent as KeyboardEvent;
+                                if (nativeEvent.isComposing || nativeEvent.keyCode === 229) return;
+                                e.preventDefault();
+                                void handleRejectDelivery(reviewTask);
+                              }
+                            }}
+                            placeholder="打回意见：哪里不行、要怎么改…"
+                            className="min-w-0 flex-1 rounded-lg border border-black/[0.08] bg-white px-2.5 py-1.5 text-[12px] outline-none placeholder:text-muted-foreground/70"
+                          />
+                          <button
+                            type="button"
+                            disabled={reviewBusy || !rejectDraft.trim()}
+                            onClick={() => void handleRejectDelivery(reviewTask)}
+                            className="shrink-0 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold text-white transition-opacity disabled:opacity-40"
+                            style={{ background: '#ef4444' }}
+                          >
+                            确认打回
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );

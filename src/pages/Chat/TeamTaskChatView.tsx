@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AtSign, ClipboardCheck, Loader2, SendHorizonal, Users } from 'lucide-react';
+import { AtSign, ClipboardCheck, Loader2, RotateCcw, SendHorizonal, TriangleAlert, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
@@ -30,7 +30,7 @@ import {
   taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
-import { runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
+import { retryFailedTask, runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
 import { summarizeA2aEvents } from '@/lib/a2a-timeline';
 import { runRealChat } from '@/engine/llm/realExecutor';
 import { cn, isAvatarImage } from '@/lib/utils';
@@ -135,6 +135,18 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     },
     [],
   );
+
+  /** 失败自救：与看板/房间共用 teamChatWorkOrder 的 retryFailedTask，重新排队待 AutoWorker 重领 */
+  const handleRetryFailed = useCallback(async () => {
+    if (!task) return;
+    try {
+      const ok = await retryFailedTask(task.id);
+      if (ok) toast.info('已重新排队，AutoWorker 会重新领取执行');
+      else toast.error('重试未受理：任务不在失败态或正在执行中');
+    } catch (err) {
+      toast.error(`重试失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [task]);
 
   const handleSend = useCallback(async () => {
     const text = draft.trim();
@@ -297,6 +309,26 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                 最新：{events[events.length - 1].content ?? '执行中…'}
               </span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 失败自救条：任务执行失败时给出原因 + 一键重试（重新排队待 AutoWorker 重领） */}
+      {task.workState === 'failed' && (
+        <div className="shrink-0 border-b border-black/[0.06] px-8 py-2" style={{ background: '#ef444408' }}>
+          <div className="mx-auto flex max-w-[1000px] items-center gap-2 text-[12px]" style={{ color: '#ef4444' }}>
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+            <span className="shrink-0 font-semibold">执行失败</span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{task.workError ?? '未知错误'}</span>
+            <button
+              type="button"
+              onClick={() => void handleRetryFailed()}
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5"
+              style={{ color: '#ef4444' }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              重试
+            </button>
           </div>
         </div>
       )}

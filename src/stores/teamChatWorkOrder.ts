@@ -35,6 +35,20 @@ export function isWorkOrderRunning(taskId: string): boolean {
 }
 
 /**
+ * 失败自救：把失败任务重新排队（回 待办/idle），AutoWorker 下一轮自动重领。
+ * 看板失败卡片、团队房间失败条、任务会话失败条共用这一个入口（DRY）；
+ * 与执行通道互斥——任务正被占用时不重排，返回 false。
+ */
+export async function retryFailedTask(taskId: string): Promise<boolean> {
+  const approvals = useApprovalsStore.getState();
+  const task = approvals.tasks.find((t) => t.id === taskId);
+  if (!task || task.workState !== 'failed') return false;
+  if (isTaskClaimed(taskId)) return false;
+  await approvals.updateTask(taskId, { status: 'todo', workState: 'idle' });
+  return true;
+}
+
+/**
  * 执行会话派活。返回是否成功受理（false = 条件不满足或任务已被占用，未启动）。
  * @throws 编排或落库失败时抛错，调用方负责提示。
  */
@@ -86,7 +100,7 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         candidates: projectRoutingCandidates(team),
         personas,
         maxRounds: 2,
-        chat: (_agentId, messages) => runRealChat(messages, 2048),
+        chat: (agentId, messages) => runRealChat(messages, 2048, { taskId, teamId: team.id, agentId }),
         onTrace: (t) => { sink.push(t); forwardRoom(t); },
       });
     } finally {

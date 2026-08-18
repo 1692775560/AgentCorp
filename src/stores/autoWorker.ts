@@ -597,7 +597,8 @@ async function runOne(
               personas,
               maxRounds: 2,
               // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
-              chat: (_agentId, messages) => runRealChat(messages, 2048),
+              // ctx 透传给用量采集（成本看板按 task/team/agent 归集）。
+              chat: (agentId, messages) => runRealChat(messages, 2048, { taskId: task.id, teamId: team.id, agentId }),
               // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
               onTrace: (t) => { sink.push(t); forwardRoom?.(t); },
             });
@@ -638,7 +639,7 @@ async function runOne(
               memberId: resolvedAssigneeId,
               maxRounds: 2,
               // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
-              chat: (_agentId, messages) => runRealChat(messages, 2048),
+              chat: (agentId, messages) => runRealChat(messages, 2048, { taskId: task.id, teamId: task.teamId, agentId }),
               // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
               onTrace: (t) => sink.push(t),
             });
@@ -657,7 +658,10 @@ async function runOne(
           ]
             .filter(Boolean)
             .join('\n');
-          const result = await runRealExecution({ message: prompt, system, maxTokens: 2048 });
+          const result = await runRealExecution(
+            { message: prompt, system, maxTokens: 2048 },
+            { taskId: task.id, teamId: task.teamId, agentId: resolvedAssigneeId ?? undefined },
+          );
           realOutput = result.content;
         }
       } catch (execErr) {
