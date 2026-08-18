@@ -1,6 +1,6 @@
 /**
  * src/engine/marketplace/radarSource.ts
- * 人才市场「六维三源解析层」（模块 A · 设计 §5.1）。
+ * 人才市场「六维三源解析层」（模块 A）。
  *
  * 设计目标：`AgentSummary` / 市场模板卡本身没有六维，六维由本解析层按
  * 优先级从三个来源供给，卡片据此显示不同角标与动作：
@@ -231,7 +231,7 @@ export function heuristicRadar(seed: HeuristicSeed): RadarScore {
 }
 
 /**
- * 三源解析主入口（设计 §5.1）。
+ * 三源解析主入口。
  *
  * 无论走哪一源，都会尝试补齐 S3 绩效信息（stageScoreTotal / verdict），
  * 供卡片绩效徽章与 `matchScore.perfBoost`（通道 B：绩效分回流）使用。

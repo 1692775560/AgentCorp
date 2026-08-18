@@ -1,12 +1,12 @@
 /**
  * src/components/evaluation/SubjectiveScorePanel.tsx
- * 主观打分通道（T6 → T38 重写，架构 §2.2 / PRD §5.2 / 增量 §8.1）。
+ * 主观打分面板。
  *
  * 针对本阶段启用的 sub_* 维（来自 registry.SUBJECTIVE_DIMS[stage]）渲染滑块，
  * 0–5 分、0.5 步进；变更即写入 scoringStore.onScore（回灌 StageScore.subjective）。
  * 不污染客观排名（遵守 O8 公平性红线）。
  *
- * T38 重写说明（MUI → Radix + Tailwind，零 @mui import）：
+ * 样式实现：Radix + Tailwind，无 @mui 依赖。
  * - Box/Stack       → div + space-y-* 布局；
  * - Typography      → h3/p + Tailwind 文字阶（对齐 Evaluation 页风格）；
  * - Slider          → 原生 <input type="range" min=0 max=5 step=0.5>

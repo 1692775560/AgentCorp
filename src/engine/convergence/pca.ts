@@ -11,7 +11,7 @@
  *
  * 边界：空输入 → []；单点 → [[0,0]]；全相同点 → 投影全为 [0,0]（确定性）。
  *
- * 用途（T18 可视化）：把后端回传的 belief / 候选 embedding 投影到 2D 画轨迹。
+ * 用途：把后端回传的 belief 与候选 embedding 投影到二维，用于绘制收敛轨迹。
  */
 import type { CandidateEmbedding, ConvergenceTrace, HumanAnchor, TurnState } from '@/types/convergence';
 
@@ -109,7 +109,7 @@ export function stdPop(values: number[]): number {
 }
 
 // ======================================================================
-// 轨迹 → 2D PCA 投影（供 T18 可视化）
+// 轨迹 → 二维 PCA 投影（供可视化使用）
 // ======================================================================
 
 /** 投影点（含语义标注） */

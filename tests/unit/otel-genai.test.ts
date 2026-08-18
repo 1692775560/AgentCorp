@@ -1,12 +1,12 @@
 /**
- * SP-09 验收：LoopStep/token 用量可映射为 OTel GenAI 语义字段。
+ * LoopStep/token 用量可映射为 OTel GenAI 语义字段。
  */
 import { describe, it, expect } from 'vitest';
 import { toGenAiSpan, toGenAiTrace, toGenAiMetric } from '@/demo/observability/otelGenai';
 import { runClosedLoop } from '@/demo/closedLoop';
 import { mockJudge } from '@/demo/mockJudge';
 
-describe('observability/otelGenai (SP-09)', () => {
+describe('observability/otelGenai', () => {
   const step = {
     phase: 'approve' as const,
     agentRole: 'boss' as const,

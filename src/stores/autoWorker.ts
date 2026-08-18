@@ -5,7 +5,7 @@
  * 合并说明（以远程主干为主干、只叠加差异能力）：
  * 本文件不引入任何新表 / 新看板 / 新数据库。它完全构建在主干既有的
  * 任务 + execution 系统之上：
- *   - 任务读写走 useApprovalsStore（/api/tasks，文件存储的 KanbanTask）。
+ *   - 任务读写走 useApprovalsStore（api/tasks，文件存储的 KanbanTask）。
  *   - 派活走 useGatewayStore.rpc（真实网关 RPC）+ startTaskExecution（写 canonicalExecution）。
  *   - agent 会话键取 useAgentsStore 的 AgentSummary.mainSessionKey。
  *
@@ -291,7 +291,7 @@ export const useAutoWorkerStore = create<AutoWorkerState>((set, get) => ({
 }));
 
 /**
- * 决策对接层 · Squad Leader 路由（creator 选定）。
+ * 决策对接层 · Squad Leader 路由。
  *
  * 任务先给团队 leader，leader 依据成员真实画像决定分给哪个成员或自己做。
  * 仅当任务带 teamId、能定位到团队、且团队有 leader 时才触发；否则原样返回，

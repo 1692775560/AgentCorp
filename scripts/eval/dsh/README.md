@@ -1,8 +1,8 @@
-# AgentCorp × DeepSeek Harness — Option 2 评测探针
+# AgentCorp × DeepSeek Harness 评测探针
 
 > **目的**：验证「AgentCorp 的科学评委方法论（pass^k / 多数裁决 / Krippendorff α）能被
 > 一个外部 eval 编排器（dsh）消费并产出结构化报告」。这是 `deepseek-harness-integration.md`
-> §4.4 的探针步骤，是 Option 2 可行性的验收线。
+> 探针步骤用于验证该评测通道的可行性。
 
 ## 设计要点
 - **零产品耦合**：本目录（`scripts/eval/dsh/`）完全独立，不进入 `src/` 编译图，
@@ -38,4 +38,4 @@ pass_k / verdict / agreement_alpha）。
 - `benchmarks/probe/sample.jsonl`：固定样本（取自面试 transcript 形态）。
 
 ## 验收线
-探针通过 = Option 2 可行 → 随后扩到 G12 回归集（生产面试回流）/ G14 tau²-bench / AgentBoard。
+探针通过即表示该通道可用，后续可扩展到回归集（生产面试回流）与公开基准（tau²-bench / AgentBoard）。

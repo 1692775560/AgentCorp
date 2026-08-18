@@ -1,8 +1,8 @@
 /**
  * src/engine/strategyEngine.ts
- * 职场生命周期状态机（评估设计 §4）：把真实 HR 机制映射到 agent 生命周期。
+ * 职场生命周期状态机（评估）：把真实 HR 机制映射到 agent 生命周期。
  *
- * 设计约束（阶段 A）：
+ * 设计约束：
  * - 纯函数、无副作用、可单测。
  * - 持有迁移规则表（含守卫 guard）+ 触发事件类型。
  * - transition() 输入「当前态 + 触发 + 上下文」，输出目标态 + 产生的 LifecycleEvent。
@@ -34,7 +34,7 @@ interface TransitionRule {
 }
 
 /**
- * 状态转换函数表（评估设计 §4.2 / playbook §2.5.1）。
+ * 状态转换函数表。
  * 每条规则带守卫条件与可读原因，组件可直接渲染 reason 文本。
  */
 export const TRANSITIONS: Record<LifecycleState, TransitionRule[]> = {

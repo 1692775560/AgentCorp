@@ -1,7 +1,7 @@
 /**
  * scripts/qa/engine.qa.test.ts
  *
- * QA 独立验证套件（严过关 / Yan）—— 直接 import 真实 src/ 源码，
+ * 引擎层独立验证套件 —— 直接引入 src/ 真实源码，
  * 用 esbuild 打包后由 Node 22 执行（不依赖 vite/浏览器）。
  *
  * 覆盖：
@@ -107,7 +107,7 @@ const EMPTY_RADAR: RadarScore = {
 };
 
 /* ===================== 1. metricsEngine ===================== */
-section("metricsEngine · 8 项 KPI 聚合（评估设计 §2.3 / playbook §2.3）");
+section("metricsEngine · 8 项 KPI 聚合");
 
 // 4 条遥测：3 成功 1 失败；2 一次成功；1 返工(在成功中)；2 无人工介入；1 升级；2 跨域(1 解决)
 const evs: TelemetryEvent[] = [
@@ -154,7 +154,7 @@ check("computeKpi.stability_consistency = 1.0（两轮一致）", approx(k.stabi
 check("computeKpi.agentId 取首条", k.agentId === "a");
 
 /* ===================== 2. roiEngine ===================== */
-section("roiEngine · ROI/IPR/SRPC/CPS + 融合 + z-score（评估设计 §3）");
+section("roiEngine · ROI/IPR/SRPC/CPS + 融合 + z-score");
 
 const cost = { c_tok: 10, c_npu: 10, c_call: 5, c_hum: 5, c_ret: 0 };
 const value = {
@@ -234,7 +234,7 @@ check("琳达 roi_norm > 0（群体领先）", roiNormLinda > 0, `got ${roiNormL
 check("琳达 roi_norm > 阿强 roi_norm", roiNormLinda > roiNormQiang);
 
 /* ===================== 3. strategyEngine ===================== */
-section("strategyEngine · 5 态转换表 + 守卫（评估设计 §4.2 / playbook §2.5.1）");
+section("strategyEngine · 5 态转换表 + 守卫");
 
 function t(state: LifecycleState, trigger: LifecycleTrigger, ctx: Partial<StrategyContext>) {
   return transition(state, trigger, {
@@ -388,7 +388,7 @@ check("下限裁剪 >= 0", neg.fit >= 0);
 check("RADAR_DIMS 含 6 维且顺序固定", RADAR_DIMS.join(",") === "task,quality,comm,creativity,reliability,cost");
 
 /* ===================== 5. evaluationAdapter ===================== */
-section("evaluationAdapter · consume 增量转换（评估设计 §5）");
+section("evaluationAdapter · consume 增量转换");
 const adapter = new EvaluationAdapter();
 const d1 = adapter.consume({ type: "radar_update", dim: "task", score: 4.5, confidence: 0.9, evidence: "x" });
 check("consume radar_update 返回 {kind:'radar'}", d1.kind === "radar");

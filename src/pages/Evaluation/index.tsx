@@ -1,6 +1,6 @@
 /**
  * src/pages/Evaluation/index.tsx
- * 评估中心主页面（T04 挂载点）。
+ * 评估中心主页面。
  *
  * 布局：
  * - 左栏：agent 列表（含评估状态）+ 触发评估 / 软退休 等动作。
@@ -8,7 +8,7 @@
  *
  * 数据流（评估契约）：用户选定 agent（+ 可选 task / runId）→ 本地编排
  * store.runEvaluation（真实 KPI/ROI + MiniCPM-o 裁判）→ 落库 EvaluationProfile
- * 并将 runId↔task 关联写入（T06）。捕获 runId 的入口即在本页（来自
+ * 并将 runId↔task 关联写入。捕获 runId 的入口即在本页（来自
  * gateway.rpc('chat.send') 返回值，可由调用方注入）。
  *
  * i18n：用户可见文案走 common:evaluation.*（含面板标签 / 表单 / 空态）。
@@ -137,7 +137,7 @@ export function Evaluation() {
     };
   }, [selectedAgentId]);
 
-  // 收敛面板数据（T18 widget 接入：按当前 trace/score 展示，无则空态）
+  // 收敛面板数据：按当前 trace 与评分展示，无数据时显示空态
   const convergenceTrace = useConvergenceStore((s) => s.trace);
   const convergenceScore = useConvergenceStore((s) => s.score);
 
@@ -410,7 +410,7 @@ export function Evaluation() {
                             <b className="text-[#1A1C1E] dark:text-white">{evalPersonaName}</b>
                           </span>
                           <span>
-                            历史会话（SP-History）：
+                            历史会话（历史协作）：
                             <b className="text-[#1A1C1E] dark:text-white">{historySessions} 段</b>
                           </span>
                           <span>
@@ -457,7 +457,7 @@ export function Evaluation() {
                     >
                       {passKRunning ? '测算中…' : '测可靠性 (pass^k)'}
                     </button>
-                    {/* B · 跨会话测（SP-History）：同一原型下多段历史会话各判一次，全过才算可靠 */}
+                    {/* B · 跨会话测（历史协作）：同一原型下多段历史会话各判一次，全过才算可靠 */}
                     <button
                       type="button"
                       disabled={passKRunning || !selectedAgentId || sessionTranscriptCount < 2}

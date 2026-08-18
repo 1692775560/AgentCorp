@@ -96,7 +96,7 @@ export function Marketplace() {
   const resetDimFilters = useMarketplaceStore((s) => s.resetDimFilters);
   const resetRequirement = useMarketplaceStore((s) => s.resetRequirement);
   const hydrateReactions = useMarketplaceStore((s) => s.hydrateReactions);
-  // 心智权重（绩效双榜拖拽回灌后变化）→ 市场排序即时刷新（设计 §7.3 通道 A）
+  // 心智权重（绩效双榜拖拽回灌后变化）→ 市场排序即时刷新
   const userWeight = useScoringStore((s) => s.userWeight);
   // D · 老板原型（用户个性化）：订阅激活原型，切换时重排市场以反映 per-user FIT
   const activeBossId = useBossProfileStore((s) => s.activeId);

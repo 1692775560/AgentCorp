@@ -1,6 +1,6 @@
 /**
  * src/components/evaluation/ConvergenceTrajectoryWidget.tsx
- * 「收敛轨迹」可视化（T18，复用 recharts + Tailwind，无新图表库）。
+ * 「收敛轨迹」可视化。
  *
  * 用 recharts 的 ScatterChart 把每轮 belief embedding 做 PCA 投到 2D，
  * 画出 S₀ → Turn1 → Turn2 → ... → 锚点 的「爬山」收敛过程：
@@ -9,7 +9,7 @@
  *   - 残差连线（红虚线，末轮 belief → 锚点）；
  *   - 右上指标卡：convergence_score / CR / R / St / Rev / CQ。
  *
- * 注：架构 §5 提到「MUI+Tailwind」，本工程未安装 @mui，
+ * 注： 提到「MUI+Tailwind」，本工程未安装 @mui，
  * 故复用既有 shadcn/Tailwind 组件（Card 等）以保持零新增依赖。
  */
 import * as React from 'react';

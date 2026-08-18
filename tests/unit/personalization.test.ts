@@ -2,7 +2,7 @@
  * tests/unit/personalization.test.ts
  *
  * B · 状态化会话 + 个性化风险标红 单测。覆盖 4 个纯函数：
- *  - buildHistoryPreamble（judgeClient）：SP-History 前缀，空历史→''
+ *  - buildHistoryPreamble（judgeClient）：历史协作前缀，空历史→''
  *  - allPassAcrossSessions（judgeEnsemble）：跨「同原型多 session」全对判定
  *  - classifyPersonalizationRisk（evalSuite）：delta 阈值分级
  *  - personalizationRiskFromRadarMap（evalSuite）：由 radarByPersona 推导权威风险等级
@@ -29,7 +29,7 @@ function radar(v: number): RadarScore {
   return { task: v, quality: v, comm: v, creativity: v, reliability: v, cost: v };
 }
 
-describe('B · buildHistoryPreamble (SP-History 前缀)', () => {
+describe('B · buildHistoryPreamble (历史协作前缀)', () => {
   it('空历史（[]/null/undefined）→ 返回空串（不污染离线基线评估）', () => {
     expect(buildHistoryPreamble([])).toBe('');
     expect(buildHistoryPreamble(null)).toBe('');

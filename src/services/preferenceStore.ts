@@ -1,6 +1,6 @@
 /**
  * src/services/preferenceStore.ts
- * 偏好信号落库（T8，镜像后端 PreferenceProfile 回灌）。
+ * 偏好信号落库（镜像后端 PreferenceProfile 回灌）。
  *
  * 本地落库：electron-store 命名空间 `agentcorp.preference`
  *   （<userData>/agentcorp.preference.json）。

@@ -1,12 +1,12 @@
 /**
- * src/demo/plugins/roleCardPlugin.ts  (Option 1 · T4)
+ * src/demo/plugins/roleCardPlugin.ts
  * --------------------------------------------------------------------------
  * roleCard 即插件：把 4 张角色卡上的 RoleCardSkill 投影为 SkillDefinition，
  * 经内核 ctx.register 注册（与 dsh「插件向共享 ctx 贡献 service」同构）。
  *
  * handler 实现来自 handlers.ts 的 BUILTIN_HANDLERS（真实的 Skill handler）。
  * 本文件【单向】依赖 handlers（handlers 不反向 import 本文件），因此无模块初始化环；
- * 内核（T1-T3）保证注册可释放、可 patch。
+ * 内核保证注册可释放、可覆盖。
  *
  * 与现有 registerBuiltinSkills() 的关系：两者都基于 BUILTIN_HANDLERS 投影注册，
  * 当前并存；待迁到绿色分支（fix/code-health-g8-g10）后，可让 registerBuiltinSkills

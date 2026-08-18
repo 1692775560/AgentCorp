@@ -1,11 +1,11 @@
 /**
  * tests/unit/a2a-trace-bridge.test.ts
- * G10 桥接：统一 TraceSpan ↔ A2aTraceRecord 投影单测。
+ * 统一 TraceSpan 与 A2aTraceRecord 之间的双向投影单测。
  *
  * 纯投影函数（toA2aTraceRecord / fromA2aTraceRecord），不触盘；
  * mock '@electron/utils/paths' 仅为防模块顶层 import 误触（与 a2a-trace.test 保持一致约定）。
- * 重点验证：G10 扩展字段（correlation_id / parent_span_id / agent_id / cost_usd / tokens / latency_ms）
- * 正确双向投影，以及旧 A2aTraceRecord（无 G10 字段）fromA2aTraceRecord 安全兜底不崩。
+ * 重点验证：扩展字段（correlation_id / parent_span_id / agent_id / cost_usd / tokens / latency_ms）
+ * 正确双向投影，以及历史记录（缺少扩展字段）在反向投影时安全兜底不崩。
  *
  * 运行：pnpm test
  */
@@ -35,8 +35,8 @@ function span(
   };
 }
 
-describe('a2a-trace bridge (G10)', () => {
-  it('toA2aTraceRecord 投影全部 G10 扩展字段', () => {
+describe('a2a-trace bridge ', () => {
+  it('toA2aTraceRecord 投影全部扩展字段', () => {
     const s = span({
       spanId: 'sp-1',
       runId: 'run-1',
@@ -65,7 +65,7 @@ describe('a2a-trace bridge (G10)', () => {
     expect(rec.delegator).toBe('agent:boss');
     expect(rec.delegatee).toBe('agent:judge');
     expect(rec.root_session_id).toBe('sess-1');
-    // G10 扩展字段
+    // 扩展字段
     expect(rec.correlation_id).toBe('cid-1');
     expect(rec.parent_span_id).toBe('sp-root');
     expect(rec.agent_id).toBe('agent-judge');
@@ -74,7 +74,7 @@ describe('a2a-trace bridge (G10)', () => {
     expect(rec.latency_ms).toBe(1234);
   });
 
-  it('fromA2aTraceRecord 命中 G10 扩展字段并映射状态', () => {
+  it('fromA2aTraceRecord 命中扩展字段并映射状态', () => {
     const rec: A2aTraceRecord = {
       trace_id: 'sp-2',
       task_id: 'run-2',
@@ -111,7 +111,7 @@ describe('a2a-trace bridge (G10)', () => {
     expect(s.name).toBe('boom');
   });
 
-  it('fromA2aTraceRecord 旧记录（无 G10 字段）安全兜底', () => {
+  it('fromA2aTraceRecord 对历史记录安全兜底', () => {
     const rec: A2aTraceRecord = {
       trace_id: 'sp-legacy',
       task_id: 'run-legacy',
@@ -129,7 +129,7 @@ describe('a2a-trace bridge (G10)', () => {
       session_key: '',
       root_session_id: 'sess-legacy',
       trigger: 'spawn',
-      // 无 G10 扩展字段
+      // 缺少扩展字段
     };
     const s = fromA2aTraceRecord(rec);
     expect(s.correlationId).toBe('sess-legacy'); // 回退 root_session_id

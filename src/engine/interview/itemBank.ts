@@ -1,8 +1,8 @@
 /**
  * src/engine/interview/itemBank.ts
- * 题库工程与抗污染引擎（G3 · Item Banking & Contamination Resistance）。
+ * 题库工程与抗污染引擎。
  *
- * 设计来源（路书 §2.2）：
+ * 设计来源：
  * - LiveCodeBench（arXiv:2403.07974）：持续采新题 + 带发布日期实现抗污染；
  * - Benchmark data contamination: A Survey（arXiv:2406.04244）：系统梳理 BDC 与缓解；
  * - Detecting Pretraining Data（arXiv:2310.16789）：Min-K% 成员推断 + canary 探针；

@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * Playwright 配置（GOAI Demo E2E · SP-15）
+ * Playwright 配置（Demo E2E 回归）
  * webServer 自动起 vite web 预览（5174），跑完自动关闭。
  */
 export default defineConfig({

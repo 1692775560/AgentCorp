@@ -7,7 +7,7 @@
  * EvaluationProfile（六维/ROI/生命周期/工种）+ AgentSummary（姓名/头像/画像），
  * 不引入任何 mock —— 没有评估数据时返回空，由页面呈现空态引导去评估。
  *
- * 规则（owner 决策）：
+ * 规则：
  * - 工种 → 部门：code → 工程部(Engineering)、image → 产品设计(Design)、
  *   text → 产品规划(PM)；未知/缺失工种归入「待分配」。
  * - 准入：仅 verdict = MVP / OBSERVE 入职上岗；FIRED（lifecycle=RETIRED）不进。
@@ -37,7 +37,7 @@ export const OFFICE_DEPTS: Record<
 /** 部门展示顺序。 */
 export const OFFICE_DEPT_ORDER: OfficeDept[] = ['engineering', 'design', 'pm', 'unassigned'];
 
-/** 工种 → 部门映射（owner 决策）。 */
+/** 工种 → 部门映射。 */
 export function jobTypeToDept(jobType: JobType | undefined): OfficeDept {
   switch (jobType) {
     case 'code':  return 'engineering';

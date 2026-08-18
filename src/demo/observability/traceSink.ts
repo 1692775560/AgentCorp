@@ -1,12 +1,12 @@
 /**
- * Demo 闭环 Trace 落盘 + 回放（GOAI 要求 4 可观测 · SP-10）
+ * Demo 闭环 Trace 落盘 + 回放
  * --------------------------------------------------------------------------
  * Electron 侧的 A2A 委派 trace 由 `electron/services/evaluation/a2a-trace.ts`
  * 落盘（~/.openclaw/a2a-traces/*.jsonl）；本模块补齐 **web demo 闭环**这条链路：
  * 一次 `ATRun` 序列化为 JSONL（meta + 每步一行 + result 摘要一行），
- * 可回放还原为 ATRun——评审 PPT 的 Trace 证据即来源于此。
+ * 可回放还原为 ATRun——执行证据的可复现来源。
  *
- * 字段对齐说明（SP-11 前置）：本模块 JSONL 与 a2a-trace.ts 的 A2aTraceRecord
+ * 字段对齐说明：本模块 JSONL 与 a2a-trace.ts 的 A2aTraceRecord
  * 是两条 Trace 链路的同级证据，字段映射为——
  *   runId ↔ trace_id（根关联）  agent ↔ delegatee   status ↔ state
  *   steps[].summary ↔ summary   steps[].skill ↔ skill（A2A 侧为 tool 维度）

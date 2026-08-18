@@ -1,7 +1,7 @@
 /**
  * tests/unit/interview.userQuestion.test.ts
  *
- * 面试用户自定义题单测（T04）：
+ * 面试用户自定义题单测：
  * - startUserQuestion 复用 arena compare（context='interview' + interviewId），
  *   成功 → userQuestionRound + status=ready
  * - 校验：空问题 / 候选不足 / 无会话

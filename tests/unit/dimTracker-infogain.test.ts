@@ -1,11 +1,11 @@
 /**
  * tests/unit/dimTracker-infogain.test.ts
  *
- * G1 缺口专项锁：题序「信息增益(EIG) 驱动」选题（路书 G1 / 熵收敛内核）。
+ * 选题顺序由信息增益（EIG）驱动的行为锁定。
  *
  * 本文件不重复 main dimTracker.test.ts 已覆盖的「覆盖度升序」旧语义，而是专门锁定：
  *   1. irt 引擎层：dimInformationGain 的「边际信息递减」与「夹逼后 EIG→0」性质；
- *   2. suggestFollowups 在 G1 重构后的可观察行为：
+ *   2. suggestFollowups 的可观察行为：
  *      - 零证据维 EIG 最大 → 永远最优先（即使其 coverage 也是 0）；
  *      - 已积累证据的维 EIG 递减 → 排在零证据维之后；
  *      - 全部达标 → 返回空（收敛完成；对齐 main P2 语义，不保底兜底）。
@@ -50,7 +50,7 @@ function responsesOf(correctFlags: boolean[]): IrtResponse[] {
   return correctFlags.map((correct) => ({ correct, a: 1.0, b: 0 }));
 }
 
-describe('G1 · irt 引擎层 dimInformationGain（信息增益选题核心）', () => {
+describe('irt 引擎层 dimInformationGain（信息增益选题核心）', () => {
   it('★ 零证据维 EIG 最大（后验=先验，最不确定）→ 天然最优先', () => {
     const noEvidence = dimInformationGain([]);
     const oneCorrect = dimInformationGain(responsesOf([true]));
@@ -84,8 +84,8 @@ describe('G1 · irt 引擎层 dimInformationGain（信息增益选题核心）',
   });
 });
 
-describe('G1 · suggestFollowups（EIG 降序重排的可观察行为）', () => {
-  it('★ 零证据维排在最前（G1 核心：最该问的是毫无信息的维）', () => {
+describe('suggestFollowups（EIG 降序重排的可观察行为）', () => {
+  it('零证据维排在最前：最该问的是毫无信息的维度', () => {
     const turns: InterviewTurn[] = [
       turnOf({ turn: 1, targetDims: ['task', 'comm'], replyText: RICH_REPLY }),
       // quality / reliability 各被问过一次但证据偏薄；cost 从未被问（零证据）

@@ -285,7 +285,7 @@ export async function syncGatewayConfigBeforeLaunch(
     logger.warn('Failed to sync gateway token to openclaw.json:', err);
   }
 
-  // T08: lock down Gateway tool execution (read-only + sandbox) in openclaw.json.
+  // lock down Gateway tool execution (read-only + sandbox) in openclaw.json.
   // TEMPORARILY DISABLED: OpenClaw 2026.3.22 treats `gateway.toolPolicy` as an
   // unrecognized key and exits with code 1, so the Gateway cannot start at all
   // when this key is present. The sanitize step above strips any stale key.

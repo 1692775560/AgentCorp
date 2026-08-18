@@ -40,7 +40,7 @@ type RouteHandler = (
 ) => Promise<boolean>;
 
 /**
- * MCP 等价契约（SP-13）：本 route 表即 AgentCorp 的「MCP 等价层」——
+ * MCP 等价契约：本 route 表即 AgentCorp 的「MCP 等价层」——
  * 每个 handler 对应契约文档中的一组 tool（evaluate.run / judge.chat / craft.judge /
  * arena.compare / arena.userPick / agents.* / eval.* / gateway.* …），
  * 统一鉴权 x-clawx-host-session，错误约定 { success:false, error }。

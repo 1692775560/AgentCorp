@@ -1,12 +1,12 @@
 /**
  * src/components/marketplace/TaskRequirementBar.tsx
- * 任务需求输入条（模块 A · 设计 §3.1）。
+ * 任务需求输入条（模块 A）。
  *
  * 三件事：
  * 1. 自然语言需求输入 → `taskMatch` 确定性词典解析出任务画像（工种 / 维度强调 / 标签）；
  * 2. 工种与排序方式选择；
  * 3. 「心智偏移」指示：展示当前 userWeight 相对默认权重的 top-2 偏移，
- *    证明绩效双榜拖拽的回灌确实作用到了市场排序上（设计 §7.3 通道 A 的可见性）。
+ *    证明绩效双榜拖拽的回灌确实作用到了市场排序上。
  */
 import { Wand2, Brain, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';

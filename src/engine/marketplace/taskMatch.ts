@@ -1,6 +1,6 @@
 /**
  * src/engine/marketplace/taskMatch.ts
- * 任务画像抽取（模块 A · 设计 §6 Step 1）。
+ * 任务画像抽取（模块 A）。
  *
  * 需求自然语言文本 → `TaskProfile`（jobType / dimBoost / tags）。
  *
@@ -25,8 +25,8 @@ export interface DimBoostRule {
 }
 
 /**
- * 维度强调词典（设计 §6 Step 1 给定的六类，系数原样落地）。
- * 主理人可在验收时微调系数，不影响算法结构。
+ * 维度强调词典。
+ * 系数可按需微调，不影响算法结构。
  */
 export const DIM_BOOST_RULES: DimBoostRule[] = [
   {
@@ -67,7 +67,7 @@ export const DIM_BOOST_RULES: DimBoostRule[] = [
   },
 ];
 
-/** 工种推断词典（设计 §6：图/文/码三类） */
+/** 工种推断词典 */
 export const JOB_KEYWORDS: Record<JobType, string[]> = {
   image: ['图', '画', '海报', 'ui', '插画', '视觉', '封面', '设计稿', '配图', '绘'],
   text: ['文', '稿', '翻译', '文案', '写作', '报告', '润色', '摘要', '公众号'],

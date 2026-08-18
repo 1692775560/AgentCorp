@@ -1,7 +1,7 @@
 /**
  * tests/unit/collectors.test.ts
  *
- * 采集器单测（T05 / 真实遥测链路改造后）：
+ * 采集器单测：
  * - tokenUsageCollector.buildRoiSnapshot（纯函数，渲染层保留）
  * - electron/services/evaluation/eval-data.ts 的 collectRunData / listAgentSessions
  *   （主进程采集，fs 与 token-usage 用 vi.mock 替身）

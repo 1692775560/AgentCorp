@@ -1,12 +1,12 @@
 /**
  * src/engine/scoring/registry.ts
- * 维度注册表（T0 前端 TS 镜像，与 model-service/app/scoring/registry.py 同义）。
+ * 维度注册表（前端 TS 镜像，与 model-service/app/scoring/registry.py 同义）。
  *
- * 设计要点（架构 §7 共享约定）：
+ * 设计要点：
  * - 六维基线 RADAR_DIMS 复用既有 RadarDim（src/types/evaluation.ts）。
  * - 前缀隔离：craft 维 img_* / txt_* / code_*；主观维 sub_*。
- * - JobType / StageKey / SubjectiveDim / CraftDim 类型严格照搬架构 §3.1。
- * - craftLinks(dim) 为偏好回灌提供 craft→通用六维映射（PRD §2.2）。
+ * - JobType / StageKey / SubjectiveDim / CraftDim 类型严格照搬。
+ * - craftLinks(dim) 为偏好回灌提供 craft→通用六维映射。
  */
 import type { RadarDim } from "../../types/evaluation";
 
@@ -26,7 +26,7 @@ export type JobType = "image" | "text" | "code";
 /** 阶段键（S1/S2/S3） */
 export type StageKey = "preScreen" | "interview" | "performance";
 
-/** 主观维度（分阶段启用，PRD §2.4） */
+/** 主观维度（分阶段启用*/
 export type SubjectiveDim =
   | "sub_potential"
   | "sub_aesthetic_lean"
@@ -36,7 +36,7 @@ export type SubjectiveDim =
   | "sub_trust"
   | "sub_rehire";
 
-/** 工种 craft 维度（前缀隔离，PRD §2.2） */
+/** 工种 craft 维度（前缀隔离*/
 export type CraftDim =
   | "img_composition"
   | "img_style_fit"
@@ -54,7 +54,7 @@ export type CraftDim =
   | "code_maintainability"
   | "code_security";
 
-/** craft 维元数据（架构 §3.1 CraftDimMeta） */
+/** craft 维元数据 */
 export interface CraftDimMeta {
   key: CraftDim;
   jobType: JobType;
@@ -95,7 +95,7 @@ export const SUBJECTIVE_DIMS: Record<StageKey, SubjectiveDim[]> = {
   performance: ["sub_trust", "sub_rehire", "sub_aesthetic_lean"],
 };
 
-/** 工种通用六维权重（Q2，Σ=1，仅通用六维内部；架构 §3.1 JOB_GENERIC_WEIGHT） */
+/** 工种通用六维权重（Q2，Σ=1，仅通用六维内部*/
 export const JOB_GENERIC_WEIGHT: Record<JobType, Record<RadarDim, number>> = {
   image: { task: 0.18, quality: 0.17, comm: 0.15, creativity: 0.17, reliability: 0.17, cost: 0.16 },
   text: { task: 0.18, quality: 0.17, comm: 0.18, creativity: 0.12, reliability: 0.18, cost: 0.17 },
@@ -108,7 +108,7 @@ export const CRAFT_REQUIRES_REAL: Partial<Record<CraftDim, boolean>> = {
   code_security: true,
 };
 
-/** craft 维 → 关联通用六维（CRAFT_LINKS，PRD §2.2） */
+/** craft 维 → 关联通用六维（CRAFT_LINKS*/
 export const CRAFT_LINKS: Record<CraftDim, RadarDim[]> = {
   img_composition: ["quality", "creativity"],
   img_style_fit: ["quality", "task"],

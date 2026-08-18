@@ -1,6 +1,6 @@
 /**
  * src/components/evaluation/PreferenceInsightPanel.tsx
- * 用户心智模型面板（T40，增量 §3.3 preference 面板 / §7.3 通道 A 可视化）。
+ * 用户心智模型面板。
  *
  * 展示「绩效拖拽/主观分 → dimLift → UserPreference.weight」回灌链路的结果：
  * - 六维 userWeight vs DEFAULT_WEIGHT 双条对比（当前权重 = 黄，基准 = 灰）；

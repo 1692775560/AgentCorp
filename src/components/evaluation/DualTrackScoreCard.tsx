@@ -1,6 +1,6 @@
 /**
  * src/components/evaluation/DualTrackScoreCard.tsx
- * S3 双轨评分卡（T40，增量 §3.3 dual 面板）。
+ * S3 双轨评分卡。
  *
  * - 客观轨：KPI / ROI / token 用量 / 返工率 / 任务完成度 / 思考时延 指标条，
  *   数据来自 EvaluationProfile.kpiLatest + roiLatest（真实遥测聚合，不掺主观）。

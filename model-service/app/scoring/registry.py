@@ -1,15 +1,15 @@
 """
 model-service/app/scoring/registry.py
-维度注册表（T0，架构 §3.1 / PRD §2）。
+维度注册表。
 
-设计要点（架构 §7 共享约定）：
+设计要点：
 - 六维基线唯一真相：RADAR_DIMS（镜像 evaluator.RADAR_DIMS），任何 craft/sub
   维不得占用这六个键名。
-- 前缀隔离：craft 维 img_* / txt_* / code_*；主观维 sub_*（PRD §2.4）。
+- 前缀隔离：craft 维 img_* / txt_* / code_*；主观维 sub_*。
 - 全部为纯 Python 常量 + 一个小辅助函数，**零新增依赖**。
 - JOB_GENERIC_WEIGHT 为按工种差异化的通用六维权重（Σ=1，仅通用六维内部），
-  对应 owner 决策 Q2（image 重 creativity、text 重 comm/quality、code 重 reliability/cost）。
-  注：flatten_dim_weight 在 T1 中已优先消费本常量（Q2 真正生效），
+  工种权重取向：image 侧重 creativity，text 侧重 comm 与 quality，code 侧重 reliability 与 cost。
+  注：flatten_dim_weight 优先消费本常量，
   仅在 registry 未提供该工种时才回退 rules JSON 的阶段级 genericRadarWeight。
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ RADAR_DIMS: List[str] = [
 
 
 # ======================================================================
-# 2) 工种 craft 维度注册表（前缀隔离，PRD §2.2）
+# 2) 工种 craft 维度注册表（前缀隔离
 # ======================================================================
 JOB_CRAFT_DIMS: Dict[str, List[str]] = {
     "image": [
@@ -59,7 +59,7 @@ JOB_CRAFT_DIMS: Dict[str, List[str]] = {
 
 
 # ======================================================================
-# 3) 主观维度注册表（分阶段启用，PRD §2.4）
+# 3) 主观维度注册表（分阶段启用
 # ======================================================================
 SUBJECTIVE_DIMS: Dict[str, List[str]] = {
     "preScreen": ["sub_potential", "sub_aesthetic_lean"],
@@ -69,7 +69,7 @@ SUBJECTIVE_DIMS: Dict[str, List[str]] = {
 
 
 # ======================================================================
-# 4) 工种通用六维权重（owner 决策 Q2，Σ=1，仅通用六维内部；架构 §3.1）
+# 4) 工种通用六维权重（Σ=1，仅在通用六维内部分配
 # ======================================================================
 JOB_GENERIC_WEIGHT: Dict[str, Dict[str, float]] = {
     "image": {"task": 0.18, "quality": 0.17, "comm": 0.15, "creativity": 0.17, "reliability": 0.17, "cost": 0.16},
@@ -81,8 +81,8 @@ JOB_GENERIC_WEIGHT: Dict[str, Dict[str, float]] = {
 # ======================================================================
 # 5) Q6 强制真实执行/扫描标记（注册表标注 requiresReal）
 #    code_runnability（需 CI/构建）/ code_security（需扫描）缺真实结果时，
-#    由 T4 stage_scorer 对该维权重 ×0.4（本批次仅在 registry 标注，
-#    完整降权逻辑在 T4，不在本批次越界实现）。
+#    由 stage_scorer 对该维权重 ×0.4（此处仅作标注，
+#    完整降权逻辑在 stage_scorer 中实现）。
 # ======================================================================
 CRAFT_REQUIRES_REAL: Dict[str, bool] = {
     "code_runnability": True,
@@ -91,8 +91,8 @@ CRAFT_REQUIRES_REAL: Dict[str, bool] = {
 
 
 # ======================================================================
-# 6) craft 维 → 关联通用六维映射（用于偏好回灌，架构 §7.10 / PRD §2.2）
-#    精确按 PRD §2.2 主映射表的「关联通用六维」逐维给出。
+# 6) craft 维 → 关联通用六维映射（用于偏好回灌
+#    精确按  主映射表的「关联通用六维」逐维给出。
 # ======================================================================
 CRAFT_LINKS: Dict[str, List[str]] = {
     # 图像 agent
@@ -118,12 +118,12 @@ CRAFT_LINKS: Dict[str, List[str]] = {
 
 def craft_links(dim: str) -> List[str]:
     """
-    craft 维 → 关联通用六维（用于偏好回灌 / 加权映射，架构 §7.10）。
+    craft 维 → 关联通用六维（用于偏好回灌 / 加权映射。
 
     若 dim 不在 CRAFT_LINKS（如通用六维本身或非 craft 键），
     返回空列表。job 级默认映射（image→[creativity,quality]、
     text→[quality,comm]、code→[reliability,cost]）可由前缀推导，
-    但此处优先返回 PRD §2.2 的逐维精确映射。
+    但此处优先返回  的逐维精确映射。
     """
     return list(CRAFT_LINKS.get(dim, []))
 

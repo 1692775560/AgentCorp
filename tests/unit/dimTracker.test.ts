@@ -1,7 +1,7 @@
 /**
  * tests/unit/dimTracker.test.ts
  *
- * 维度证据追踪与追问建议引擎单测（模块 B · 设计 §5.3 / §3.2）：
+ * 维度证据追踪与追问建议引擎单测（模块 B ·  / §3.2）：
  *  - evidenceStrength   —— 单条回答证据强度（长度/结构化/具体性/取舍四类信号）
  *  - computeCoverage    —— 逐轮聚合各维 asked/answered/strength/coverage/rating
  *  - coverageRatio      —— 全场覆盖比

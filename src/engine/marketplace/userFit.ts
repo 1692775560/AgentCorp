@@ -1,6 +1,6 @@
 /**
  * src/engine/marketplace/userFit.ts
- * 用户契合度引擎（模块 A · 设计 §6 Step 2）。
+ * 用户契合度引擎（模块 A）。
  *
  * 镜像后端 `compute_user_fit` 公式（scoring 契约 §7.6）：
  *
@@ -8,7 +8,7 @@
  *   userFit   = Σ_d (radar[d] / 5) × effWeight[d]                   // ∈ [0,1]
  *
  * `userWeight` 来自 `scoringStore.userWeight`（默认 DEFAULT_WEIGHT，绩效双榜拖拽
- * 回灌后更新）——这就是「绩效结果 → 市场匹配权重」闭环（设计 §7.3 通道 A）的执行点。
+ * 回灌后更新）——这就是「绩效结果 → 市场匹配权重」闭环的执行点。
  *
  * 纯函数、无副作用、可单测：不读 store、不发网络。
  */

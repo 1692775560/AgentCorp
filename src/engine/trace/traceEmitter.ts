@@ -1,6 +1,6 @@
 /**
  * src/engine/trace/traceEmitter.ts
- * 统一 trace 的内存发射器（G10 · trace-first 运行时采集）。
+ * 统一 trace 的内存发射器。
  *
  * 设计约束：
  * - 单例（module-level）内存存储，按 runId 组织 span；适配浏览器与 Node（vitest）两侧。

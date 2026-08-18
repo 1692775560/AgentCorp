@@ -175,13 +175,13 @@ export function Sidebar() {
     //   path: '/agents',
     //   icon: Bot,
     // },
-    // 任务看板（/kanban）
+    // 任务看板（kanban）
     {
       label: tSidebar('taskBoard', 'Task board'),
       path: '/kanban',
       icon: LayoutDashboard,
     },
-    // 模块 B：HR 面试（S2）—— 位于市场初审与评估中心（S3）之间
+    // HR 面试：位于市场初审与评估中心之间
     {
       label: tSidebar('interview', 'Interview'),
       path: '/interview',

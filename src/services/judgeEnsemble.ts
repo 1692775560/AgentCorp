@@ -1,6 +1,6 @@
 /**
  * src/services/judgeEnsemble.ts
- * 裁判 ensemble（模块 C · 评估中心可靠性底座；T07 增量）。
+ * 裁判 ensemble（模块 C · 评估中心可靠性底座 增量）。
  *
  * 单次 chat-judge 噪声大（见 passK.ts 设计依据），故对同一条 transcript 重复裁判 k 次，
  * 再做聚合：
@@ -24,7 +24,7 @@ import type { BossProfile, RadarScore, Verdict } from '@/types/evaluation';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { judgeChat, auditJudgeBias, type JudgeBiasAudit } from '@/services/judgeClient';
 import { passK, type PassKResult } from '@/engine/evaluation/passK';
-// G4：跨评委一致性（Krippendorff α）——k 次重复采样可视作 k 个「评委副本」，
+// 跨评委一致性（Krippendorff α）：k 次重复采样可视作 k 个「评委副本」，
 // 用 α 度量它们对同一样本的评分一致性，作为离散度审计的补充（α 低 → 更值得人工复核）。
 import { krippendorffAlphaMulti } from '@/engine/evaluation/ranking';
 
@@ -45,7 +45,7 @@ export interface JudgeEnsembleOptions {
    */
   persona?: BossProfile | null;
   /**
-   * B · 历史协作摘要（SP-History）：透传给 judgeChat，在前缀注入「历史协作」段落，
+   * B · 历史协作摘要：透传给 judgeChat，在前缀注入「历史协作」段落，
    * 使裁判能考察 agent 是否前后一致、是否记得此前约定。
    * 空/缺省 → 无状态评估（既有行为）。
    */
@@ -80,7 +80,7 @@ export interface JudgeEnsembleResult {
   /** 评委偏差审计（元评估）：k 次离散度；unstable 时结论置信已被下调 */
   biasAudit?: JudgeBiasAudit;
   /**
-   * G4 跨评委一致性（Krippendorff α，-1..1）：
+   * 跨评委一致性（Krippendorff α，-1..1）：
    * 把 k 次重复采样视为 k 个评委副本，度量评分矩阵的序数一致性。
    * α ≥ 0.67 可接受；< 0.41 不可用（Krippendorff 分级）。
    * 与 biasAudit（维度极差）互补：α 低而极差小时说明「整体偏移」而非「单维不稳」。
@@ -177,7 +177,7 @@ export async function judgeChatEnsemble(
 
   // 元评估：审计 k 次离散度，离散度过高说明评委对该维不稳定，下调置信并提示人工复核
   const bias = auditJudgeBias(radars);
-  // G4：跨评委一致性 α（k 次重复 = k 个评委副本）。
+  // 跨评委一致性 α（k 次重复 = k 个评委副本）。
   // 矩阵朝向必须严格匹配 krippendorffAlphaMulti 契约（ranking.ts:44）：
   //   rows = 候选(N) = 6 个雷达维，cols = 评委(K) = k 次重复运行。
   // 故按维度投影：每个维度一行，该维在 k 次运行下的取值作为 k 个评委评分。

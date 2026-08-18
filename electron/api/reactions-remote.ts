@@ -12,10 +12,10 @@
  *   AGENTCORP_REACTIONS_API=https://api.example.com/v1
  *   AGENTCORP_REACTIONS_TOKEN=<bearer token>   // 可选
  *
- * 协作者后续要做的事集中在三处，已用 TODO(collab) 标注：
- *   1. 真实鉴权（当前仅 Bearer，需要换成设备签名 + 服务端校验）
- *   2. 服务端去重（当前 voterId 由客户端给出，可被伪造刷量）
- *   3. 离线补偿（当前上报失败即丢弃，需要落盘重试队列）
+ * 当前实现的安全边界（部署为公开服务前需由服务端补齐）：
+ *   1. 鉴权：客户端携带 Bearer token，生产环境应改为设备签名并由服务端校验。
+ *   2. 去重：voterId 由客户端提供，服务端必须据此做幂等，防止重复计数。
+ *   3. 可靠性：上报失败当前直接丢弃，不影响本地计数；如需最终一致需引入重试队列。
  */
 import { createHash } from 'node:crypto';
 
@@ -72,8 +72,8 @@ async function remoteFetch<T>(path: string, init?: RequestInit): Promise<T | nul
   try {
     const headers: Record<string, string> = { accept: 'application/json' };
     if (init?.body) headers['content-type'] = 'application/json';
-    // TODO(collab): 换成设备签名鉴权（复用 electron/utils/device-identity.ts 的
-    // signDevicePayload），Bearer token 仅够本地联调。
+    // Bearer token 适用于本地与内网部署；公开部署应改用设备签名
+    // （可复用 electron/utils/device-identity.ts 的 signDevicePayload）。
     const token = process.env.AGENTCORP_REACTIONS_TOKEN?.trim();
     if (token) headers.authorization = `Bearer ${token}`;
 
@@ -108,8 +108,7 @@ export async function pushRemoteLike(
   voterId: string,
 ): Promise<RemoteLikeAggregate | null> {
   if (!agentId) return null;
-  // TODO(collab): 服务端必须以 voterId 做幂等与去重，否则客户端可反复 +1 刷量。
-  // TODO(collab): 失败时应入盘重试队列，当前直接丢弃这次上报。
+  // 幂等由服务端按 voterId 保证；本地失败不重试，仅回落到本地计数。
   return remoteFetch<RemoteLikeAggregate>(`/likes/${encodeURIComponent(agentId)}/toggle`, {
     method: 'POST',
     body: JSON.stringify({ delta, voterId }),

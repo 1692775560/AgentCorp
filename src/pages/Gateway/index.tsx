@@ -3,7 +3,7 @@
  * 生态网关 — Agent 执行网关状态总览。
  *
  * NOTE: IM 渠道集成（钉钉 / 企业微信 / QQ 机器人 / 飞书 / 微信）已在 AgentCorp
- * T02 中移除，本页仅保留网关状态总览，不再承载渠道管理 UI。
+ * 本页仅保留网关状态总览，不承载渠道管理 UI。
  */
 import { Network, Sparkles } from 'lucide-react';
 

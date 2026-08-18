@@ -1,11 +1,11 @@
 """
 model-service/app/scoring/stage_scorer.py
-三阶段评分卡装配（T4，架构 §3.3 / §7.6 / §7.9 / Q6 / Q7）。
+三阶段评分卡装配。
 
 职责：
 - build_stage_score(stage, job_type, objective, subjective, craft_evidence, rules)
   → 装配一个 StageScore-like dict（S1/S2/S3 同构）。
-  - 客观分：复用 rules_engine.flatten_dim_weight（批次1 预折叠，保持不变），
+  - 客观分：复用 rules_engine.flatten_dim_weight，
     加权求和 objective[dim]/5 × dimWeight[dim] × 100。
   - Q6 降权：code_runnability / code_security 缺真实执行/扫描证据时，该维
     dimWeight × 0.4，其余维归一（保证 Σ=1 不变），并在 evidence 标注
@@ -69,7 +69,7 @@ def build_stage_score(
     rules = rules or load_rules(preset_id)
     craft_evidence = craft_evidence or {}
 
-    # —— 1) 预折叠权重（批次1 已实现，保持不变）——
+    # —— 1) 预折叠权重——
     dw = dict(flatten_dim_weight(stage, job_type, rules))
 
     # —— 2) Q6 降权：requires_real 维缺真实证据 → ×0.4，再归一 Σ=1 不变 ——

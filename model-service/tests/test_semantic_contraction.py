@@ -1,6 +1,6 @@
 """semantic_contraction（SC）维度测试：四格组合 + 零分母 + 负 delta。
 
-覆盖设计文档《semantic-contraction-2026-08-08.md》第 5 节四格算例、
+覆盖语义收缩指标的四格算例、
 第 3 节防刷分条款（零分母返 None 不给满分）与负值语义（delta 据实记录）。
 
 红线：格 2（锚定 + 无 unknowns）必须与改动前旧代码输出逐位一致 —— 这是

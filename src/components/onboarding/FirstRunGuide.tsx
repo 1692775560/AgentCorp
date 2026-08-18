@@ -49,7 +49,7 @@ const STEPS: GuideStep[] = [
   {
     icon: MessagesSquare,
     title: 'HR 面试 · 让大模型考他',
-    desc: '同题同评分标准，雇之前先验货。',
+    desc: '同题同评分标准，逐条给出命中与原文引用，不看仓库 star 数，个人 Agent 也能被公平评估。',
     points: [
       '选好候选人点「开始面试」，题序按岗位画像自动生成',
       '点「让候选作答」真实调度大模型回答，你逐维打分',
@@ -79,7 +79,7 @@ const STEPS: GuideStep[] = [
       '编排器自动拆解子任务 → 指派成员并行 → 互相审阅返工 → 汇总',
       '点任务卡片可看每一步的执行时间线；失败了可「点我重试」',
     ],
-    route: '/kanban',
+    route: '/office',
     cta: '去看板派任务',
   },
   {
@@ -91,7 +91,7 @@ const STEPS: GuideStep[] = [
       '「打开交付目录」查看落盘的真实文件（代码、报告、网页…）',
       '「下载 ZIP」一键打包，代码类交付可直接运行',
     ],
-    route: '/kanban',
+    route: '/office',
     cta: '去验收交付',
   },
 ];

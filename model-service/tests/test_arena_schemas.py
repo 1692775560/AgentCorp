@@ -1,7 +1,7 @@
 """
 model-service/tests/test_arena_schemas.py
 
-Arena / Likes / Favorites 契约模型单测（T01）。
+Arena / Likes / Favorites 契约模型单测。
 
 覆盖：
 1. ArenaCompareRequest 的 camelCase/snake_case 双向兼容（alias_generator 先例）

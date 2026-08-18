@@ -46,7 +46,7 @@ from app.serve import app  # noqa: E402
 
 
 def _stage_body(agent_id: str = "agent-gate") -> dict:
-    """构造最小可用的 StageScoreRequest 载荷（字段与 test_scoring_batch2 同构）。"""
+    """构造最小可用的 StageScoreRequest 载荷（字段与 test_scoring_stage_and_preference 同构）。"""
     return {
         # 合法 stage 键取自 presets/default.json：preScreen / interview / performance。
         # 「S1 初审」是业务话术，不是配置键 —— 传 "S1" 会在

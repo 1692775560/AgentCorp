@@ -1,6 +1,6 @@
 """
 model-service/app/evaluator.py
-跨模态评估 pipeline（架构 §1.3 / 类图 Evaluator）。
+跨模态评估 pipeline。
 
 pipeline：load_media → build_prompt → infer → parse → compute_fit → stream
 
@@ -82,8 +82,8 @@ def compute_user_fit(
          审美硬约束（不符 -8% / 相符 +2%）、技术栈加分（命中 ×1.5%，上限 6%）。
     结果裁剪至 [0,100]。
 
-    T3 扩展（向后兼容，不传 subjective 时行为完全不变）：
-    若传入 subjective（{dim: 0-5}），按 owner 决策 Q3 叠加「owner 口味修正」：
+    可选的主观修正（向后兼容：不传 subjective 时行为完全不变）：
+    若传入 subjective（{dim: 0-5}），按使用者口味叠加修正：
       delta = clamp( mean((score-3)/5 for score in subjective) , ±capPercent% )
       user_fit = user_fit × (1 + delta)    # 乘法形式，capPercent 默认 8 → ±0.08
     即主观分只做 ±8% 封顶的 owner 口味修正，不颠覆客观结论。
@@ -104,7 +104,7 @@ def compute_user_fit(
     weighted = 0.0
     for dim in RADAR_DIMS:
         weighted += (getattr(radar, dim) / 5.0) * weight[dim]
-    # PRD §7.3 / 架构 §4.3：Σ weight = 1，user_fit = Σ(radar/5 × weight) × 100%。
+    #  / ：Σ weight = 1，user_fit = Σ(radar/5 × weight) × 100%。
     # 不做归一化：超预算清零 cost 权重后总分自然 < 100（预算硬约束真正生效）。
     fit = weighted * 100.0
 
@@ -126,7 +126,7 @@ def compute_user_fit(
             f"技术栈命中 {len(overlap)} 项（{','.join(overlap)}），加 {bonus}%"
         )
 
-    # T3：主观叠加（owner 口味修正，封顶 ±capPercent%，向后兼容）
+    # 主观叠加（使用者口味修正，封顶 ±capPercent%，向后兼容）
     if subjective:
         cap = cap_percent / 100.0  # 8 → 0.08（±8%）
         vals = [float(v) for v in subjective.values()]
@@ -222,7 +222,7 @@ def parse_output(raw: str) -> Dict:
     narration = str(data.get("narration", ""))
     audio_script = str(data.get("audio_script", narration))
 
-    # T2/T3：craft 子对象解析（工种专属维 img_*/txt_*/code_*，0–5）。
+    # 工种专项维度解析（img_* / txt_* / code_*，0–5）。
     # 架构 R4：缺 craft 子对象时降级为空 dict + 标记，不抛异常（向后兼容）。
     craft_raw = data.get("craft")
     craft = craft_raw if isinstance(craft_raw, dict) else {}
@@ -349,7 +349,7 @@ def _get_fixture(candidate: CandidateProfile) -> Dict:
 def _resolve_media_path(url: str) -> Optional[str]:
     """
     将媒体 URL 解析为本地文件路径：
-    - "/uploads/..."（/api/upload 落盘的静态前缀）→ settings.upload_dir 下；
+    - "/uploads/..."（api/upload 落盘的静态前缀）→ settings.upload_dir 下；
     - http(s) 远程 URL → 不抓取，返回 None（记日志跳过）；
     - 其余按文件系统路径处理。
     """
@@ -427,7 +427,7 @@ def _sample_video_frames(path: str, n_frames: int) -> List[object]:
 
 def load_media(candidate: CandidateProfile) -> Dict:
     """
-    加载并预处理多模态证据（架构 §8 多模态约定）：
+    加载并预处理多模态证据：
     - 视频：确定性均匀抽帧（settings.frame_sample，默认 8 帧）
     - 音频：重采样至 16kHz mono（librosa，numpy 波形）
     - 图像：最长边 ≤1024（PIL）
@@ -484,7 +484,7 @@ def infer(multimodal: Dict, messages: List[dict]) -> str:
     调用 MiniCPM-o 跨模态推理，返回自由文本（含 JSON）。
 
     推理后端由 JUDGE_BACKEND 选择（judge_backend.py）：
-    http（OpenAI 兼容服务）/ local（昇腾 transformers）/ mock（不可用）。
+    http（OpenAI 兼容服务）/ local（本机 transformers）/ mock（不可用）。
     后端不可用时抛 JudgeUnavailable，由调用方降级，不返回伪造分数。
     """
     completion = get_backend().complete(messages)
@@ -597,7 +597,7 @@ async def _stream_real(req: EvaluationRequest) -> AsyncGenerator[Dict, None]:
         raise JudgeUnavailable(
             "真实推理不可用：JUDGE_BACKEND=mock 或后端未就绪。"
             "请设置 JUDGE_BACKEND=http 并配置 JUDGE_BASE_URL，"
-            "或在昇腾环境设置 JUDGE_BACKEND=local。"
+            "或在具备本机权重的环境设置 JUDGE_BACKEND=local。"
         )
     # —— 以下为真实 pipeline 骨架（模型可用时填充）——
     media = load_media(req.candidate)
@@ -678,7 +678,7 @@ async def evaluate(
 
 
 # ======================================================================
-# 6) 运行期裁判（/api/evaluate-run）：transcript + usage → 同构 SSE 流
+# 6) 运行期裁判（api/evaluate-run）：transcript + usage → 同构 SSE 流
 # ======================================================================
 def _clamp(value: float, lo: float = 0.0, hi: float = 5.0) -> float:
     return max(lo, min(hi, value))
@@ -891,7 +891,7 @@ async def _stream_real_run(req: JudgeRunRequest) -> AsyncGenerator[Dict, None]:
     if not judge_available():
         raise JudgeUnavailable(
             "真实推理不可用：请配置 JUDGE_BACKEND=http（含 JUDGE_BASE_URL）"
-            "或在昇腾环境使用 JUDGE_BACKEND=local。"
+            "或在具备本机权重的环境使用 JUDGE_BACKEND=local。"
         )
     messages = [{"role": "user", "content": _build_run_prompt(req)}]
     media = {"transcript": req.transcript, "usage": req.usage}

@@ -1,6 +1,6 @@
 /**
  * tests/unit/traceModel.test.ts
- * G10 统一 trace 模型纯函数单测（可回放 / 成本归因）。
+ * 统一 trace 模型纯函数单测（可回放 / 成本归因）。
  * 运行：pnpm test
  */
 import { describe, it, expect } from 'vitest';

@@ -1,7 +1,7 @@
 """
 model-service/tests/test_arena.py
 
-Arena 后端单测（T02）：
+Arena 后端单测：
 1. elo.py 纯函数 —— expected/update/clamp/subjective_actual/objective_actual/update_pair
 2. arena_templates —— 确定性 + 工种分支 + 空需求报错
 3. arena_judge —— prompt 构造、解析铁律（越界维丢弃、hit 需 quote、fit）

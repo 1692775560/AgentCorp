@@ -1,6 +1,6 @@
 /**
  * src/components/interview/UserQuestionPanel.tsx
- * 面试用户自定义题（设计 §3 / 决策 D5，T04）。
+ * 面试用户自定义题。
  *
  * P3 完成后由 HR 主动发起的可选环节：
  *   用户按实际情况出题（无参考答案）→ 同工种候选作答（复用 Arena compare）

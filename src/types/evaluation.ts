@@ -14,15 +14,15 @@
  * 其余领域类型见 src/types/agent.ts 等。
  */
 
-/* ===================== 评估层扩展（T0 · 三阶段×三工种） ===================== */
+/* ===================== 评估层扩展：三阶段 × 三工种 ===================== */
 /**
- * 工种类型（owner 决策 Q2：image 重 creativity / text 重 comm·quality / code 重 reliability·cost）。
- * 严格照搬架构 §3.1，不改动既有 RadarDim / Verdict / LifecycleState。
+ * 工种类型。权重取向：image 侧重 creativity，text 侧重 comm 与 quality，code 侧重 reliability 与 cost。
+ * 严格照搬，不改动既有 RadarDim / Verdict / LifecycleState。
  */
 export type JobType = "image" | "text" | "code";
 /** 阶段键（S1/S2/S3） */
 export type StageKey = "preScreen" | "interview" | "performance";
-/** 主观维度（分阶段启用，PRD §2.4），键名 sub_* 不冲突 */
+/** 主观维度（分阶段启用，键名 sub_* 不冲突 */
 export type SubjectiveDim =
   | "sub_potential"
   | "sub_aesthetic_lean"
@@ -31,7 +31,7 @@ export type SubjectiveDim =
   | "sub_surprise"
   | "sub_trust"
   | "sub_rehire";
-/** 工种 craft 维度（前缀隔离，PRD §2.2） */
+/** 工种 craft 维度（前缀隔离*/
 export type CraftDim =
   | "img_composition"
   | "img_style_fit"
@@ -48,7 +48,7 @@ export type CraftDim =
   | "code_test_coverage"
   | "code_maintainability"
   | "code_security";
-/** craft 维元数据（架构 §3.1 CraftDimMeta） */
+/** craft 维元数据 */
 export interface CraftDimMeta {
   key: CraftDim;
   jobType: JobType;
@@ -169,7 +169,7 @@ export interface Evaluation {
   confidence: number;
 }
 
-/** 候选档案（前后端同源契约，见 PRD §6） */
+/** 候选档案（前后端同源契约*/
 export interface CandidateProfile {
   id: string;
   name: string;
@@ -219,7 +219,7 @@ export interface NarrationEvent {
  * chunk 始终为 base64 字符串：
  * - 真实模式：PCM16 / wav 字节（由 useSpeech 解码为 AudioBuffer 播放）。
  * - Mock 模式：UTF-8 文本（由 useSpeech 解码为文本后用 speechSynthesis 朗读）。
- * 两种模式复用同一字段，前端无感（架构 §8）。
+ * 两种模式复用同一字段，前端无感。
  */
 export interface AudioEvent {
   type: "audio";
@@ -257,7 +257,7 @@ export type EvaluationEvent =
   | VerdictEvent
   | DoneEvent;
 
-/** 评估会话状态机（架构 §8：idle → streaming → done） */
+/** 评估会话状态机 */
 export type SessionStatus = "idle" | "streaming" | "done";
 
 /** 运行时评估会话（存于 Zustand store） */
@@ -282,10 +282,10 @@ export interface UploadForm {
   files: Record<string, File>;
 }
 
-/* ===================== 职场生命周期（阶段 A · 绩效中心） ===================== */
+/* ===================== 职场生命周期（绩效中心） ===================== */
 
 /**
- * 生命周期五态（架构 §4.2 / 评估设计 §4）。
+ * 生命周期五态。
  * 注意：agent 运行时真相为小写 `AgentLifecycleStatus`
  * （见 src/lib/evaluation/lifecycle.ts），此处大写 `LifecycleState` 为评估层内部别名，
  * 二者通过 evaluationAdapter.applyVerdict 统一映射。
@@ -297,7 +297,7 @@ export type LifecycleState =
   | "MAINTENANCE"
   | "RETIRED";
 
-/** 可量化绩效指标 KPI（客观，聚合自运行遥测，见评估设计 §2.3） */
+/** 可量化绩效指标 KPI（客观，聚合自运行遥测，见评估） */
 export interface KpiRecord {
   agentId: string;
   task_completion_rate: number; // TCR  0–1 任务完成率
@@ -313,7 +313,7 @@ export interface KpiRecord {
   computedAt: string; // ISO8601 UTC
 }
 
-/** ROI / 效率快照（见评估设计 §3） */
+/** ROI / 效率快照（见评估） */
 export interface RoiSnapshot {
   agentId: string;
   cost_total: number; // C_total 成本当量 CU
@@ -364,9 +364,9 @@ export interface LeaderboardEntry {
   radar_delta?: number; // 能力增长轨迹（晋升依据）
 }
 
-/* ===================== 运行期遥测（第二条契约，评估设计 §1.3） ===================== */
+/* ===================== 运行期遥测（第二条契约，评估） ===================== */
 
-/** 朋友模型层回传的逐任务遥测（阶段 A 由 telemetrySynth 确定性合成） */
+/** 对端模型层回传的逐任务遥测（由 telemetrySynth 确定性合成） */
 export interface TelemetryEvent {
   agent_id: string;
   task_id: string;
@@ -418,7 +418,7 @@ export interface A2aTraceRecord {
   root_session_id: string; // 根会话 ID（trace 文件名 / 评估关联键）
   trigger: "spawn" | "steer" | "kill"; // 埋点来源
 
-  /** —— G10 扩展：与统一 trace 模型对齐（trace-first 跨进程关联 + 成本归因）——
+  /** —— 扩展字段：与统一 trace 模型对齐（跨进程关联 + 成本归因）——
    *  全部 optional，向后兼容既有落盘 JSONL（旧记录缺这些字段仍可 parse）。 */
   correlation_id?: string | null; // 跨进程/跨调用关联键（≈ TraceSpan.correlationId）
   parent_span_id?: string | null; // 父 span id（≈ TraceSpan.parentSpanId）
@@ -428,7 +428,7 @@ export interface A2aTraceRecord {
   latency_ms?: number | null; // 时延（ms）
 }
 
-/* ===================== 评估档案落库（T03 · 阶段 A 持久化契约） ===================== */
+/* ===================== 评估档案落库 ===================== */
 
 /**
  * 评估档案（本地落库，见 docs/architecture-pivot.md §2.D / §3）。
@@ -496,7 +496,7 @@ export interface EvaluationProfile {
    */
   personalizationRisk?: PersonalizationRisk | null;
   /**
-   * B · 状态化多轮会话（SP-History）：按 BossProfile.id 累积的历史会话摘要，
+   * B · 状态化多轮会话（历史协作）：按 BossProfile.id 累积的历史会话摘要，
    * 用于把「记忆」注入裁判上下文，使评估从离线/无状态升级为带历史的状态化评估
    * （Wang 的 sock-puppet + 交互历史主张）。仅存摘要 + 可选 transcript，封顶 3 条。
    * 加法字段。
@@ -521,7 +521,7 @@ export interface EvaluationProfile {
 /** 个性化风险等级（B · personalization delta 接风险标红） */
 export type PersonalizationRisk = 'high' | 'medium' | 'low';
 
-/** B · 单条历史会话摘要（SP-History 注入用） */
+/** B · 单条历史会话摘要（历史协作上下文注入用） */
 export interface AgentSessionSummary {
   /** ISO8601 UTC */
   ts: string;
@@ -544,7 +544,7 @@ export interface RunTaskLink {
   evaluatedAt: string; // ISO8601 UTC
 }
 
-/* ===================== 评估层扩展·批次2（T4–T9 + T19） ===================== */
+/* ===================== 评估层扩展：阶段评分与偏好回灌 ===================== */
 /**
  * 单次客观维得分（含来源 + 扁平权重，供 Q7 craft 独立存库/工种雷达）。
  * 与后端 schemas.ObjectiveScoreItem 严格镜像。
@@ -557,7 +557,7 @@ export interface ObjectiveScoreItem {
   evidence?: string;
 }
 
-/** 单次主观赋分（人类 owner，PRD §5.2）。镜像后端 schemas.SubjectiveScore */
+/** 单次主观赋分（人类 owner。镜像后端 schemas.SubjectiveScore */
 export interface SubjectiveScore {
   agentId: string;
   stage: StageKey;
@@ -669,7 +669,7 @@ export interface PreferenceProfile {
   updatedAt: string;
 }
 
-/** TaskSet 运行结果（T9）。镜像后端 schemas.TaskRunResult */
+/** 任务集运行结果。镜像后端 schemas.TaskRunResult */
 export interface TaskRunResult {
   agentId: string;
   taskSetId: string;

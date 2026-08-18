@@ -1,8 +1,8 @@
 /**
  * src/engine/evaluation/ranking.ts
- * 主观多元聚合与排序引擎（G4 · 替代朴素平均的严谨聚合层）。
+ * 主观多元聚合与排序引擎。
  *
- * 设计来源（路书 §2.4）：
+ * 设计来源：
  * - Chatbot Arena（arXiv:2403.04132）：成对比较 + 统计排序（此处提供其一致性检验部分）；
  * - Ranking Unraveled（ACL 2025, arXiv:2411.14483）：小而受控数据用 Bradley-Terry / Glicko，
  *   大而不均用 Glicko；本模块先落地确定性、无迭代的 TOPSIS 多维聚合；
@@ -25,7 +25,7 @@
  * - judgeEnsemble.aggregateRadars 可保留为「展示均值」，但**最终排序**应改走
  *   rankByTopsis（纳入维度重要性权重，避免「六维平均」掩盖偏科型候选）。
  * - 多评委场景（HR + AI-judge）每轮用 krippendorffAlphaMulti 检一致性，
- *   α < 0.67 触发人工复核（对齐路书 Phase 4 验收：α 低触发复核）。
+ *   α < 0.67 触发人工复核。
  *
  * 说明：本文件与 metaJudge.ts 的 `krippendorffAlpha`（评委 vs gold 二值）不同，
  * 这里是**多评委对多候选**的评分矩阵一致性，为完整实现，不依赖 Python sidecar。

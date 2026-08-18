@@ -1,6 +1,6 @@
 /**
  * src/engine/interview/dimTracker.ts
- * 维度证据追踪与追问建议引擎（模块 B · 设计 §5.3 / §3.2）。
+ * 维度证据追踪与追问建议引擎（模块 B ·  / §3.2）。
  *
  * 「对话式收敛」的收敛度量在这里：每一轮回答都会被折算成对应维度的**证据强度**，
  * 覆盖度（coverage）就是「模糊 → 清晰」的进度条；证据最薄弱的维度会被翻译成
@@ -13,7 +13,7 @@ import type { CraftDim, RadarDim, RadarScore } from '@/types/evaluation';
 import type { InterviewMetrics, InterviewRecommendation, InterviewTurn } from '@/types/interview';
 import { RADAR_DIMS, CRAFT_LINKS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
-// G1：信息增益选题——用单维 2PL IRT 把「再问一题能削减的不确定性」量化成 EIG，
+// 信息增益选题：用单维 2PL IRT 把「再问一题能削减的不确定性」量化为 EIG，
 // 替代原「覆盖度升序」的贪心排序（详见 ./irt.ts）。
 import { dimInformationGain, DEFAULT_ITEM_A, DEFAULT_ITEM_B, type IrtResponse } from './irt';
 
@@ -217,7 +217,7 @@ export function coverageRatio(coverage: DimCoverage[]): number {
 
 /**
 /**
- * 把某维已积累的作答转成 IRT 二项作答序列（G1 信息增益选题用）。
+ * 把某维已积累的作答转成 IRT 二项作答序列，供信息增益选题使用。
  * 优先用 HR 人工评分（≥3 视为达标/正确），无评分时回落到 evidenceStrength 启发式
  * （≥0.5 视为达标）。每题采用统一默认参数（DEFAULT_ITEM_A/B），因追问探针尚无标定 a/b。
  */
@@ -238,7 +238,7 @@ function dimResponses(turns: InterviewTurn[], dim: RadarDim | CraftDim): IrtResp
 
 /**
  * 追问建议：在证据薄弱的维度里，按**期望信息增益(EIG) 降序**排序优先追问，
- * 而非原「覆盖度升序」的贪心排序（G1）。
+ * 而非原「覆盖度升序」的贪心排序。
  *
  * 信息增益视角：哪维「再问一题能削减的不确定性最大」就先问哪维。
  * - 零证据维：后验=先验（最不确定，EIG 最大）→ 自然最优先；
@@ -264,7 +264,7 @@ export function suggestFollowups(
   }
 
   const coverage = computeCoverage(turns, targetDims);
-  // G1：全维度先按 EIG 降序（零证据→熵最大→最优先；强证据→熵低→靠后），
+  // 全维度先按 EIG 降序（零证据→熵最大→最优先；强证据→熵低→靠后），
   //     稳定 tie-break：EIG 相同时先问被问更少的维。
   const allByInfoGain = [...coverage].sort((a, b) => {
     const ga = dimInformationGain(dimResponses(turns, a.dim));
@@ -352,7 +352,7 @@ export function aggregateHrRadar(
       const dim = key as RadarDim;
       sums[dim] = (sums[dim] ?? 0) + value;
       counts[dim] = (counts[dim] ?? 0) + 1;
-      // craft 维证据经 CRAFT_LINKS 回灌通用六维（PRD §2.2）
+      // craft 维证据经 CRAFT_LINKS 回灌通用六维
       for (const target of turn.targetDims) {
         const links = (CRAFT_LINKS as Record<string, RadarDim[]>)[target];
         if (!links) continue;

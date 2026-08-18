@@ -1,14 +1,14 @@
 /**
  * src/stores/evaluation.ts
- * 评估中心 Zustand store（AgentCorp 评估层编排中枢，T04）。
+ * 评估中心 Zustand store（AgentCorp 评估层编排中枢）。
  *
  * 职责：
  * - 持有全部 agent 的 EvaluationProfile 与聚合视图（radar/kpi/roi/lifecycle/leaderboard）。
  * - 编排评估服务（采集/落库均在主进程，渲染层经 Host API 访问）：
- *   - evaluationData（T05 重构）：collectRunData / listAgentSessions（主进程采集客户端）
+ *   - evaluationData：collectRunData / listAgentSessions（主进程采集客户端）
  *   - tokenUsageCollector.buildRoiSnapshot：纯函数 ROI 计算（真实 token 成本）
- *   - judgeClient（T07）：evaluate（MiniCPM-o 外部裁判，SSE 流）
- *   - evaluationRuntime（T06）：linkRunToTask（runId ↔ task 落库）
+ *   - judgeClient：evaluate（MiniCPM-o 外部裁判，SSE 流）
+ *   - evaluationRuntime：linkRunToTask（runId ↔ task 落库）
  *   - metricsEngine：纯函数聚合 KPI
  *   - evaluationStore：Host API 客户端（主进程 electron-store 落库）
  *
@@ -418,7 +418,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
           ...(prev?.radarByPersona ?? {}),
           [input.bossProfile?.id ?? 'neutral']: radarScore,
         }),
-        // B · 状态化多轮（SP-History）：把本次会话摘要（含完整 transcript，封顶 3 条）
+        // B · 状态化多轮（历史协作）：把本次会话摘要（含完整 transcript，封顶 3 条）
         // 按激活老板原型累积，供后续跨会话 pass^k 复用与「记忆」注入裁判上下文。
         sessionsByPersona: {
           ...(prev?.sessionsByPersona ?? {}),
@@ -437,7 +437,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
       };
       await evalSave(profile);
 
-      // 7) runId ↔ task 关联落库（T06 捕获点）
+      // 7) runId ↔ task 关联落库
       if (input.runId) {
         await linkRunToTask(input.runId, {
           taskId: input.taskId ?? '',
@@ -485,7 +485,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   runPassK: async (agentId, k = 3, opts) => {
     set({ passKRunning: true, passKResult: null, error: null });
     try {
-      // B · 状态化多轮（SP-History）：跨「同原型多 session」全对判定
+      // B · 状态化多轮（历史协作）：跨「同原型多 session」全对判定
       if (opts?.useSessions) {
         const activeId = getActiveBossProfile()?.id ?? 'neutral';
         const sessions = get().profiles[agentId]?.sessionsByPersona?.[activeId] ?? [];
@@ -506,7 +506,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
         const persona = getActiveBossProfile();
         // 摘要按时间正序，与 transcripts 同下标，供逐段注入「此前发生过什么」
         const summaries = usable.map((s) => s.summary ?? s.transcript.slice(0, 200));
-        // 每段独立会话各跑一次裁判。第 i 段带上前 i 段的摘要作为 SP-History，
+        // 每段独立会话各跑一次裁判。第 i 段带上前 i 段的摘要作为 历史协作，
         // 使记忆真正累积——裁判评第 3 段时知道第 1、2 段发生过什么，
         // 才能考察「是否前后一致、是否记得此前约定」。首段无历史 = 无状态基线。
         const sessionResults = await Promise.all(

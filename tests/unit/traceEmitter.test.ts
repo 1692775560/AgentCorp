@@ -1,13 +1,13 @@
 /**
  * tests/unit/traceEmitter.test.ts
- * G10 统一 trace 发射器单测（内存采集 / 回放 / 成本归因）。
+ * 统一 trace 发射器单测（内存采集 / 回放 / 成本归因）。
  * 验证单例 traceEmitter 的 startSpan / endSpan / aggregate / tree / reset / latencyOf。
  * 运行：pnpm test
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { traceEmitter } from '@/engine/trace/traceEmitter';
 
-describe('traceEmitter (G10)', () => {
+describe('traceEmitter ', () => {
   beforeEach(() => {
     traceEmitter.reset();
   });

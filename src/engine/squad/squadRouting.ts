@@ -1,14 +1,14 @@
 /**
  * Squad Leader 路由决策（纯函数，无 store 耦合，可单测）。
  *
- * 决策对接层语义（creator 选定）：任务先给 leader，leader 依据成员画像
+ * 决策对接层语义：任务先给 leader，leader 依据成员画像
  * 决定「分给哪个成员」或「自己做」。信号全部来自真实数据：
  *   - Team.leaderId / Team.memberIds
  *   - 任务文本推断工种（inferJobType：image|text|code）
  *   - 各成员 EvaluationProfile（radarLatest 六维 + userFitLatest + jobType + lifecycle）
  *   - 成员在职状态（离职/淘汰不参与路由）
  *
- * 工种偏重维度（owner 决策，见 types/evaluation.ts §RadarScore 注释）：
+ * 工种偏重维度（见 types/evaluation.ts §RadarScore 注释）：
  *   image → creativity；text → comm·quality；code → reliability·cost。
  *
  * 无匹配成员 / 均离线 / 最优分低于阈值 → leader 自留。

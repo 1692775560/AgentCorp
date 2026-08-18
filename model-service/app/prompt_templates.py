@@ -1,6 +1,6 @@
 """
 model-service/app/prompt_templates.py
-系统提示与评估 prompt 构造（架构 §2.3 / PRD §5）。
+系统提示与评估 prompt 构造。
 
 强制模型输出六维 JSON，缓解 R4 漂移（结构化解析 + 重试）。
 """
@@ -84,7 +84,7 @@ def build_evaluation_messages(
 
 
 # ======================================================================
-# 工种 × 阶段 系统提示构造（T2：craft 子对象 + 三条硬规则）
+# 工种 × 阶段 系统提示构造（含工种专项维度与三条硬规则）
 # ======================================================================
 _STAGE_LABEL = {
     "preScreen": "入职前初审（简历/作品集）",
@@ -100,7 +100,7 @@ def build_stage_system_prompt(job_type: str, stage: str) -> str:
     并强调三条硬规则（声明–交付一致性 / 跨模态自洽 / 可靠性）。
 
     保持既有六维 radar 输出不变，向后兼容（craft 缺失时 parse_output 降级）。
-    本函数供 T4 阶段评分管线调用；不改变既有 build_evaluation_messages 行为。
+    本函数供阶段评分管线调用；不改变既有 build_evaluation_messages 行为。
     """
     craft_dims = JOB_CRAFT_DIMS.get(job_type, [])
     stage_label = _STAGE_LABEL.get(stage, stage)

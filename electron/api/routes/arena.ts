@@ -1,6 +1,6 @@
 /**
  * electron/api/routes/arena.ts
- * Arena 个性化对决的 Host API 转发（T01 骨架 / T02 后端就绪后全量生效）。
+ * Arena 个性化对决的 Host API 转发。
  *
  * 路由（转发至 model-service，保持 camelCase 原样透传）：
  *   POST /api/arena/compare    → model-service /api/arena/compare
