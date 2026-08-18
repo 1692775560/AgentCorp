@@ -287,15 +287,28 @@ export function taskTitleFromInstruction(text: string): string {
   return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine;
 }
 
+// ── 立项 intake（意图分类 + 需求草稿，一次调用出全部）────────────────
+// 取代旧的两段式（分类器 + 草稿各一次 RTT）：「开工吧」这类指代性指令的
+// 真实需求藏在对话上下文里，intake 让模型一次给出「要不要立项 + 立什么项」。
+
+export type TaskIntent = 'chat' | 'new' | 'rework';
+
+export interface TaskIntake {
+  intent: TaskIntent;
+  /** intent 为 new 时给出（缺失时调用方回退原文标题） */
+  title?: string;
+  /** intent 为 new 时给出（缺失时调用方回退原文指令） */
+  requirement?: string;
+}
+
 /**
- * 立项需求草稿的消息组（独立小调用，不污染 leader 人设回复）。
- * 「开工吧」「就按刚才说的做」这类指代性指令的真实需求藏在对话上下文里，
- * 只拿最后一句话立项会让 leader 在真空中编造项目。这里让模型按最近对话
- * 归纳出正式的任务标题与需求描述，只输出 JSON：{"title":"…","requirement":"…"}。
+ * intake 消息组。hasCurrentTask 时增加 REWORK 选项（改当前任务）；
+ * 输出契约：只输出一个 JSON 对象 {"intent":"CHAT"|"NEW"|"REWORK","title":"…","requirement":"…"}。
  */
-export function buildTaskDraftMessages(
+export function buildTaskIntakeMessages(
   userText: string,
   history: TeamChatBubble[],
+  hasCurrentTask: boolean,
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   const dialogue = history
     .filter((b) => b.kind === 'user' || (b.kind === 'a2a' && b.peerId === 'user'))
@@ -306,39 +319,120 @@ export function buildTaskDraftMessages(
     {
       role: 'system',
       content:
-        '你是需求整理助手。根据老板与团队的最近对话和老板的最新指令，整理出一份正式的任务立项信息。' +
+        '你是团队任务的立项助手。根据老板与团队的最近对话和老板的最新指令，判断意图；如需立项，同时整理好任务信息。' +
         '只输出一个 JSON 对象，不要输出任何其它文字：' +
-        '{"title":"不超过 20 字的任务标题","requirement":"完整需求描述：背景、目标、交付物形态与关键约束"}。' +
-        '如果最新指令短或含糊（如「开工吧」「开始做」「就按说的来」），真实需求以对话上下文为准来归纳；' +
-        '不要编造上下文里没有的需求。requirement 控制在 300 字内。',
+        '{"intent":"CHAT"|"NEW"' + (hasCurrentTask ? '|"REWORK"' : '') + ',"title":"不超过 20 字的任务标题","requirement":"完整需求描述：背景、目标、交付物形态与关键约束，不超过 300 字"}。' +
+        '意图判定：闲聊、催促、问进度、问成员、纯讨论 → CHAT（title/requirement 留空）；' +
+        (hasCurrentTask ? '要求修改/返工/完善当前任务 → REWORK；' : '') +
+        '要求做一件新的事情 → NEW。催促（如"快点""还没好吗"）本身不是新需求。' +
+        '最新指令短或含糊（如「开工吧」「开始做」）时，真实需求以对话上下文为准归纳；不要编造上下文里没有的需求。',
     },
     {
       role: 'user',
-      content:
-        `【最近对话】\n${dialogue || '（无）'}\n\n【老板最新指令】\n${userText}`,
+      content: `【最近对话】\n${dialogue || '（无）'}\n\n【老板最新指令】\n${userText}`,
     },
   ];
 }
 
 /**
- * 解析立项需求草稿：容忍代码围栏与前后杂散文字，提取首个 JSON 对象。
- * 字段缺失/不是字符串/为空一律返回 null（调用方回退为原文立项）。
+ * 解析 intake 输出：容忍代码围栏与杂散文字。intent 非法/缺失一律回退 'chat'
+ * （保守不执行）；title/requirement 仅 new/rework 时可能携带。
  */
-export function parseTaskDraft(reply: string): { title: string; requirement: string } | null {
+export function parseTaskIntake(reply: string): TaskIntake | null {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(reply);
   const raw = fenced ? fenced[1] : reply;
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start === -1 || end <= start) return null;
   try {
-    const parsed = JSON.parse(raw.slice(start, end + 1)) as { title?: unknown; requirement?: unknown };
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+    const intentRaw = typeof parsed.intent === 'string' ? parsed.intent.trim().toUpperCase() : '';
+    const intent: TaskIntent = intentRaw.startsWith('REWORK')
+      ? 'rework'
+      : intentRaw.startsWith('NEW')
+        ? 'new'
+        : 'chat';
     const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
     const requirement = typeof parsed.requirement === 'string' ? parsed.requirement.trim() : '';
-    if (!title || !requirement) return null;
-    return { title: title.length > 24 ? `${title.slice(0, 24)}…` : title, requirement };
+    return {
+      intent,
+      ...(title ? { title: title.length > 24 ? `${title.slice(0, 24)}…` : title } : {}),
+      ...(requirement ? { requirement } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+// ── 立项确认卡协议（P0-1：人点头才执行）────────────────────────────
+// 草稿与处置结果都编码进房间事件 content（事件存储是 append-only），
+// 协议事件不渲染为对话气泡；处置以最新一条为准（新草稿出现旧草稿作废）。
+
+export const TASK_DRAFT_PREFIX = '[task-draft]';
+export const TASK_DRAFT_RESOLUTION_PREFIX = '[task-draft-resolution]';
+
+export type TaskDraftAction = 'confirmed' | 'cancelled' | 'superseded';
+
+export interface TaskDraftCard {
+  id: string;
+  title: string;
+  requirement: string;
+}
+
+let taskDraftSeq = 0;
+
+export function buildTaskDraftEvent(draft: { title: string; requirement: string }): string {
+  taskDraftSeq += 1;
+  const id = `d${Date.now().toString(36)}-${taskDraftSeq}`;
+  return `${TASK_DRAFT_PREFIX}${JSON.stringify({ id, title: draft.title, requirement: draft.requirement })}`;
+}
+
+export function parseTaskDraftEvent(content: string): TaskDraftCard | null {
+  if (!content.startsWith(TASK_DRAFT_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(content.slice(TASK_DRAFT_PREFIX.length)) as Record<string, unknown>;
+    const id = typeof parsed.id === 'string' ? parsed.id : '';
+    const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+    const requirement = typeof parsed.requirement === 'string' ? parsed.requirement.trim() : '';
+    if (!id || !title || !requirement) return null;
+    return { id, title, requirement };
+  } catch {
+    return null;
+  }
+}
+
+export function buildTaskDraftResolution(id: string, action: TaskDraftAction): string {
+  return `${TASK_DRAFT_RESOLUTION_PREFIX}${JSON.stringify({ id, action })}`;
+}
+
+export function parseTaskDraftResolution(content: string): { id: string; action: TaskDraftAction } | null {
+  if (!content.startsWith(TASK_DRAFT_RESOLUTION_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(content.slice(TASK_DRAFT_RESOLUTION_PREFIX.length)) as Record<string, unknown>;
+    const id = typeof parsed.id === 'string' ? parsed.id : '';
+    const action = parsed.action;
+    if (!id || (action !== 'confirmed' && action !== 'cancelled' && action !== 'superseded')) return null;
+    return { id, action };
+  } catch {
+    return null;
+  }
+}
+
+/** 协议事件判定：草稿卡与处置记录都不渲染为对话气泡。 */
+export function isTaskProtocolContent(content: string): boolean {
+  return content.startsWith(TASK_DRAFT_PREFIX) || content.startsWith(TASK_DRAFT_RESOLUTION_PREFIX);
+}
+
+/** 汇总草稿处置状态：同一 id 多条处置时最新一条生效。 */
+export function collectTaskDraftResolutions(
+  events: Array<{ content: string }>,
+): Map<string, TaskDraftAction> {
+  const map = new Map<string, TaskDraftAction>();
+  for (const e of events) {
+    const r = parseTaskDraftResolution(e.content);
+    if (r) map.set(r.id, r.action);
+  }
+  return map;
 }
 
 /**

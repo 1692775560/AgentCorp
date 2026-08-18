@@ -19,18 +19,25 @@ import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
   buildDirectAssignInstruction,
-  buildTaskDraftMessages,
+  buildTaskDraftEvent,
+  buildTaskDraftResolution,
+  buildTaskIntakeMessages,
   buildTeamChatMessages,
   buildWorkIntentClassifierMessages,
+  collectTaskDraftResolutions,
   findReviewTaskForDelivery,
   isNearBottom,
+  isTaskProtocolContent,
   mapTeamChatEventsToBubbles,
   parseDirectAssignTarget,
   parseExecuteMarker,
   parseMentionTarget,
-  parseTaskDraft,
+  parseTaskDraftEvent,
+  parseTaskIntake,
   parseWorkIntent,
   taskTitleFromInstruction,
+  type TaskDraftAction,
+  type TaskDraftCard,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
 import { retryFailedTask, runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
@@ -84,10 +91,31 @@ export function TeamChatView({ teamId }: { teamId: string }) {
       .filter((a): a is NonNullable<typeof a> => Boolean(a));
   }, [team, agents]);
 
+  const roomEvents = useMemo(() => team?.chatEvents ?? [], [team?.chatEvents]);
   const bubbles = useMemo(
-    () => mapTeamChatEventsToBubbles(team?.chatEvents ?? []),
-    [team?.chatEvents],
+    // 协议事件（立项草稿卡/处置记录）不进对话流，由 renderItems 单独渲染
+    () => mapTeamChatEventsToBubbles(roomEvents.filter((e) => !isTaskProtocolContent(e.content))),
+    [roomEvents],
   );
+  const draftResolutions = useMemo(() => collectTaskDraftResolutions(roomEvents), [roomEvents]);
+  // 渲染序列：按房间事件原始顺序穿插对话气泡与立项草稿卡
+  const renderItems = useMemo(() => {
+    const items: Array<{ key: string; bubble?: TeamChatBubble; draft?: TaskDraftCard; draftAction?: TaskDraftAction }> = [];
+    let bubbleIdx = 0;
+    roomEvents.forEach((e, i) => {
+      if (isTaskProtocolContent(e.content)) {
+        const card = parseTaskDraftEvent(e.content);
+        if (card && e.from !== 'user') {
+          items.push({ key: `draft-${i}`, draft: card, draftAction: draftResolutions.get(card.id) });
+        }
+        return;
+      }
+      const b = bubbles[bubbleIdx];
+      bubbleIdx += 1;
+      if (b) items.push({ key: b.id, bubble: b });
+    });
+    return items;
+  }, [roomEvents, bubbles, draftResolutions]);
 
   // 失败自救：本团队失败态任务，房间顶部出失败条 + 重试入口
   const failedTasks = useMemo(
@@ -208,6 +236,52 @@ export function TeamChatView({ teamId }: { teamId: string }) {
     [appendRoomEvent, rejectDraft, reviewBusy, team, teamId, updateTask],
   );
 
+  /** 立项确认卡处置：先落处置事件（卡片状态即时更新）；确认 → 立项并开工，取消 → 搁置 */
+  const handleDraftResolution = useCallback(
+    async (card: TaskDraftCard, action: 'confirmed' | 'cancelled') => {
+      if (reviewBusy || !team || !leaderId) return;
+      setReviewBusy(true);
+      try {
+        await appendRoomEvent(teamId, { from: 'user', to: leaderId, content: buildTaskDraftResolution(card.id, action) });
+        if (action === 'cancelled') {
+          await appendRoomEvent(teamId, {
+            from: leaderId,
+            to: 'user',
+            content: `好的，「${card.title}」这单先搁置，有新想法随时说。`,
+          });
+          return;
+        }
+        const created = await createTask({
+          title: card.title,
+          description: card.requirement,
+          priority: 'medium',
+          teamId: team.id,
+          teamName: team.name,
+        });
+        useChatStore.getState().ensureTeamTaskSession({
+          id: created.id,
+          title: created.title,
+          teamId: team.id,
+          teamName: team.name,
+        });
+        await appendRoomEvent(teamId, {
+          from: leaderId,
+          to: 'user',
+          content: `已立项「${created.title}」，我这就拆解分派，执行过程在任务会话里同步。`,
+        });
+        toast.info('已立项，团队开始执行，过程可在任务会话中查看');
+        void runTeamChatWorkOrder(created.id, `草稿已确认，按立项需求执行。\n${card.requirement}`).catch((err) => {
+          toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
+        });
+      } catch (err) {
+        toast.error(`处理失败：${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setReviewBusy(false);
+      }
+    },
+    [appendRoomEvent, createTask, leaderId, reviewBusy, team, teamId],
+  );
+
   const handleSend = useCallback(async () => {
     const text = draft.trim();
     if (!text || sending || !team) return;
@@ -296,56 +370,39 @@ export function TeamChatView({ teamId }: { teamId: string }) {
       const { text: replyText, execute } = parseExecuteMarker(reply);
       await appendRoomEvent(teamId, { from: targetId, to: 'user', content: replyText });
 
-      // 3) 对 leader 派活 → 立项 + 真实编排（过程在任务会话里展开）。
-      //    房间里没有「当前任务」，REWORK 视同 NEW（立新项）。
+      // 3) 对 leader 派活 → intake（一次调用完成意图分类 + 需求归纳）。
+      //    判定为派活时不直接立项：先出确认卡，老板点头才开工（P0-1），
+      //    防止「开工吧」式含糊指令被脑补成错误任务。
       if (targetId === leaderId) {
-        let shouldExecute = execute;
-        if (!shouldExecute) {
-          try {
-            const verdict = await runRealChat(buildWorkIntentClassifierMessages(userText, false), 8);
-            shouldExecute = parseWorkIntent(verdict) !== 'chat';
-          } catch {
-            /* 分类器失败则保守不执行 */
-          }
+        let intake = null;
+        try {
+          intake = parseTaskIntake(await runRealChat(buildTaskIntakeMessages(userText, history, false), 900));
+        } catch {
+          /* intake 失败保守不立项 */
         }
-        if (shouldExecute) {
-          // 立项前先按对话上下文草拟标题与需求描述：「开工吧」这类指代性
-          // 指令的真实需求在上下文里，只拿最后一句话立项会让 leader 在
-          // 真空中编造项目。草稿调用失败回退为原文立项（原行为）。
-          let draftTitle = taskTitleFromInstruction(userText);
-          let draftRequirement = userText;
-          try {
-            const draftRaw = await runRealChat(buildTaskDraftMessages(userText, history), 800);
-            const draft = parseTaskDraft(draftRaw);
-            if (draft) {
-              draftTitle = draft.title;
-              draftRequirement = draft.requirement;
+        const intent = execute ? 'new' : (intake?.intent ?? 'chat');
+        if (intent === 'new') {
+          // 新草稿出现前，把旧的未处置草稿一律作废（最新生效）
+          const events = useTeamsStore.getState().teams.find((t) => t.id === teamId)?.chatEvents ?? [];
+          const resolutions = collectTaskDraftResolutions(events);
+          for (const e of events) {
+            const old = parseTaskDraftEvent(e.content);
+            if (old && !resolutions.has(old.id)) {
+              await appendRoomEvent(teamId, {
+                from: targetId,
+                to: 'user',
+                content: buildTaskDraftResolution(old.id, 'superseded'),
+              });
             }
-          } catch {
-            /* 需求草稿失败回退原文立项 */
           }
-          const created = await createTask({
-            title: draftTitle,
-            description: draftRequirement,
-            priority: 'medium',
-            teamId: team.id,
-            teamName: team.name,
-          });
-          useChatStore.getState().ensureTeamTaskSession({
-            id: created.id,
-            title: created.title,
-            teamId: team.id,
-            teamName: team.name,
-          });
+          const draftTitle = intake?.title ?? taskTitleFromInstruction(userText);
+          const draftRequirement = intake?.requirement ?? userText;
           await appendRoomEvent(teamId, {
             from: targetId,
             to: 'user',
-            content: `已立项「${created.title}」，我这就拆解分派，执行过程在任务会话里同步。`,
+            content: buildTaskDraftEvent({ title: draftTitle, requirement: draftRequirement }),
           });
-          toast.info('已创建团队任务并开始执行，过程可在任务会话中查看');
-          void runTeamChatWorkOrder(created.id, userText).catch((err) => {
-            toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
-          });
+          toast.info('leader 已整理好任务草稿，确认后开工');
         }
       }
     } catch (err) {
@@ -456,7 +513,63 @@ export function TeamChatView({ teamId }: { teamId: string }) {
               @ 可点名成员；派活会自动立项成看板任务并真正执行。
             </p>
           )}
-          {bubbles.map((b) => {
+          {renderItems.map((item) => {
+            if (item.draft) {
+              const card = item.draft;
+              const action = item.draftAction;
+              const speaker = agentOf(team.leaderId);
+              return (
+                <div key={item.key} className="flex items-start gap-2.5">
+                  <AgentAvatar
+                    avatar={speaker?.avatar}
+                    className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/[0.04] text-[16px]"
+                  />
+                  <div className="min-w-0 max-w-[78%]">
+                    <div className="mb-1 flex items-center gap-1.5 text-[11px]">
+                      <span className="font-semibold text-foreground">{speaker?.name ?? 'leader'}</span>
+                      <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#FFD23333', color: '#b8860b' }}>leader</span>
+                    </div>
+                    <div className="rounded-2xl rounded-tl-md border px-3.5 py-3" style={{ borderColor: '#6366f144', background: '#6366f10a' }}>
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: '#6366f1' }}>
+                        <ClipboardList className="h-3.5 w-3.5" />
+                        任务草稿{!action ? ' · 待确认' : ''}
+                      </div>
+                      <p className="mt-1.5 text-[13px] font-bold text-foreground">{card.title}</p>
+                      <p className="mt-1 whitespace-pre-wrap text-[12.5px] leading-relaxed text-foreground/80">{card.requirement}</p>
+                      {!action ? (
+                        <div className="mt-2.5 flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={reviewBusy}
+                            onClick={() => void handleDraftResolution(card, 'confirmed')}
+                            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5 disabled:opacity-50"
+                            style={{ color: '#22c55e' }}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            确认开工
+                          </button>
+                          <button
+                            type="button"
+                            disabled={reviewBusy}
+                            onClick={() => void handleDraftResolution(card, 'cancelled')}
+                            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5 disabled:opacity-50"
+                            style={{ color: '#ef4444' }}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            取消
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-[11px] font-semibold text-muted-foreground">
+                          {action === 'confirmed' ? '✅ 已确认立项' : action === 'cancelled' ? '已取消' : '已被新草稿取代'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            const b = item.bubble!;
             if (b.kind === 'user') {
               const toName = mentionTargetName(b);
               return (

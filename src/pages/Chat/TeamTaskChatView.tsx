@@ -19,16 +19,14 @@ import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
-  buildTaskDraftMessages,
+  buildTaskIntakeMessages,
   buildTeamChatMessages,
   buildTeamChatRenderItems,
-  buildWorkIntentClassifierMessages,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
-  parseTaskDraft,
-  parseWorkIntent,
+  parseTaskIntake,
   taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
@@ -195,17 +193,15 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
       await appendEvent(task.id, { type: `chat:${targetId}→user`, content: replyText });
       // 4) leader 判定为派活 → 触发真实编排。三路意图：REWORK 改当前任务 /
       //    NEW 立新任务（过程在新任务会话展开）/ CHAT 不动手。
-      //    [EXECUTE] 标记视作 REWORK；模型没按约定输出时用独立分类器兜底。
+      //    intake 一次调用完成分类与需求归纳；[EXECUTE] 标记视作 REWORK。
       if (targetId === leaderId) {
-        let intent: 'rework' | 'new' | 'chat' = execute ? 'rework' : 'chat';
-        if (intent === 'chat') {
-          try {
-            const verdict = await runRealChat(buildWorkIntentClassifierMessages(userText, true), 8);
-            intent = parseWorkIntent(verdict);
-          } catch {
-            /* 分类器失败则保守不执行 */
-          }
+        let intake = null;
+        try {
+          intake = parseTaskIntake(await runRealChat(buildTaskIntakeMessages(userText, chatHistory, true), 900));
+        } catch {
+          /* intake 失败则保守不执行 */
         }
+        const intent = execute ? 'rework' : (intake?.intent ?? 'chat');
         if (intent === 'rework') {
           toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
           void runTeamChatWorkOrder(task.id, userText).catch((err) => {
@@ -213,23 +209,10 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
           });
         } else if (intent === 'new' && task.teamId) {
           try {
-            // 与团队房间一致：先按对话上下文草拟标题与需求，避免指代性
-            // 指令（「开工吧」之类）让 leader 在真空中编造项目；失败回退原文。
-            let draftTitle = taskTitleFromInstruction(userText);
-            let draftRequirement = userText;
-            try {
-              const draftRaw = await runRealChat(buildTaskDraftMessages(userText, chatHistory), 800);
-              const draft = parseTaskDraft(draftRaw);
-              if (draft) {
-                draftTitle = draft.title;
-                draftRequirement = draft.requirement;
-              }
-            } catch {
-              /* 需求草稿失败回退原文立项 */
-            }
+            // intake 已按对话上下文归纳标题与需求；缺失时回退原文（原行为）
             const created = await createTask({
-              title: draftTitle,
-              description: draftRequirement,
+              title: intake?.title ?? taskTitleFromInstruction(userText),
+              description: intake?.requirement ?? userText,
               priority: 'medium',
               teamId: task.teamId,
               teamName: team?.name ?? task.teamName,

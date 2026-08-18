@@ -75,7 +75,8 @@
         "version:patch": "pnpm version patch",
         "version:minor": "pnpm version minor",
         "version:major": "pnpm version major",
-        "postversion": "git push && git push --tags"
+        "postversion": "git push && git push --tags",
+        "squad:bench": "esbuild scripts/eval/squad-bench.ts --bundle --platform=node --format=esm --alias:@=./src --outfile=node_modules/.cache/squad-bench.mjs && node node_modules/.cache/squad-bench.mjs"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.3.1",
