@@ -99,6 +99,8 @@ export interface ChatSession {
   targetAgentId?: string;
   isPrivateChat?: boolean;
   isLeaderChat?: boolean;
+  /** 团队任务会话：关联的看板任务 id（会话内容由任务执行事件驱动，非网关消息） */
+  teamTaskId?: string;
   agentStatus?: 'online' | 'offline' | 'busy';
   unreadCount?: number;
 }
@@ -158,6 +160,14 @@ interface ChatState {
       isLeaderChat?: boolean;
     },
   ) => string;
+  /** 确保团队任务会话存在（不切换当前会话）；返回 sessionKey。供 autoWorker 后台调用。 */
+  ensureTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => string;
+  /** 打开团队任务会话（切换到该会话）；返回 sessionKey。 */
+  openTeamTaskSession: (task: { id: string; title: string; teamId?: string; teamName?: string }) => string;
+  /** 确保团队房间会话存在（不切换当前会话）；返回 sessionKey。 */
+  ensureTeamSession: (team: { id: string; name: string }) => string;
+  /** 打开团队房间会话（切换到该会话）；返回 sessionKey。 */
+  openTeamSession: (team: { id: string; name: string }) => string;
   newSession: () => void;
   deleteSession: (key: string) => Promise<void>;
   cleanupEmptySession: () => void;
@@ -307,6 +317,56 @@ function saveImageCache(cache: Map<string, AttachedFileMeta>): void {
 }
 
 const _imageCache = loadImageCache();
+
+// ── Local-only session persistence ────────────────────────────
+// 团队房间（team:）、任务会话（team-task:）、私聊（:private-）是纯本地条目，
+// 网关 sessions.list 不会返回。若不持久化，页面刷新后这些会话入口会从列表
+// 消失（消息本体在 tasks.json / 网关历史里，不丢，只是列表入口没了）。
+const LOCAL_SESSIONS_KEY = 'agentcorp:local-sessions';
+const LOCAL_SESSIONS_MAX = 100;
+
+/** 本地专属会话（网关 sessions.list 不返回、需要本地持久化兜底的条目） */
+export function isLocalOnlySessionKey(key: string): boolean {
+  return key.startsWith('team:') || key.startsWith('team-task:') || key.includes(':private-');
+}
+
+type PersistedLocalSession = Pick<ChatSession,
+  'key' | 'displayName' | 'agentId' | 'targetAgentId' | 'isPrivateChat'
+  | 'isLeaderChat' | 'isTeamSession' | 'teamId' | 'teamName' | 'teamTaskId' | 'updatedAt'>;
+
+function loadLocalSessions(): ChatSession[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_SESSIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PersistedLocalSession[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s) => s && typeof s.key === 'string' && isLocalOnlySessionKey(s.key));
+  } catch { /* ignore parse errors */ }
+  return [];
+}
+
+function saveLocalSessions(sessions: ChatSession[]): void {
+  try {
+    const local = sessions.filter((s) => isLocalOnlySessionKey(s.key));
+    const trimmed = local.length > LOCAL_SESSIONS_MAX
+      ? [...local].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, LOCAL_SESSIONS_MAX)
+      : local;
+    const persisted: PersistedLocalSession[] = trimmed.map((s) => ({
+      key: s.key,
+      displayName: s.displayName,
+      agentId: s.agentId,
+      targetAgentId: s.targetAgentId,
+      isPrivateChat: s.isPrivateChat,
+      isLeaderChat: s.isLeaderChat,
+      isTeamSession: s.isTeamSession,
+      teamId: s.teamId,
+      teamName: s.teamName,
+      teamTaskId: s.teamTaskId,
+      updatedAt: s.updatedAt,
+    }));
+    localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(persisted));
+  } catch { /* ignore quota errors */ }
+}
 
 /** Extract plain text from message content (string or content blocks) */
 function getMessageText(content: unknown): string {
@@ -822,22 +882,9 @@ function buildFallbackMainSessionKey(agentId: string): string {
   return `agent:${normalizeAgentId(agentId)}:main`;
 }
 
-function isPrivateSessionKey(sessionKey: string): boolean {
-  return sessionKey.startsWith('agent:') && sessionKey.includes(':private-');
-}
-
 function buildPrivateSessionKey(agentId: string): string {
   const normalizedAgentId = normalizeAgentId(agentId);
   return `agent:${normalizedAgentId}:private-${normalizedAgentId}`;
-}
-
-function getEffectiveSessionKey(sessionKey: string): string {
-  if (!isPrivateSessionKey(sessionKey)) {
-    return sessionKey;
-  }
-
-  const agentId = getAgentIdFromSessionKey(sessionKey);
-  return resolveMainSessionKeyForAgent(agentId) ?? sessionKey;
 }
 
 function resolveMainSessionKeyForAgent(agentId: string | undefined | null): string | null {
@@ -1176,7 +1223,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   composerDraft: '',
   setComposerDraft: (value: string) => set({ composerDraft: value }),
 
-  sessions: [],
+  sessions: loadLocalSessions(),
   currentSessionKey: DEFAULT_SESSION_KEY,
   currentAgentId: 'main',
   sessionLabels: {},
@@ -1256,8 +1303,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ]
             : dedupedSessions;
 
+          // 合并而非整体替换：团队房间（team:）、任务会话（team-task:）、私聊（:private-）
+          // 是纯本地条目，网关 sessions.list 不会返回，整体替换会把它们从侧边栏冲掉
+          //（表现为「新进入时没有团队会话，要从任务看板进去才出现」）。
+          // 同 key 的网关条目只采纳网关侧元数据（label/thinkingLevel/model/updatedAt），
+          // 本地标记（isPrivateChat/displayName/isTeamSession/teamTaskId 等）保留本地值。
+          const isLocalOnlyKey = isLocalOnlySessionKey;
+          const mergedKeySet = new Set(sessionsWithCurrent.map((s) => s.key));
+          const mergedSessions: ChatSession[] = [
+            ...sessionsWithCurrent.map((session) => {
+              if (!isLocalOnlyKey(session.key)) return session;
+              const local = localSessions.find((s) => s.key === session.key);
+              if (!local) return session;
+              return {
+                ...session,
+                displayName: local.displayName ?? session.displayName,
+                agentId: local.agentId ?? session.agentId,
+                targetAgentId: local.targetAgentId ?? session.targetAgentId,
+                isPrivateChat: local.isPrivateChat,
+                isLeaderChat: local.isLeaderChat,
+                isTeamSession: local.isTeamSession,
+                teamId: local.teamId,
+                teamName: local.teamName,
+                teamTaskId: local.teamTaskId,
+              };
+            }),
+            ...localSessions.filter((s) => isLocalOnlyKey(s.key) && !mergedKeySet.has(s.key)),
+          ];
+
           const discoveredActivity = Object.fromEntries(
-            sessionsWithCurrent
+            mergedSessions
               .filter((session) => typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt))
               .map((session) => [session.key, session.updatedAt!]),
           );
@@ -1265,7 +1340,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Merge unread counts and agent statuses into sessions
           const unreadCounts = get().sessionUnreadCounts;
           const agentStatuses = useAgentsStore.getState().agentStatuses;
-          const sessionsWithUnread = sessionsWithCurrent.map((session) => ({
+          const sessionsWithUnread = mergedSessions.map((session) => ({
             ...session,
             unreadCount: unreadCounts[session.key] || 0,
             agentStatus: session.agentId ? agentStatuses[session.agentId] || 'online' : 'online',
@@ -1287,7 +1362,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
           // Background: fetch first user message for every non-main session to populate labels upfront.
           // Uses a small limit so it's cheap; runs in parallel and doesn't block anything.
-          const sessionsToLabel = sessionsWithCurrent.filter((s) => !s.key.endsWith(':main'));
+          const sessionsToLabel = mergedSessions.filter((s) => !s.key.endsWith(':main')
+            && !s.key.startsWith('team:') && !s.key.startsWith('team-task:'));
           if (sessionsToLabel.length > 0) {
             void Promise.all(
               sessionsToLabel.map(async (session) => {
@@ -1401,6 +1477,70 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return sessionKey;
   },
 
+  ensureTeamTaskSession: (task) => {
+    const sessionKey = `team-task:${task.id}`;
+    set((state) => {
+      const existing = state.sessions.find((session) => session.key === sessionKey);
+      if (existing) return {};
+      const nextSession: ChatSession = {
+        key: sessionKey,
+        displayName: `团队任务 · ${task.title}`,
+        isTeamSession: true,
+        teamTaskId: task.id,
+        teamId: task.teamId,
+        teamName: task.teamName,
+        updatedAt: Date.now(),
+      };
+      return {
+        sessions: [...state.sessions, nextSession],
+        sessionLabels: { ...state.sessionLabels, [sessionKey]: nextSession.displayName! },
+        sessionLastActivity: { ...state.sessionLastActivity, [sessionKey]: Date.now() },
+      };
+    });
+    return sessionKey;
+  },
+
+  openTeamTaskSession: (task) => {
+    const sessionKey = get().ensureTeamTaskSession(task);
+    get().switchSession(sessionKey);
+    return sessionKey;
+  },
+
+  ensureTeamSession: (team) => {
+    const sessionKey = `team:${team.id}`;
+    set((state) => {
+      const existing = state.sessions.find((session) => session.key === sessionKey);
+      // 团队改名时同步会话显示名
+      if (existing) {
+        if (existing.displayName === team.name) return {};
+        return {
+          sessions: state.sessions.map((s) => (s.key === sessionKey ? { ...s, displayName: team.name } : s)),
+          sessionLabels: { ...state.sessionLabels, [sessionKey]: team.name },
+        };
+      }
+      const nextSession: ChatSession = {
+        key: sessionKey,
+        displayName: team.name,
+        isTeamSession: true,
+        teamId: team.id,
+        teamName: team.name,
+        updatedAt: Date.now(),
+      };
+      return {
+        sessions: [...state.sessions, nextSession],
+        sessionLabels: { ...state.sessionLabels, [sessionKey]: team.name },
+        sessionLastActivity: { ...state.sessionLastActivity, [sessionKey]: Date.now() },
+      };
+    });
+    return sessionKey;
+  },
+
+  openTeamSession: (team) => {
+    const sessionKey = get().ensureTeamSession(team);
+    get().switchSession(sessionKey);
+    return sessionKey;
+  },
+
   // ── Delete session ──
   //
   // NOTE: The OpenClaw Gateway does NOT expose a sessions.delete (or equivalent)
@@ -1471,7 +1611,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // sessions.reset archives (renames) the session JSONL file, making old
     // conversation history inaccessible when the user switches back to it.
     const { currentSessionKey, messages, sessions } = get();
-    const leavingEmpty = !currentSessionKey.endsWith(':main') && messages.length === 0;
+    // 本地专属会话（team:/team-task:/:private-）是结构性入口，即使没消息也保留，
+    // 否则切走再切回来 / 刷新后任务会话入口会凭空消失
+    const leavingEmpty = !currentSessionKey.endsWith(':main')
+      && !isLocalOnlySessionKey(currentSessionKey)
+      && messages.length === 0;
     const prefix = getCanonicalPrefixFromSessionKey(currentSessionKey)
       ?? getCanonicalPrefixFromSessions(sessions)
       ?? DEFAULT_CANONICAL_PREFIX;
@@ -1510,7 +1654,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // This mirrors the "leavingEmpty" logic in switchSession so that creating
     // a new session and immediately navigating away doesn't leave a ghost entry
     // in the sidebar.
-    const isEmptyNonMain = !currentSessionKey.endsWith(':main') && messages.length === 0;
+    // 本地专属会话（团队房间/任务会话/私聊）除外：它们是结构性入口，即使
+    // 暂无消息也保留（任务会话内容由任务事件驱动，messages 恒为空）。
+    const isEmptyNonMain = !currentSessionKey.endsWith(':main')
+      && !isLocalOnlySessionKey(currentSessionKey)
+      && messages.length === 0;
     if (!isEmptyNonMain) return;
     set((s) => ({
       sessions: s.sessions.filter((sess) => sess.key !== currentSessionKey),
@@ -1526,8 +1674,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ── Load chat history ──
 
   loadHistory: async (quiet = false) => {
+    // 私聊会话（agent:X:private-X）直接以自身 key 走网关，与主会话完全隔离。
     const { currentSessionKey } = get();
-    const effectiveSessionKey = getEffectiveSessionKey(currentSessionKey);
     const existingLoad = _historyLoadInFlight.get(currentSessionKey);
     if (existingLoad) {
       await existingLoad;
@@ -1651,13 +1799,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       try {
         const data = await useGatewayStore.getState().rpc<Record<string, unknown>>(
           'chat.history',
-          { sessionKey: effectiveSessionKey, limit: 200 },
+          { sessionKey: currentSessionKey, limit: 200 },
         );
         if (data) {
           let rawMessages = Array.isArray(data.messages) ? data.messages as RawMessage[] : [];
           const thinkingLevel = data.thinkingLevel ? String(data.thinkingLevel) : null;
-          if (rawMessages.length === 0 && isCronSessionKey(effectiveSessionKey)) {
-            rawMessages = await loadCronFallbackMessages(effectiveSessionKey, 200);
+          if (rawMessages.length === 0 && isCronSessionKey(currentSessionKey)) {
+            rawMessages = await loadCronFallbackMessages(currentSessionKey, 200);
           }
 
           applyLoadedMessages(rawMessages, thinkingLevel);
@@ -1671,7 +1819,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       } catch (err) {
         console.warn('Failed to load chat history:', err);
-        const fallbackMessages = await loadCronFallbackMessages(effectiveSessionKey, 200);
+        const fallbackMessages = await loadCronFallbackMessages(currentSessionKey, 200);
         if (fallbackMessages.length > 0) {
           applyLoadedMessages(fallbackMessages, null);
         } else {
@@ -1710,7 +1858,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const targetSessionKey = targetAgentId ? (resolveMainSessionKeyForAgent(targetAgentId) ?? get().currentSessionKey) : get().currentSessionKey;
-    const rpcSessionKey = getEffectiveSessionKey(targetSessionKey);
+    // 私聊会话（agent:X:private-X）原样作为网关 sessionKey：网关按 key 隔离 JSONL 历史，
+    // 不再映射回该成员的主会话，避免私聊与主会话串台。
+    const rpcSessionKey = targetSessionKey;
     const blockedSessionAgent = findAgentBySessionKey(useAgentsStore.getState().agents, rpcSessionKey);
     if (blockedSessionAgent && isDirectMainSessionBlocked(blockedSessionAgent, rpcSessionKey)) {
       throw buildLeaderOnlyDirectChatError(blockedSessionAgent.id);
@@ -2291,6 +2441,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 }));
+
+// 自动持久化本地专属会话：sessions 引用变化时把 team:/team-task:/:private-
+// 条目写入 localStorage，刷新后由初始状态恢复（deleteSession 走同一通路，
+// 删除也会同步落盘）。
+let _lastPersistedSessions = useChatStore.getState().sessions;
+useChatStore.subscribe((state) => {
+  if (state.sessions === _lastPersistedSessions) return;
+  _lastPersistedSessions = state.sessions;
+  saveLocalSessions(state.sessions);
+});
 
 // Cross-tab sync: listen to localStorage changes
 if (typeof window !== 'undefined') {

@@ -70,3 +70,11 @@ export function truncate(text: string, maxLength: number): string {
   }
   return text.slice(0, maxLength - 3) + '...';
 }
+
+/**
+ * 判断 avatar 字符串是否是图片（data URI / URL / 路径），而非 emoji。
+ * agent 头像两种形态都有，渲染前必须先判断，否则 base64 串会被当文本显示成乱码。
+ */
+export function isAvatarImage(avatar: string | null | undefined): boolean {
+  return Boolean(avatar && (avatar.startsWith('data:') || avatar.startsWith('http') || avatar.startsWith('/')));
+}

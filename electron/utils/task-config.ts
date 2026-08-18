@@ -1,5 +1,5 @@
 import { constants } from 'fs';
-import { access, mkdir, readFile, writeFile } from 'fs/promises';
+import { access, mkdir, readFile, rename, writeFile } from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { withConfigLock } from './config-mutex';
@@ -24,6 +24,7 @@ interface TaskConfigDocument {
 }
 
 const TASKS_FILE = join(getOpenClawConfigDir(), 'tasks.json');
+const TASKS_TMP_FILE = `${TASKS_FILE}.tmp`;
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -38,6 +39,22 @@ async function ensureTaskConfigDir(): Promise<void> {
   await mkdir(getOpenClawConfigDir(), { recursive: true });
 }
 
+/**
+ * 把损坏的配置文件 rename 成 `<file>.corrupt-<时间戳>` 备份，
+ * 避免后续写操作以「空文档」为基准把残留数据盖掉。
+ * 返回备份路径；备份失败返回 null（原文件保持不动）。
+ */
+async function backupCorruptFile(filePath: string): Promise<string | null> {
+  const backupPath = `${filePath}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try {
+    await rename(filePath, backupPath);
+    return backupPath;
+  } catch (backupError) {
+    logger.error(`Failed to back up corrupt config file: ${filePath}`, backupError);
+    return null;
+  }
+}
+
 async function readTaskDocument(): Promise<TaskConfigDocument> {
   await ensureTaskConfigDir();
   if (!(await fileExists(TASKS_FILE))) {
@@ -48,14 +65,22 @@ async function readTaskDocument(): Promise<TaskConfigDocument> {
     const content = await readFile(TASKS_FILE, 'utf8');
     return JSON.parse(content) as TaskConfigDocument;
   } catch (error) {
+    // 解析失败绝不能返回空数组——那会让下一次写操作以空文档为基准
+    // 读-改-写，把全部任务永久覆盖掉。备份坏文件后抛错，由调用方降级（HTTP 500）。
+    const backupPath = await backupCorruptFile(TASKS_FILE);
     logger.error('Failed to read task config', error);
-    return { tasks: [] };
+    throw new Error(
+      `Task config is corrupted (backed up to ${backupPath ?? 'unavailable'}): ${TASKS_FILE}`,
+      { cause: error },
+    );
   }
 }
 
 async function writeTaskDocument(document: TaskConfigDocument): Promise<void> {
   await ensureTaskConfigDir();
-  await writeFile(TASKS_FILE, JSON.stringify({ tasks: document.tasks ?? [] }, null, 2), 'utf8');
+  // 原子写：先写 tmp 再 rename，避免崩溃截断留下半个 JSON
+  await writeFile(TASKS_TMP_FILE, JSON.stringify({ tasks: document.tasks ?? [] }, null, 2), 'utf8');
+  await rename(TASKS_TMP_FILE, TASKS_FILE);
 }
 
 function uniqueStrings(values: Array<string | undefined>): string[] {

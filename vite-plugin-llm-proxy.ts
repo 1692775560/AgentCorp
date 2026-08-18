@@ -21,6 +21,7 @@ interface ChatResponse {
     finish_reason?: string;
   }>;
   usage?: unknown;
+  model?: string;
   error?: unknown;
 }
 
@@ -124,6 +125,8 @@ export function llmProxyPlugin(): Plugin {
             content,
             finishReason: json.choices?.[0]?.finish_reason ?? null,
             usage: json.usage ?? null,
+            // 模型名一并透传，供前端成本看板按模型估价。
+            model: json.model ?? model,
           });
         } catch (err) {
           sendJson(res, 500, {

@@ -4,6 +4,7 @@
  * with markdown, thinking sections, images, and tool cards.
  */
 import { useState, useCallback, useEffect, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Sparkles, Copy, Check, ChevronDown, ChevronRight, Wrench, FileText, Film, Music, FileArchive, File, X, FolderOpen, ZoomIn, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import MarkdownContent from './MarkdownContent';
@@ -12,7 +13,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { invokeIpc } from '@/lib/api-client';
 import type { RawMessage, AttachedFileMeta } from '@/stores/chat';
-import { extractText, extractThinking, extractImages, extractToolGroups, formatTimestamp, isSystemInjectedUserMessage } from './message-utils';
+import { extractText, extractThinking, extractImages, extractToolGroups, formatTimestamp, isSystemInjectedUserMessage, isHeartbeatNoiseReply } from './message-utils';
 import { TaskCreationBubble } from './TaskCreationBubble';
 
 interface ChatMessageProps {
@@ -65,6 +66,7 @@ export const ChatMessage = memo(function ChatMessage({
   const [lightboxImg, setLightboxImg] = useState<{ src: string; fileName: string; filePath?: string; base64?: string; mimeType?: string } | null>(null);
   const [showTaskBubble, setShowTaskBubble] = useState(true);
   const [showTaskExcerpt, setShowTaskExcerpt] = useState(false);
+  const navigate = useNavigate();
 
   // Never render tool result messages in chat UI
   if (isToolResult) return null;
@@ -72,6 +74,8 @@ export const ChatMessage = memo(function ChatMessage({
   // Hide system-injected user messages (e.g. scheduled reminder triggers) —
   // the assistant's response already contains the user-facing content.
   if (isSystemInjectedUserMessage(message)) return null;
+  // Hide machine heartbeat acknowledgements ("HEARTBEAT_OK") — pure noise.
+  if (isHeartbeatNoiseReply(message)) return null;
   if (hasOnlyCronToolActivity && !hasText && !visibleThinking && images.length === 0 && attachedFiles.length === 0) return null;
 
   // Render task creation bubble (per D-21)
@@ -96,7 +100,8 @@ export const ChatMessage = memo(function ChatMessage({
 
   // Render task anchor card (per D-24)
   if (message._taskAnchor) {
-    const deepLink = message._taskAnchor.deepLink ?? `/kanban?taskId=${message._taskAnchor.taskId}`;
+    // TaskBoard 读的是 `task` 参数；用 react-router 跳转避免整页刷新
+    const deepLink = message._taskAnchor.deepLink ?? `/kanban?task=${message._taskAnchor.taskId}`;
     return (
       <div className="flex justify-start mb-4">
         <Card data-testid="task-anchor-card" className="inline-block max-w-md p-3 bg-accent/10 border-accent">
@@ -129,7 +134,7 @@ export const ChatMessage = memo(function ChatMessage({
             variant="link"
             className="mt-2 p-0 h-auto text-xs"
             onClick={() => {
-              window.location.href = deepLink;
+              navigate(deepLink);
             }}
           >
             查看看板 →

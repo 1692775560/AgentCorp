@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Bot, ChevronDown, ChevronUp, Clock, Coins, MessageSquareQuote, User2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
 import { dimLabel } from '@/engine/interview/dimTracker';
@@ -111,7 +112,7 @@ export function InterviewBubble({ turn, onRate, onNote, readOnly = false }: Inte
               <User2 className="h-3 w-3" />
               候选回答
             </p>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{turn.replyText}</p>
+            <MarkdownContent content={turn.replyText} className="text-sm leading-relaxed" />
           </div>
           <span className="mb-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FFD233]/40 text-[var(--neu-ink)] shadow-sm ring-1 ring-[#FFD233]/50">
             <User2 className="h-4 w-4" />

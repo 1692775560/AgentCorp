@@ -2,24 +2,13 @@
 /**
  * tests/unit/sidebar-scroll.test.tsx
  *
- * 回归测试：会话区「加号右侧竖线割裂感」CSS 修复的 DOM 兜底验证。
+ * 回归测试：侧栏 <aside> 的 overflow 修复（新拟物投影被硬切成竖线）DOM 兜底验证。
  *
- * 修复点（工程师已落盘）：
- *   1) src/styles/globals.css .session-scroll —— 彻底隐藏会话区滚动条（含 WebKit
- *      track / thumb 与 scrollbar-gutter），消除 hover 时落在加号右侧的墨色细线。
- *      它是真正的滚动容器（overflow-y-auto + min-h-0 flex-1），吸收溢出。
- *   2) src/components/layout/Sidebar.tsx 的 <aside> —— 移除 overflow-hidden，改加
- *      relative z-30。竖线的真正根因是：上一轮加的 overflow-hidden 把侧栏右边缘按钮
- *      （折叠/搜索/会话加号，均带 shadow-sm，被 globals.css 重映射成向右下偏移 4px 的
- *       新拟物双阴影）的右下投影在侧栏右边界处硬切一刀，形成清晰竖线。移除 overflow-hidden
- *      后投影落在平涂 neu-surface 上自然淡化；relative z-30 把整个左侧任务栏提到最上层。
- *
- * 本测试在 jsdom 中渲染 <Sidebar />，断言：
- *   - 根 <aside> 的 className 不再含 overflow-hidden（竖线元凶已移除），且含 relative z-30；
- *   - 会话滚动容器带 session-scroll 类（即 globals.css 规则作用的正确目标元素）。
- *
- * 注意：纯 CSS 视觉（竖线是否真的消失）无法在单测里截图验证，需用户在
- * http://127.0.0.1:5174/ 预览中肉眼确认。本测试只锁住「class 已正确落到 DOM」。
+ * 历史：会话区「加号右侧竖线割裂感」修复 = globals.css .session-scroll 隐藏滚动条
+ *   + Sidebar 根 <aside> 移除 overflow-hidden 改加 relative z-30。
+ * 变更：会话列表已迁至独立「会话」页（/chats），Sidebar 不再内嵌会话区，
+ *   原 session-scroll 容器随之移除；本测试保留 aside 层叠/溢出断言（竖线不复发），
+ *   并断言 session-scroll 容器已不存在（防旧会话区被意外加回）。
  *
  * 运行：env -u NODE_OPTIONS npx vitest run tests/unit/sidebar-scroll.test.tsx
  */
@@ -79,13 +68,6 @@ vi.mock('@/stores/chat', () => ({
   ),
 }));
 
-vi.mock('@/lib/pinned-sessions', () => ({
-  usePinnedSessions: () => ({
-    pinnedSessionKeySet: new Set<string>(),
-    toggleSessionPinned: vi.fn(),
-  }),
-}));
-
 import { Sidebar } from '@/components/layout/Sidebar';
 
 // 满足 React 18+ act 环境警告。
@@ -100,7 +82,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe('Sidebar · 会话区滚动条修复 DOM 兜底', () => {
+describe('Sidebar · 溢出/层级修复 DOM 兜底', () => {
   it('根 <aside> 不含 overflow-hidden（竖线元凶已移除）且含 relative z-30（提升层级）', () => {
     const { container } = render(<Sidebar />);
     const aside = container.querySelector('aside');
@@ -109,10 +91,9 @@ describe('Sidebar · 会话区滚动条修复 DOM 兜底', () => {
     expect(aside!.className).toContain('relative z-30');
   });
 
-  it('会话滚动容器带 session-scroll 类（globals.css 规则作用目标正确）', () => {
+  it('会话列表已迁至 /chats：侧栏不再有 session-scroll 容器', () => {
     const { container } = render(<Sidebar />);
-    const scroll = container.querySelector('.session-scroll');
-    expect(scroll).not.toBeNull();
+    expect(container.querySelector('.session-scroll')).toBeNull();
   });
 
   it('折叠态下 <aside> 同样不含 overflow-hidden（修复不依赖展开态）', () => {

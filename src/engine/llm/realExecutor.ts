@@ -9,12 +9,35 @@
  * 真实产出；失败（未配置 / 上游报错 / 空产出）都如实抛出，交给 autoWorker 的
  * S9 重试与 failed 流转处理，绝不静默成功。
  */
+import type { LlmCallContext } from '@/types/llm-usage';
 
 export interface RealExecutionResult {
   /** 模型真实产出文本 */
   content: string;
   finishReason: string | null;
   usage: unknown;
+}
+
+/**
+ * 用量上报 sink（成本看板）。realExecutor 位于 tsconfig.node.json 工程内，
+ * 不能静态引入 renderer 侧的 host-api 依赖链，故由渲染层在启动时
+ * （services/llmUsage.initLlmUsageReporting）注入实现；未注入时不上报。
+ */
+export type LlmUsageReporter = (usage: unknown, model: string | null, ctx?: LlmCallContext) => void;
+
+let usageReporter: LlmUsageReporter | null = null;
+
+export function setLlmUsageReporter(reporter: LlmUsageReporter | null): void {
+  usageReporter = reporter;
+}
+
+/** 用量采集：失败静默，绝不影响真实执行主流程。 */
+function reportUsage(usage: unknown, model: unknown, ctx?: LlmCallContext): void {
+  try {
+    usageReporter?.(usage, typeof model === 'string' ? model : null, ctx);
+  } catch {
+    /* 采集失败静默 */
+  }
 }
 
 /** 判断真实执行后端是否可用（探测代理是否配置了 key）。 */
@@ -40,7 +63,7 @@ export async function runRealExecution(input: {
   message: string;
   system?: string;
   maxTokens?: number;
-}): Promise<RealExecutionResult> {
+}, ctx?: LlmCallContext): Promise<RealExecutionResult> {
   const res = await fetch('/api/llm/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -51,6 +74,7 @@ export async function runRealExecution(input: {
     content?: string;
     finishReason?: string | null;
     usage?: unknown;
+    model?: string;
     error?: string;
     detail?: unknown;
   };
@@ -66,6 +90,8 @@ export async function runRealExecution(input: {
     throw new Error('真实执行返回空产出（模型无有效 content）');
   }
 
+  reportUsage(data.usage ?? null, data.model ?? null, ctx);
+
   return {
     content,
     finishReason: data.finishReason ?? null,
@@ -73,22 +99,47 @@ export async function runRealExecution(input: {
   };
 }
 
+/** 默认单次 chat 调用超时：上游挂起时不能让用户发送态永久卡死。 */
+export const REAL_CHAT_DEFAULT_TIMEOUT_MS = 120_000;
+
 /**
  * 多轮消息版真实执行（供多 agent A2A 协作编排使用）。
  * 直接把完整 messages 交给真实模型，返回真实文本产出。
- * @throws Error 当未配置 / 上游失败 / 空产出时。
+ * 带超时（默认 120s，可用 timeoutMs 覆盖）：超时抛出明确中文错误，
+ * 视图的 catch 会提示用户、编排器会把对应子任务走失败改派路径。
+ *
+ * 调用上下文 ctx（taskId/teamId/agentId，成本看板归集用）由编排器的 chat 包装
+ * 在调用处闭包注入：可放第三参（`runRealChat(msgs, 2048, { taskId, ... })`）
+ * 或第四参（`runRealChat(msgs, 2048, timeoutMs, { ... })`）。
+ * @throws Error 当未配置 / 上游失败 / 空产出 / 超时时。
  */
 export async function runRealChat(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   maxTokens = 2048,
+  timeoutOrCtx: number | LlmCallContext = REAL_CHAT_DEFAULT_TIMEOUT_MS,
+  maybeCtx?: LlmCallContext,
 ): Promise<string> {
-  const res = await fetch('/api/llm/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, maxTokens }),
-  });
+  const timeoutMs = typeof timeoutOrCtx === 'number' ? timeoutOrCtx : REAL_CHAT_DEFAULT_TIMEOUT_MS;
+  const ctx = typeof timeoutOrCtx === 'object' ? timeoutOrCtx : maybeCtx;
+  let res: Response;
+  try {
+    res = await fetch('/api/llm/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, maxTokens }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    // AbortSignal.timeout 触发时 fetch 以 TimeoutError 拒绝（旧环境可能叫 AbortError）
+    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new Error(`模型响应超时（${Math.round(timeoutMs / 1000)}s），请重试`, { cause: err });
+    }
+    throw err;
+  }
   const data = (await res.json().catch(() => ({}))) as {
     content?: string;
+    usage?: unknown;
+    model?: string;
     error?: string;
     detail?: unknown;
   };
@@ -99,5 +150,6 @@ export async function runRealChat(
   }
   const content = (data.content ?? '').trim();
   if (!content) throw new Error('真实执行返回空产出（模型无有效 content）');
+  reportUsage(data.usage ?? null, data.model ?? null, ctx);
   return content;
 }

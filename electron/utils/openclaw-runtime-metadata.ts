@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from 'fs/promises';
+import { access, mkdir, readFile, rename, writeFile } from 'fs/promises';
 import { constants } from 'fs';
 import { join } from 'path';
 import { getOpenClawConfigDir } from './paths';
@@ -7,6 +7,7 @@ import type { Team } from '../../src/types/team';
 
 const METADATA_VERSION = 1;
 const RUNTIME_METADATA_FILE = join(getOpenClawConfigDir(), 'agentcorp-runtime-metadata.json');
+const RUNTIME_METADATA_TMP_FILE = `${RUNTIME_METADATA_FILE}.tmp`;
 
 type AgentTeamRole = 'leader' | 'worker';
 type AgentChatAccess = 'direct' | 'leader_only';
@@ -45,10 +46,10 @@ async function ensureMetadataDir(): Promise<void> {
 }
 
 async function readMetadataDocument(): Promise<RuntimeMetadataDocument> {
+  if (!(await fileExists(RUNTIME_METADATA_FILE))) {
+    return { version: METADATA_VERSION, teams: [], agents: {} };
+  }
   try {
-    if (!(await fileExists(RUNTIME_METADATA_FILE))) {
-      return { version: METADATA_VERSION, teams: [], agents: {} };
-    }
     const raw = await readFile(RUNTIME_METADATA_FILE, 'utf8');
     const parsed = JSON.parse(raw) as RuntimeMetadataDocument;
     return {
@@ -57,15 +58,29 @@ async function readMetadataDocument(): Promise<RuntimeMetadataDocument> {
       agents: parsed.agents && typeof parsed.agents === 'object' ? parsed.agents : {},
     };
   } catch (error) {
-    logger.warn('[runtime-metadata] Failed to read metadata sidecar, falling back to empty state:', error);
-    return { version: METADATA_VERSION, teams: [], agents: {} };
+    // 与 task-config 同语义：解析失败备份坏文件并抛错，
+    // 绝不回退空状态（否则下一次写会清空全部 teams/agent 元数据）。
+    const backupPath = `${RUNTIME_METADATA_FILE}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    let backedUpTo: string | null = null;
+    try {
+      await rename(RUNTIME_METADATA_FILE, backupPath);
+      backedUpTo = backupPath;
+    } catch (backupError) {
+      logger.error('[runtime-metadata] Failed to back up corrupt metadata sidecar:', backupError);
+    }
+    logger.error('[runtime-metadata] Metadata sidecar is corrupted:', error);
+    throw new Error(
+      `Runtime metadata is corrupted (backed up to ${backedUpTo ?? 'unavailable'}): ${RUNTIME_METADATA_FILE}`,
+      { cause: error },
+    );
   }
 }
 
 async function writeMetadataDocument(document: RuntimeMetadataDocument): Promise<void> {
   await ensureMetadataDir();
+  // 原子写：先写 tmp 再 rename，避免崩溃截断留下半个 JSON
   await writeFile(
-    RUNTIME_METADATA_FILE,
+    RUNTIME_METADATA_TMP_FILE,
     JSON.stringify(
       {
         version: METADATA_VERSION,
@@ -77,6 +92,7 @@ async function writeMetadataDocument(document: RuntimeMetadataDocument): Promise
     ),
     'utf8',
   );
+  await rename(RUNTIME_METADATA_TMP_FILE, RUNTIME_METADATA_FILE);
 }
 
 function normalizeAgentRuntimeMetadata(value: unknown): AgentRuntimeMetadata {

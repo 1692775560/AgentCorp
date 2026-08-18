@@ -93,6 +93,8 @@ interface SettingsState {
   setupComplete: boolean;
   /** 业务动线引导（雇人 → 面试 → 评估）是否已看过；与 setupComplete 的环境配置分开 */
   onboardingSeen: boolean;
+  /** 新手引导弹窗是否被手动打开（不持久化；首次启动由 !onboardingSeen 自动打开） */
+  guideOpen: boolean;
 
   // Actions
   init: () => Promise<void>;
@@ -156,6 +158,8 @@ interface SettingsState {
   removeCustomToolGrant: (value: string) => void;
   markSetupComplete: () => void;
   markOnboardingSeen: () => void;
+  openGuide: () => void;
+  closeGuide: () => void;
   resetSettings: () => void;
 }
 
@@ -252,6 +256,7 @@ const defaultSettings = {
   p2pSyncEnabled: false,
   setupComplete: false,
   onboardingSeen: false,
+  guideOpen: false,
   brandName: 'AgentCorp Control',
   brandSubtitle: '智能编排中枢',
   myName: 'Commander',
@@ -416,6 +421,8 @@ export const useSettingsStore = create<SettingsState>()(
         set({ onboardingSeen: true });
         void persistSettingValue('onboardingSeen', true).catch(() => { });
       },
+      openGuide: () => set({ guideOpen: true }),
+      closeGuide: () => set({ guideOpen: false }),
       setBrandName: (brandName) => set({ brandName }),
       setBrandSubtitle: (brandSubtitle) => set({ brandSubtitle }),
       setBrandLogoDataUrl: (brandLogoDataUrl) => set({ brandLogoDataUrl }),

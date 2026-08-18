@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { useAgentsStore } from '@/stores/agents';
+import { isAvatarImage } from '@/lib/utils';
 import { useChatStore, type RawMessage } from '@/stores/chat';
 import { useRightPanelStore } from '@/stores/rightPanelStore';
 
@@ -132,8 +133,12 @@ function AgentInfoPanel() {
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-xl">
-          {agent.avatar ?? '🤖'}
+        <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-muted text-xl">
+          {isAvatarImage(agent.avatar) ? (
+            <img src={agent.avatar!} alt="" className="h-full w-full object-cover" />
+          ) : (
+            agent.avatar ?? '🤖'
+          )}
         </div>
         <div>
           <p className="text-sm font-medium">{agent.name}</p>

@@ -108,6 +108,8 @@ export interface KanbanTask {
   workStartedAt?: string;
   workError?: string;
   workResult?: string;
+  /** 编排交付文件落盘目录（~/.openclaw/deliverables/<taskId>/），由 autoWorker 写入 */
+  deliverableDir?: string;
   runtimeSessionId?: string;
   runtimeParentSessionId?: string;
   runtimeRootSessionId?: string;

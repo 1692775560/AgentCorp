@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Bot, Code, Cpu, Database, Network, UserCog, Users, Zap } from 'lucide-react';
+import { Bot, CalendarClock, Code, Cpu, Database, Network, UserCog, Users, Zap } from 'lucide-react';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { useChatStore } from '@/stores/chat';
@@ -16,6 +16,7 @@ import { getTeamMapState } from '@/components/team-map/team-map-selectors';
 import { AddMemberSheet } from '@/components/team-map/AddMemberSheet';
 import { MemberDetailSheet } from '@/components/team-map/MemberDetailSheet';
 import { TeamMapHoverCard } from '@/components/team-map/team-map-hover-card';
+import { TeamScheduleSheet } from '@/components/team-map/TeamScheduleSheet';
 
 const AVATAR_COLORS = [
   'bg-blue-100 text-blue-600 ring-1 ring-blue-500/20',
@@ -407,6 +408,7 @@ export function TeamMap() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [lastFocusedNodeId, setLastFocusedNodeId] = useState<string | null>(null);
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
   const [hoverCardAnchor, setHoverCardAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -531,6 +533,18 @@ export function TeamMap() {
 
       <div className="flex-1 overflow-hidden p-4 md:p-6 xl:p-8">
         <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[32px] border border-slate-200/60 bg-slate-50 shadow-sm">
+          {currentTeam ? (
+            <div className="absolute left-6 top-6 z-10">
+              <button
+                type="button"
+                onClick={() => setScheduleOpen(true)}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
+              >
+                <CalendarClock className="h-4 w-4" />
+                {t('teamMap.schedules.open', { defaultValue: '定时任务' })}
+              </button>
+            </div>
+          ) : null}
           <div className="absolute right-6 top-6 z-10 flex items-center gap-5 text-xs text-slate-500">
             <span className="flex items-center gap-2 font-medium">
               <span className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
@@ -634,6 +648,15 @@ export function TeamMap() {
           onAdded={async () => {
             await fetchTeams();
           }}
+        />
+      ) : null}
+
+      {currentTeam ? (
+        <TeamScheduleSheet
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
+          teamId={currentTeam.id}
+          teamName={currentTeam.name}
         />
       ) : null}
 

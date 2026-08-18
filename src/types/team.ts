@@ -12,6 +12,17 @@
 export type TeamStatus = 'active' | 'idle' | 'blocked';
 
 /**
+ * Team room chat event: boss ↔ team conversation persisted on the team.
+ * from/to 取值：'user' 或 agentId（与任务 chat: 事件同语义）。
+ */
+export interface TeamChatEvent {
+  from: string;
+  to: string;
+  content: string;
+  createdAt: string;
+}
+
+/**
  * Core team data structure
  */
 export interface Team {
@@ -32,6 +43,9 @@ export interface Team {
 
   /** Current team status */
   status: TeamStatus;
+
+  /** 团队房间聊天记录（上限 200 条，超出裁最旧） */
+  chatEvents?: TeamChatEvent[];
 
   /** Creation timestamp */
   createdAt: number;
@@ -94,6 +108,9 @@ export interface UpdateTeamRequest {
 
   /** Updated member list (replaces existing members) */
   memberIds?: string[];
+
+  /** 团队房间聊天记录（整体替换；上限 200 条） */
+  chatEvents?: TeamChatEvent[];
 }
 
 /**

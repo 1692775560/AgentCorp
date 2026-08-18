@@ -1,15 +1,15 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BarChart3,
   Building2,
-  ChevronRight,
+  DollarSign,
+  HelpCircle,
   Home,
   LayoutDashboard,
   MessageSquare,
   MessagesSquare,
   PanelLeft,
   PanelLeftClose,
-  Plus,
   Search,
   Settings as SettingsIcon,
   Store,
@@ -19,10 +19,8 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { GlobalSearchModal } from '@/components/search/GlobalSearchModal';
-import { SessionItem } from '@/components/sessions/SessionItem';
 import { SessionSearchModal } from '@/components/sessions/SessionSearchModal';
 import { cn } from '@/lib/utils';
-import { usePinnedSessions } from '@/lib/pinned-sessions';
 import { useAgentsStore } from '@/stores/agents';
 import { useChatStore } from '@/stores/chat';
 import { useGatewayStore } from '@/stores/gateway';
@@ -39,67 +37,6 @@ type NavItemConfig = {
   path: string;
   icon: typeof LayoutDashboard;
 };
-
-function SessionSectionHeader({
-  label,
-  open,
-  collapsed,
-  newSessionLabel,
-  onToggle,
-  onNewSession,
-}: {
-  label: string;
-  open: boolean;
-  collapsed: boolean;
-  newSessionLabel: string;
-  onToggle: () => void;
-  onNewSession: () => void;
-}) {
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        aria-label={label}
-        onClick={onToggle}
-        className="flex h-12 w-full items-center justify-center rounded-2xl px-2 text-sm font-bold transition-all duration-300 text-[var(--neu-ink-soft)] hover:bg-white hover:text-[#1A1C1E]"
-      >
-        <MessageSquare className="h-5 w-5 shrink-0" />
-      </button>
-    );
-  }
-
-  return (
-    <div className="group/sessions-header flex items-center gap-2">
-      <button
-        type="button"
-        aria-label={label}
-        onClick={onToggle}
-        className="flex h-12 min-w-0 flex-1 items-center gap-4 rounded-2xl px-4 text-sm font-bold transition-all duration-300 text-[var(--neu-ink)] hover:bg-white hover:text-[#1A1C1E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD233]/40"
-      >
-        <MessageSquare className="h-5 w-5 shrink-0" />
-        <span className="truncate text-left">{label}</span>
-        <ChevronRight
-          data-testid="sessions-section-chevron"
-          aria-hidden="true"
-          className={cn(
-            'h-4 w-4 shrink-0 text-[var(--neu-ink-soft)] transition-all opacity-0 group-hover/sessions-header:opacity-100 group-focus-within/sessions-header:opacity-100',
-            open && 'rotate-90',
-          )}
-        />
-      </button>
-
-      <button
-        type="button"
-        aria-label={newSessionLabel}
-        title={newSessionLabel}
-        onClick={onNewSession}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD233]/40"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
 
 function NavItem({
   item,
@@ -136,27 +73,21 @@ function NavItem({
 export function Sidebar() {
   const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
   const setSidebarCollapsed = useSettingsStore((state) => state.setSidebarCollapsed);
+  const openGuide = useSettingsStore((state) => state.openGuide);
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const gatewayStatus = useGatewayStore((state) => state.status);
 
   const sessions = useChatStore((state) => state.sessions);
-  const currentSessionKey = useChatStore((state) => state.currentSessionKey);
   useChatStore.getState(); // ensure chat store is initialized
-  const sessionLastActivity = useChatStore((state) => state.sessionLastActivity);
-  const messages = useChatStore((state) => state.messages);
   const switchSession = useChatStore((state) => state.switchSession);
-  const newSession = useChatStore((state) => state.newSession);
-  const deleteSession = useChatStore((state) => state.deleteSession);
   const loadSessions = useChatStore((state) => state.loadSessions);
   const loadHistory = useChatStore((state) => state.loadHistory);
 
   const agents = useAgentsStore((state) => state.agents);
   const fetchAgents = useAgentsStore((state) => state.fetchAgents);
-  const { pinnedSessionKeySet, toggleSessionPinned } = usePinnedSessions();
 
-  const [sessionsOpen, setSessionsOpen] = useState(true);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [avatarPopupOpen, setAvatarPopupOpen] = useState(false);
@@ -223,6 +154,12 @@ export function Sidebar() {
       path: '/',
       icon: Home,
     },
+    // 会话页：全高会话列表（团队房间/任务会话/Agent 会话）
+    {
+      label: tSidebar('chats', '会话'),
+      path: '/chats',
+      icon: MessageSquare,
+    },
     {
       label: tSidebar('marketplace', 'Marketplace'),
       path: '/marketplace',
@@ -244,7 +181,7 @@ export function Sidebar() {
       path: '/kanban',
       icon: LayoutDashboard,
     },
-    // 模块 B：HR 面试（S2）—— 位于市场初审与评估中心（S3）之间
+    // HR 面试：位于市场初审与评估中心之间
     {
       label: tSidebar('interview', 'Interview'),
       path: '/interview',
@@ -266,41 +203,13 @@ export function Sidebar() {
       path: '/arena',
       icon: Swords,
     },
+    // 成本看板：LLM token 用量按 agent/团队/任务归集 + DeepSeek 刊例估价
+    {
+      label: tSidebar('llmCosts', '成本'),
+      path: '/llm-costs',
+      icon: DollarSign,
+    },
   ];
-
-  // Build message map for current session only (for message preview)
-  const sessionMessagesMap = useMemo(() => {
-    const map = new Map();
-    if (currentSessionKey && messages.length > 0) {
-      map.set(currentSessionKey, messages);
-    }
-    return map;
-  }, [currentSessionKey, messages]);
-
-  // Sort sessions (pinned first, then by activity)
-  const sortedSessions = useMemo(() => {
-    return [...sessions].sort((left, right) => {
-      const leftPinned = pinnedSessionKeySet.has(left.key);
-      const rightPinned = pinnedSessionKeySet.has(right.key);
-      if (leftPinned !== rightPinned) {
-        return leftPinned ? -1 : 1;
-      }
-
-      return (
-        (sessionLastActivity[right.key] ?? right.updatedAt ?? 0) -
-        (sessionLastActivity[left.key] ?? left.updatedAt ?? 0)
-      );
-    });
-  }, [sessions, pinnedSessionKeySet, sessionLastActivity]);
-
-  // Get message preview for each session
-  const getMessagePreview = (sessionKey: string): string => {
-    const messages = sessionMessagesMap.get(sessionKey) || [];
-    if (messages.length === 0) return '';
-    const lastMessage = messages[messages.length - 1];
-    const content = typeof lastMessage.content === 'string' ? lastMessage.content : '';
-    return content.length > 50 ? content.slice(0, 50) + '...' : content;
-  };
 
   const searchSessionsData = sessions.map((session) => ({
     key: session.key,
@@ -316,12 +225,6 @@ export function Sidebar() {
     reportsTo: agent.reportsTo,
     isDefault: agent.isDefault,
   }));
-
-  const handleNewSession = () => {
-    setSessionsOpen(true);
-    newSession();
-    navigate('/');
-  };
 
   return (
     <aside
@@ -370,55 +273,7 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div className="session-scroll mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
-
-        <div className="mt-4 space-y-1">
-          <SessionSectionHeader
-            label={tSidebar('sessions', 'Sessions')}
-            open={sessionsOpen}
-            collapsed={sidebarCollapsed}
-            newSessionLabel={tSidebar('newSession', 'New session')}
-            onToggle={() => setSessionsOpen((current) => !current)}
-            onNewSession={handleNewSession}
-          />
-          {!sidebarCollapsed && sessionsOpen ? (
-            <div className="space-y-2">
-              {sortedSessions.length > 0 ? (
-                <div className="space-y-2">
-                  {sortedSessions.map((session) => {
-                    const label = resolveSessionDisplayLabel(session, agents);
-                    const isPinned = pinnedSessionKeySet.has(session.key);
-                    const isActive = currentSessionKey === session.key;
-                    const messagePreview = getMessagePreview(session.key);
-
-                    return (
-                      <SessionItem
-                        key={session.key}
-                        session={session}
-                        label={label}
-                        isPinned={isPinned}
-                        isActive={isActive}
-                        messagePreview={messagePreview}
-                        agentAvatar={agents.find((a) => a.id === (session.targetAgentId ?? session.agentId))?.avatar}
-                        onClick={() => {
-                          switchSession(session.key);
-                          navigate('/');
-                        }}
-                        onPinToggle={() => toggleSessionPinned(session.key)}
-                        onDelete={() => void deleteSession(session.key)}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="px-4 py-2 text-sm text-[var(--neu-ink-soft)]">
-                  {tSidebar('noSessions', 'No sessions')}
-                </p>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
+      {/* 会话列表已迁至独立「会话」页（/chats），侧栏不再内嵌 */}
 
       <div className="mt-auto pt-3">
         {/* User Info Section */}
@@ -434,6 +289,15 @@ export function Sidebar() {
                 {selectedAvatar}
               </button>
               <span className="flex-1 truncate text-[13px] font-bold text-[#1A1C1E]">{nickname}</span>
+              <button
+                type="button"
+                aria-label={tSidebar('guide', '新手引导')}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/50 text-[var(--neu-ink-soft)] shadow-sm transition-all hover:bg-white hover:text-[#1A1C1E] hover:shadow-md"
+                onClick={() => openGuide()}
+                title={tSidebar('guide', '新手引导')}
+              >
+                <HelpCircle className="h-5 w-5" />
+              </button>
               <button
                 type="button"
                 aria-label={tSidebar('settingsAria', 'Settings')}

@@ -26,7 +26,11 @@ import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
 import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
+import { useChatStore } from '@/stores/chat';
 import { useEvaluationStore } from '@/stores/evaluation';
+import { usePerformanceStore, subtasksToOutcomes } from '@/stores/performance';
+import { useExperienceStore, buildExperienceText, reflectExperience } from '@/stores/experience';
+import { toPerformance } from '@/types/performance';
 import type { KanbanTask } from '@/types/task';
 import {
   routeBySquadLeader,
@@ -34,7 +38,14 @@ import {
 } from '@/engine/squad/squadRouting';
 import { runRealExecution, runRealChat, isRealExecutorAvailable } from '@/engine/llm/realExecutor';
 import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
-import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
+import {
+  runSquadOrchestration,
+  type SubTaskResult,
+} from '@/engine/squad/squadOrchestration';
+import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
+import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
+import { invokeIpc } from '@/lib/api-client';
+import { notifyTaskTerminal } from '@/lib/task-notify';
 import type { Team } from '@/types/team';
 import type { A2aTraceRecord } from '@/types/evaluation';
 import type { TaskExecutionEvent } from '@/types/task';
@@ -119,14 +130,64 @@ interface AutoWorkerState {
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticking = false;
 /** 当前在途执行数（模块级，避免并发 tick 之间竞态）。 */
-let inFlight = 0;
-/** 本轮 tick 已在途 / 刚领取的任务 id，避免并发 claim 领到同一条。 */
+let inFlight = 0;/** 本轮 tick 已在途 / 刚领取的任务 id，避免并发 claim 领到同一条。 */
 const claimed = new Set<string>();
+
+/**
+ * 跨执行通道的互斥领取（Bug：房间派活 vs autoWorker 双跑同一任务）。
+ * teamChatWorkOrder 受理会话派活前先 claimTask（占用失败即不受理），
+ * 结束（含失败）后 releaseClaim；autoWorker _tick 领取前查同一集合，天然互斥。
+ */
+export function claimTask(taskId: string): boolean {
+  if (claimed.has(taskId)) return false;
+  claimed.add(taskId);
+  return true;
+}
+
+/** 释放互斥占用（幂等）。 */
+export function releaseClaim(taskId: string): void {
+  claimed.delete(taskId);
+}
+
+/** 只读查询任务是否被任一执行通道占用。 */
+export function isTaskClaimed(taskId: string): boolean {
+  return claimed.has(taskId);
+}
 
 function clearTimer() {
   if (timer) {
     clearInterval(timer);
     timer = null;
+  }
+}
+
+/** 启动恢复：stale working 判定阈值（10 分钟无更新视为中断）。 */
+const STALE_WORKING_MS = 10 * 60_000;
+/** 每次会话只清扫一次（首次 fetchTasks 完成后触发）。 */
+let staleSweepDone = false;
+
+/**
+ * 启动恢复清扫：页面刷新/重启后，遗留在「进行中 + working/starting」且长时间
+ * 无更新的任务（执行进程已死，状态机永远卡住）复位为 failed + 写明原因，
+ * 看板「失败·点我重试」可人工重排队。正在被本 worker/会话派活占用的任务不动。
+ */
+async function sweepStaleWorkingTasks(): Promise<void> {
+  const approvals = useApprovalsStore.getState();
+  const now = Date.now();
+  const stale = approvals.tasks.filter((t) => {
+    if (t.status !== 'in-progress') return false;
+    if (t.workState !== 'working' && t.workState !== 'starting') return false;
+    if (claimed.has(t.id)) return false;
+    const updatedAt = new Date(t.updatedAt).getTime();
+    return Number.isFinite(updatedAt) && now - updatedAt > STALE_WORKING_MS;
+  });
+  for (const t of stale) {
+    await approvals
+      .updateTask(t.id, {
+        workState: 'failed',
+        workError: '执行中断（页面刷新/重启），可重试',
+      })
+      .catch(() => { /* 单条落库失败不阻塞其余清扫 */ });
   }
 }
 
@@ -193,6 +254,11 @@ export const useAutoWorkerStore = create<AutoWorkerState>((set, get) => ({
       const approvals = useApprovalsStore.getState();
       // 拉最新任务快照（真实读主干 /api/tasks）。
       await approvals.fetchTasks();
+      // 启动恢复：首次拿到任务快照后清扫 stale working（刷新/重启遗留的卡死任务）。
+      if (!staleSweepDone) {
+        staleSweepDone = true;
+        await sweepStaleWorkingTasks();
+      }
 
       while (inFlight < concurrency) {
         const tasks = useApprovalsStore.getState().tasks;
@@ -208,7 +274,7 @@ export const useAutoWorkerStore = create<AutoWorkerState>((set, get) => ({
           break;
         }
         // 逻辑 claim：标记后立即占槽，避免并发 tick / 并发循环重复领取。
-        claimed.add(next.id);
+        claimTask(next.id);
         inFlight += 1;
         set((s) => ({
           activeTaskIds: [...s.activeTaskIds, next.id],
@@ -245,9 +311,11 @@ interface LeaderRouting {
 }
 
 /** 把团队成员（含 leader）投影成路由所需的最简画像（真实数据，离职/淘汰标 inactive）。 */
-function projectRoutingCandidates(team: Team): RoutingCandidate[] {
+export function projectRoutingCandidates(team: Team): RoutingCandidate[] {
   const agents = useAgentsStore.getState().agents;
   const profiles = useEvaluationStore.getState().profiles;
+  // D：成员绩效快照（DyLAN 贡献度信号，arXiv:2310.02170），注入契约字段 performance
+  const stats = usePerformanceStore.getState().stats;
   const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
   return memberIds
     .map((id): RoutingCandidate | null => {
@@ -262,6 +330,8 @@ function projectRoutingCandidates(team: Team): RoutingCandidate[] {
         jobType: profile?.jobType ?? null,
         radar: profile?.radarLatest ?? null,
         userFit: profile?.userFitLatest ?? null,
+        // toPerformance 对无记录新成员给 approvedRate=1（新成员不罚）
+        performance: toPerformance(stats[id]),
       };
     })
     .filter((c): c is RoutingCandidate => c !== null);
@@ -314,6 +384,117 @@ function traceToEvent(t: A2aTraceRecord): TaskExecutionEvent {
   };
 }
 
+/** 执行事件写回节流间隔（ms）：编排期间每条 A2A 消息都立即 append 会引发写/渲染风暴。 */
+const EVENT_FLUSH_INTERVAL_MS = 800;
+
+/**
+ * 事件写回节流器（增量版）：trace 转成事件后攒在本轮待写队列，
+ * 最多每 800ms 把新增事件逐条走 appendTaskExecutionEvent 原子 append 端点落库；
+ * flush() 强制落尾部（任务结束/失败时必须调用，保证时间线不丢尾事件）。
+ *
+ * 为何不再全量 PUT executionEvents：运行期用户在任务会话里发的对话消息
+ * 同样走原子 append 端点，全量 PUT（编排开始时的快照预填）会把这些消息抹掉。
+ * 增量 append 只追加本轮新增，天然不覆盖他人写入；调用方也因此无需再预填
+ * 既有事件列表。导出供单测直接验证节流语义。
+ */
+export function createThrottledEventSink(taskId: string) {
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 本轮已 push 待落库的新增事件（write 时取走并清空）。 */
+  let pending: TaskExecutionEvent[] = [];
+  /** 写链：所有批次串行追加，保证事件顺序且不并发交错。 */
+  let writeChain: Promise<unknown> = Promise.resolve();
+
+  const write = (): Promise<unknown> => {
+    const batch = pending;
+    pending = [];
+    if (batch.length === 0) return writeChain;
+    writeChain = writeChain.then(async () => {
+      for (const event of batch) {
+        await useApprovalsStore
+          .getState()
+          .appendTaskExecutionEvent(taskId, event)
+          .catch(() => { /* 时间线写回失败不阻塞执行 */ });
+      }
+    });
+    return writeChain;
+  };
+
+  return {
+    push(t: A2aTraceRecord): void {
+      pending.push(traceToEvent(t));
+      if (!flushTimer) {
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          void write();
+        }, EVENT_FLUSH_INTERVAL_MS);
+      }
+    },
+    async flush(): Promise<void> {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      // 落尾部批次，并等写链全部完成，避免与后续终态 PUT 交错丢字段
+      await write();
+      await writeChain.catch(() => { });
+    },
+  };
+}
+
+/**
+ * 网关回退路径的终态回写轮询参数（Bug：拿到 runId 直接假完成）。
+ * chat.send 只返回 runId，网关侧可查询的终态通道是 chat.history RPC
+ * （与 chat 面板 loadHistory 同一通道）：按 sessionKey 拉历史，
+ * 取派发时刻之后最新一条带文本的 assistant 消息作为真实产出。
+ */
+const GATEWAY_RESULT_POLL_MS = 5_000;
+const GATEWAY_RESULT_TIMEOUT_MS = 10 * 60_000;
+/** 时钟偏差容忍：助手消息时间戳略早于派发时刻也接受。 */
+const GATEWAY_RESULT_CLOCK_SKEW_MS = 10_000;
+
+/** 从一条历史消息提取非工具文本（content 为字符串或 text 块数组）；无文本返回空串。 */
+function extractAssistantText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b): b is { type: string; text: string } =>
+      Boolean(b && typeof b === 'object' && (b as { type?: unknown }).type === 'text' && typeof (b as { text?: unknown }).text === 'string'))
+    .map((b) => b.text)
+    .join('\n')
+    .trim();
+}
+
+/**
+ * 轮询网关会话历史，等待本次派发（sinceMs）之后的真实产出；超时返回 null。
+ * 历史查询失败视为瞬态，下轮重试直至超时。
+ */
+async function awaitGatewayRunResult(sessionKey: string, sinceMs: number): Promise<string | null> {
+  const deadline = Date.now() + GATEWAY_RESULT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const data = await useGatewayStore.getState().rpc<Record<string, unknown>>(
+        'chat.history',
+        { sessionKey, limit: 50 },
+        15_000,
+      );
+      const msgs = Array.isArray(data?.messages) ? data.messages as Array<Record<string, unknown>> : [];
+      for (let i = msgs.length - 1; i >= 0; i -= 1) {
+        const m = msgs[i];
+        if (m?.role !== 'assistant') continue;
+        // 无时间戳无法确认是本轮产出，宁可跳过也不拿旧回复冒充
+        const ts = typeof m.timestamp === 'number' ? m.timestamp * 1000 : 0;
+        if (!ts || ts < sinceMs - GATEWAY_RESULT_CLOCK_SKEW_MS) continue;
+        const text = extractAssistantText(m.content);
+        if (text) return text;
+      }
+    } catch {
+      /* 历史查询失败：下轮再试 */
+    }
+    await new Promise((r) => setTimeout(r, GATEWAY_RESULT_POLL_MS));
+  }
+  return null;
+}
+
 /**
  * 执行单条任务：（可选）leader 路由 → 反查 sessionKey → 网关真实派活 →
  * startTaskExecution 记录 → 轮询 workState 终态 → done 流转 review / failed 走 S9 自动重试。
@@ -345,6 +526,15 @@ async function runOne(
     const team = task.teamId
       ? useTeamsStore.getState().teams.find((t) => t.id === task.teamId)
       : undefined;
+    // 兜底：老任务（建会话功能上线前创建的团队任务）被领取执行时补建会话条目。
+    if (task.teamId) {
+      useChatStore.getState().ensureTeamTaskSession({
+        id: task.id,
+        title: task.title,
+        teamId: task.teamId,
+        teamName: task.teamName ?? team?.name,
+      });
+    }
     const orchestrate = Boolean(team && team.leaderId && realAvailable);
     const routing = orchestrate
       ? { assigneeId: task.assigneeId, leaderId: team!.leaderId, collaborate: false }
@@ -376,6 +566,12 @@ async function runOne(
     let sessionId = task.runtimeSessionId || sessionKey;
     let runId: string | undefined;
     let realOutput: string | null = null;
+    /** 网关派发时刻（ms），终态回写只认这之后的助手产出。 */
+    let dispatchedAt = Date.now();
+    /** 交付文件落盘目录（仅编排路径产出）。 */
+    let deliverableDir: string | undefined;
+    /** 编排子任务结果（仅编排路径），交付后用于绩效上报与经验复盘。 */
+    let orchSubtasks: SubTaskResult[] | null = null;
 
     // 2. 真实执行优先：若真实 LLM 后端在线（Vite 代理已配置 key）：
     //    - 团队任务 → 多成员编排（leader 拆解 → 并行执行 → 审阅/返工 → 汇总）；
@@ -387,7 +583,10 @@ async function runOne(
       try {
         if (orchestrate && team) {
           // —— 多成员编排：leader 拆解 → 成员并行执行 → leader 审阅/返工 → 汇总 ——
-          const events: TaskExecutionEvent[] = [];
+          // 事件节流写回（增量 append，无需预填历史事件）：看板即时可见
+          const sink = createThrottledEventSink(task.id);
+          // P0-3：里程碑 trace 实时广播到团队房间（仅团队任务；失败静默）
+          const forwardRoom = task.teamId ? createRoomTraceForwarder(task.teamId) : null;
           const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
           // 注入各成员 persona（SOUL.md 摘要）；读不到为 null，编排器退回纯身份说明。
           const personas: Record<string, string | null> = {};
@@ -399,45 +598,81 @@ async function runOne(
                 .catch(() => null);
             }),
           );
-          const orch = await runSquadOrchestration({
-            taskId: task.id,
-            taskTitle: task.title,
-            taskDescription: task.description,
-            team,
-            candidates: projectRoutingCandidates(team),
-            personas,
-            maxRounds: 2,
-            // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
-            chat: (_agentId, messages) => runRealChat(messages, 2048),
-            // 每产生一条 A2A 消息，实时 append 成执行事件并写回任务（看板即时可见）。
-            onTrace: (t) => {
-              events.push(traceToEvent(t));
-              void approvals.updateTask(task.id, { executionEvents: [...events] });
-            },
-          });
+          let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
+          try {
+            // D：编排前拉最新绩效快照（projectRoutingCandidates 注入 performance；失败静默）
+            await usePerformanceStore.getState().fetchMemberStats();
+            // F：编排前注入团队经验卡（Reflexion 式记忆，arXiv:2303.11366）；无卡/拉取失败 → 不注入
+            const experienceText = buildExperienceText(
+              await useExperienceStore.getState().getExperience(team.id),
+            );
+            // C/F 契约字段：qualityMode（双草案高质量模式）+ experience（团队经验卡）
+            orch = await runSquadOrchestration({
+              taskId: task.id,
+              taskTitle: task.title,
+              taskDescription: task.description,
+              team,
+              candidates: projectRoutingCandidates(team),
+              personas,
+              maxRounds: 3,
+              // C：高优先级任务走双草案高质量模式
+              qualityMode: task.priority === 'high',
+              // F：团队经验卡文本（最近 10 条，每行「- 内容」）
+              ...(experienceText ? { experience: experienceText } : {}),
+              // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
+              // ctx 透传给用量采集（成本看板按 task/team/agent 归集）。
+              // maxTokens 8192：长交付物需要足够输出额度，2048 会腰斩。
+              chat: (agentId, messages) => runRealChat(messages, 8192, { taskId: task.id, teamId: team.id, agentId }),
+              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
+              onTrace: (t) => { sink.push(t); forwardRoom?.(t); },
+            });
+          } finally {
+            // 成功/失败都必须把尾部事件落库，时间线不丢尾
+            await sink.flush();
+          }
+          orchSubtasks = orch.subtasks;
+          // D：编排结果按子任务归集成成员绩效上报（fire-and-forget，失败静默）
+          void usePerformanceStore.getState().recordOutcomes(subtasksToOutcomes(orch.subtasks));
           const passed = orch.subtasks.filter((s) => s.approved).length;
           const failedCount = orch.subtasks.filter((s) => s.error).length;
           realOutput =
             `【团队协同·${team.name}·${orch.subtasks.length} 个子任务：${passed} 通过` +
             `${failedCount ? `，${failedCount} 失败` : ''}】\n${orch.deliverable}`;
+          // 交付文件落盘：各子任务完整产出（含代码全文）写成真实文件，
+          // HTML 可直接双击运行；落盘失败不阻塞交付，仅不附目录。
+          try {
+            const files = buildDeliverableFiles(orch.subtasks, orch.deliverable);
+            const saved = await invokeIpc<{ success: boolean; dir?: string; saved?: string[] }>(
+              'task:saveDeliverables',
+              { taskId: task.id, files },
+            );
+            if (saved.success && saved.dir) {
+              deliverableDir = saved.dir;
+              realOutput += `\n\n---\n📁 ${saved.saved?.length ?? 0} 个交付文件已保存到本地，点下方「打开交付目录」查看/运行。`;
+            }
+          } catch {
+            /* 落盘失败不阻塞交付 */
+          }
         } else if (routing.collaborate && routing.leaderId && resolvedAssigneeId) {
           // —— 多 agent A2A 协作：leader 分派 → 成员执行 → leader 审阅（可返工）——
-          const events: TaskExecutionEvent[] = [];
-          const collab = await runSquadCollaboration({
-            taskId: task.id,
-            taskTitle: task.title,
-            taskDescription: task.description,
-            leaderId: routing.leaderId,
-            memberId: resolvedAssigneeId,
-            maxRounds: 2,
-            // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
-            chat: (_agentId, messages) => runRealChat(messages, 2048),
-            // 每产生一条 A2A 消息，实时 append 成执行事件并写回任务（看板即时可见）。
-            onTrace: (t) => {
-              events.push(traceToEvent(t));
-              void approvals.updateTask(task.id, { executionEvents: [...events] });
-            },
-          });
+          const sink = createThrottledEventSink(task.id);
+          let collab: Awaited<ReturnType<typeof runSquadCollaboration>>;
+          try {
+            collab = await runSquadCollaboration({
+              taskId: task.id,
+              taskTitle: task.title,
+              taskDescription: task.description,
+              leaderId: routing.leaderId,
+              memberId: resolvedAssigneeId,
+              maxRounds: 3,
+              // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
+              chat: (agentId, messages) => runRealChat(messages, 8192, { taskId: task.id, teamId: task.teamId, agentId }),
+              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
+              onTrace: (t) => sink.push(t),
+            });
+          } finally {
+            await sink.flush();
+          }
           realOutput = collab.approved
             ? `【A2A 协作完成·${collab.rounds}轮·Leader PASS】\n${collab.deliverable}`
             : `【A2A 协作未通过·已达${collab.rounds}轮】最后产出：\n${collab.deliverable}\n\nLeader 意见：${collab.verdict}`;
@@ -450,7 +685,10 @@ async function runOne(
           ]
             .filter(Boolean)
             .join('\n');
-          const result = await runRealExecution({ message: prompt, system, maxTokens: 2048 });
+          const result = await runRealExecution(
+            { message: prompt, system, maxTokens: 8192 },
+            { taskId: task.id, teamId: task.teamId, agentId: resolvedAssigneeId ?? undefined },
+          );
           realOutput = result.content;
         }
       } catch (execErr) {
@@ -465,6 +703,7 @@ async function runOne(
       }
     } else {
       // 回退：网关真实派活（复用主干标准 RPC 通道 chat.send）。
+      dispatchedAt = Date.now();
       try {
         const rpcResult = await gateway.rpc<{ runId?: string; sessionId?: string }>(
           'chat.send',
@@ -473,6 +712,8 @@ async function runOne(
         );
         runId = rpcResult?.runId;
         if (rpcResult?.sessionId) sessionId = rpcResult.sessionId;
+        // 派发成功只代表网关受理，任务保持进行中，等终态回写（不再直接假完成）
+        await approvals.updateTask(task.id, { status: 'in-progress', workState: 'working' });
       } catch (rpcErr) {
         await approvals.updateTask(task.id, {
           workState: 'failed',
@@ -492,20 +733,60 @@ async function runOne(
       ...(runId ? { entrySessionKey: sessionKey } : {}),
     });
 
+    // 3.5 网关回退路径：轮询会话历史拿真实产出（带超时）。拿不到绝不假装完成——
+    //     诚实降级为 failed + 退回待办，由人工决定是否重试。
+    if (!realOutput) {
+      realOutput = await awaitGatewayRunResult(sessionKey, dispatchedAt);
+      if (!realOutput) {
+        await approvals.updateTask(task.id, {
+          status: 'todo',
+          workState: 'failed',
+          workError: '网关执行结果回写超时（未能在会话历史中确认产出），已退回待办，可人工重试',
+        });
+        attemptCount.delete(task.id);
+        release();
+        return;
+      }
+    }
+
     // 4. 落终态并写入真实产出，流转 review。
-    //    - 真实执行：workResult = 模型真实产出（截断存储，避免过长）。
-    //    - 网关回退：仍是“已派发执行”，真实产出由主干事件流后续推进。
+    //    workResult = 真实产出（真实执行或网关会话回写，截断存储，避免过长）。
     await approvals.updateTask(task.id, {
       status: 'review',
       workState: 'done',
-      workResult: realOutput
-        ? realOutput.slice(0, 4000)
-        : runId
-          ? `已派发执行（runId=${runId}）`
-          : '已派发执行',
+      ...(deliverableDir ? { deliverableDir } : {}),
+      // workResult 上限 20000：完整保留汇总交付，看板/会话展示与返工上下文都依赖它。
+      workResult: realOutput.slice(0, 20000),
     });
     attemptCount.delete(task.id); // 成功后清计数
-    set({ note: realOutput ? `已完成：${task.title.slice(0, 24)}` : `已派发：${task.title.slice(0, 24)}` });
+    set({ note: `已完成：${task.title.slice(0, 24)}` });
+    // 系统通知：真实执行跑完进评审列，提醒用户验收（点击通知直达任务详情）
+    notifyTaskTerminal(task.id, 'done', task.title);
+    // 团队任务的交付同步到团队房间：与会话派活同一份内容，房间里直接可见
+    if (task.teamId) {
+      await useTeamsStore
+        .getState()
+        .appendTeamChatEvent(task.teamId, {
+          from: team?.leaderId ?? resolvedAssigneeId ?? task.teamId,
+          to: 'user',
+          content:
+            `「${task.title}」交付完成，请验收：\n\n${realOutput.slice(0, 4000)}` +
+            `\n\n> 交付文件在任务会话/看板任务详情里可直接打开或下载 ZIP。`,
+        })
+        .catch(() => { /* 房间同步失败不阻塞交付 */ });
+      // F：交付后 leader 视角复盘一条经验卡（≤150 字，source 记 taskId），
+      //    Reflexion 式记忆闭环（arXiv:2303.11366）；失败静默不阻塞交付。
+      if (team?.leaderId && orchSubtasks?.length) {
+        void reflectExperience({
+          teamId: task.teamId,
+          taskId: task.id,
+          taskTitle: task.title,
+          subtasks: orchSubtasks,
+          chat: (messages) =>
+            runRealChat(messages, 512, { taskId: task.id, teamId: task.teamId, agentId: team.leaderId }),
+        });
+      }
+    }
     release();
     void get()._tick(); // 立即补槽
   } catch (e) {
@@ -535,8 +816,15 @@ async function maybeAutoRetry(
   const attempts = attemptCount.get(task.id) ?? 1;
   const max = get().maxAttempts;
   if (attempts >= max) {
+    // 终态失败：status 一并复位回 todo（不再卡在 in-progress 列），
+    // workState 保持 failed——autoWorker 只领 idle，不会自动死循环；
+    // 看板「失败·点我重试」按钮（复位 todo+idle）是人工重试入口。
+    await useApprovalsStore.getState().updateTask(task.id, { status: 'todo' }).catch(() => { /* 落库失败忽略 */ });
     set({ note: `任务失败且已达重试上限（${attempts}/${max}），终止：${task.title.slice(0, 20)}` });
     attemptCount.delete(task.id);
+    // 系统通知：终态失败（不再自动重试），提醒用户处理；原因从 store 取最新
+    const freshError = useApprovalsStore.getState().tasks.find((t) => t.id === task.id)?.workError;
+    notifyTaskTerminal(task.id, 'failed', task.title, freshError ?? undefined);
     return;
   }
   // 复位为待办，等待下一轮自动领取重跑。计数保留（下次进入 runOne 再 +1）。
@@ -556,6 +844,7 @@ export function __resetAutoWorkerForTest(): void {
   claimed.clear();
   inFlight = 0;
   ticking = false;
+  staleSweepDone = false;
   realExecutorReady = false;
   realExecutorProbed = false;
   clearTimer();

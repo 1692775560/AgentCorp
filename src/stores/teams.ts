@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
-import type { TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamsSnapshot } from '@/types/team';
+import type { TeamSummary, CreateTeamRequest, UpdateTeamRequest, TeamsSnapshot, TeamChatEvent } from '@/types/team';
 
 interface TeamsState {
   teams: TeamSummary[];
@@ -12,6 +12,9 @@ interface TeamsState {
   createTeam: (request: CreateTeamRequest) => Promise<void>;
   updateTeam: (teamId: string, updates: UpdateTeamRequest) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
+
+  /** 团队房间追加一条消息（基于最新状态，封顶 200 条）。 */
+  appendTeamChatEvent: (teamId: string, event: Omit<TeamChatEvent, 'createdAt'>) => Promise<void>;
 
   // Convenience methods
   addMember: (teamId: string, agentId: string) => Promise<void>;
@@ -114,4 +117,26 @@ export const useTeamsStore = create<TeamsState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  appendTeamChatEvent: async (teamId, event) => {
+    // 本地无此团队 → 静默无操作（与读-改-写时代行为一致，也省一次必然失败的请求）
+    const team = get().teams.find((t) => t.id === teamId);
+    if (!team) return;
+    set({ error: null });
+    try {
+      // 服务端原子 append 端点（不再读-改-写 PUT 整个 team，避免并发追加互相覆盖丢消息）；
+      // createdAt 与 200 条封顶由服务端处理，返回最新 teams 快照直接套用。
+      const snapshot = await hostApiFetch<TeamsSnapshot>(
+        `/api/teams/${encodeURIComponent(teamId)}/chat-events`,
+        {
+          method: 'POST',
+          body: JSON.stringify(event),
+        }
+      );
+      set(applySnapshot(snapshot));
+    } catch (error) {
+      set({ error: String(error) });
+      throw error;
+    }
+  },
 }));

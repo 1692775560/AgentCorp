@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, BookOpen, Code, Eye, FolderOpen, GitCommit, Info, Plus, RefreshCw, RotateCw, Save, Trash2, X, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
+import { placeholderNoteForFile } from '@/lib/memory-placeholder';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { hostApiFetch } from '@/lib/host-api';
@@ -473,6 +474,8 @@ function BrowserTab({
   const hasUnsavedChanges = editing && selected !== null && draft !== selected.content;
 
   const isMarkdownFile = selected ? /\.md$/i.test(selected.relativePath) : false;
+  // 占位模板/空壳文档（HEARTBEAT 模板、残渣 MEMORY 等）换成友好说明，Raw 仍可看原文
+  const placeholderNote = selected ? placeholderNoteForFile(selected.relativePath, selected.content) : null;
 
   return (
     <div className="flex h-full min-h-0 gap-3" style={{ height: 'calc(100vh - 200px)' }}>
@@ -650,7 +653,13 @@ function BrowserTab({
                 />
               ) : isMarkdownFile && !rawView ? (
                 <div className="p-4 overflow-auto">
-                  <MarkdownViewer content={selected.content} highlights={selected.search?.highlights} />
+                  {placeholderNote ? (
+                    <div className="rounded-xl border border-black/[0.06] bg-[#fafafc] p-4 text-[12.5px] leading-relaxed text-[#3c3c43]">
+                      {placeholderNote}
+                    </div>
+                  ) : (
+                    <MarkdownViewer content={selected.content} highlights={selected.search?.highlights} />
+                  )}
                 </div>
               ) : (
                 <pre className="whitespace-pre-wrap break-words p-4 font-mono text-[12px] leading-5 text-[#000000]">

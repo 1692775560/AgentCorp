@@ -27,7 +27,15 @@ const Interview = lazy(() => import('./pages/Interview').then((m) => ({ default:
 // 模块 Arena：个性化对决（需求 → 同工种候选作答 → 双轨 Elo）
 const ArenaPage = lazy(() => import('./pages/Arena/ArenaPage').then((m) => ({ default: m.ArenaPage })));
 const Office = lazy(() => import('./pages/Office').then((m) => ({ default: m.Office })));
+// 成本看板：按 agent/团队/任务归集的 LLM token 用量与估算成本
+const LlmCosts = lazy(() => import('./pages/LlmCosts').then((m) => ({ default: m.LlmCosts })));
+// 会话页：左侧全高会话列表（团队房间/任务会话/Agent 会话分组）+ 右侧聊天区
+const Chats = lazy(() => import('./pages/Chats').then((m) => ({ default: m.Chats })));
 import { useSettingsStore } from './stores/settings';
+import { initLlmUsageReporting } from './services/llmUsage';
+
+// 成本看板：把 LLM 用量上报器注入 realExecutor（幂等，采集失败静默）
+initLlmUsageReporting();
 import { useGatewayStore } from './stores/gateway';
 import { isBrowserPreviewMode } from './lib/browser-preview';
 import { seedOfficePreviewData } from './lib/office-preview-seed';
@@ -222,6 +230,7 @@ function App() {
           {/* Main application routes */}
           <Route element={<MainLayout />}>
             <Route index element={<Chat />} />
+            <Route path="chats" element={<Chats />} />
             <Route path="models" element={<Navigate to="/settings?section=models-providers" replace />} />
             <Route path="agents" element={<Agents />} />
             <Route path="agents/:agentId" element={<AgentDetail />} />
@@ -240,6 +249,7 @@ function App() {
             {/* /memory 已迁移至 Settings > 记忆与知识 */}
             <Route path="memory" element={<Navigate to="/settings?section=memory-knowledge" replace />} />
             <Route path="costs" element={<Navigate to="/settings?section=costs-usage" replace />} />
+            <Route path="llm-costs" element={<LlmCosts />} />
             <Route path="settings/*" element={<Settings />} />
           </Route>
         </Routes>

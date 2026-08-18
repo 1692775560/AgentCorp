@@ -6,6 +6,7 @@ import {
   createTeam,
   updateTeam,
   deleteTeam,
+  appendTeamChatEvent,
 } from '../../utils/team-config';
 import { clearChannelOwnerBindingsForTeam } from '../../utils/channel-owner-binding';
 import type { CreateTeamRequest, UpdateTeamRequest } from '../../../src/types/team';
@@ -18,6 +19,7 @@ import { logger } from '../../utils/logger';
  * - GET /api/teams - List all teams
  * - POST /api/teams - Create a new team
  * - PUT /api/teams/:teamId - Update a team
+ * - POST /api/teams/:teamId/chat-events - Atomically append one chat event
  * - DELETE /api/teams/:teamId - Delete a team
  */
 export async function handleTeamRoutes(
@@ -62,6 +64,45 @@ export async function handleTeamRoutes(
     } catch (error) {
       logger.error('[teams] Failed to create team:', error);
       sendJson(res, 500, { success: false, error: String(error) });
+    }
+    return true;
+  }
+
+  // POST /api/teams/:teamId/chat-events - Atomically append one chat event
+  // （服务端在 config lock 内读-改-写，避免前端整包 PUT 并发丢消息）
+  if (url.pathname.startsWith('/api/teams/') && req.method === 'POST' && url.pathname.endsWith('/chat-events')) {
+    try {
+      const teamId = decodeURIComponent(
+        url.pathname.slice('/api/teams/'.length, url.pathname.length - '/chat-events'.length),
+      );
+
+      if (!teamId) {
+        sendJson(res, 400, { success: false, error: 'teamId is required' });
+        return true;
+      }
+
+      const body = await parseJsonBody<{ from?: string; to?: string; content?: string }>(req);
+
+      if (!body.from || !body.to || typeof body.content !== 'string') {
+        sendJson(res, 400, { success: false, error: 'from, to and content are required' });
+        return true;
+      }
+
+      const teams = await appendTeamChatEvent(teamId, {
+        from: body.from,
+        to: body.to,
+        content: body.content,
+      });
+      sendJson(res, 200, { success: true, teams });
+    } catch (error) {
+      logger.error('[teams] Failed to append team chat event:', error);
+
+      // Return 404 if team not found
+      if (String(error).includes('not found')) {
+        sendJson(res, 404, { success: false, error: String(error) });
+      } else {
+        sendJson(res, 500, { success: false, error: String(error) });
+      }
     }
     return true;
   }

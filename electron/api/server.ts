@@ -18,11 +18,15 @@ import { handleHealthRoutes } from './routes/health';
 import { handleMemoryRoutes } from './routes/memory';
 import { handleMcpRoutes } from './routes/mcp';
 import { handleCostsRoutes } from './routes/costs';
+import { handleLlmUsageRoutes } from './routes/llm-usage';
 import { handleEvaluateRoutes } from './routes/evaluate';
 import { handleAlertsRoutes } from './routes/alerts';
 import { handleFeishuRoutes } from './routes/feishu';
 import { handleTeamRoutes } from './routes/teams';
 import { handleTaskRoutes } from './routes/tasks';
+import { handleScheduleRoutes } from './routes/schedules';
+import { handleMemberStatsRoutes } from './routes/member-stats';
+import { handleTeamExperienceRoutes } from './routes/team-experience';
 import { handleReactionsRoutes } from './routes/reactions';
 import { handleArenaRoutes } from './routes/arena';
 import { handleCraftRoutes } from './routes/craft';
@@ -51,6 +55,9 @@ const routeHandlers: RouteHandler[] = [
   handleAgentRoutes,
   handleTeamRoutes,
   handleTaskRoutes,
+  handleScheduleRoutes,
+  handleMemberStatsRoutes,
+  handleTeamExperienceRoutes,
   handleSkillRoutes,
   handleFileRoutes,
   handleSessionRoutes,
@@ -59,6 +66,7 @@ const routeHandlers: RouteHandler[] = [
   handleMemoryRoutes,
   handleMcpRoutes,
   handleCostsRoutes,
+  handleLlmUsageRoutes,
   handleEvaluateRoutes,
   handleAlertsRoutes,
   handleFeishuRoutes,
