@@ -27,6 +27,12 @@ export interface RoutingCandidate {
   radar?: RadarScore | null;
   /** 用户契合度 0–100（EvaluationProfile.userFitLatest），缺失回退 radar.task*20 */
   userFit?: number | null;
+  /**
+   * 历史绩效（DyLAN arXiv:2310.02170 的绩效加权路由思想：让历史表现影响后续分工）。
+   * tasks 历史任务数；approvedRate 历史一次通过率 0–1；avgRounds 平均返工轮数。
+   * 缺省则打分行为与旧版完全一致（向后兼容）。
+   */
+  performance?: { tasks: number; approvedRate: number; avgRounds: number };
 }
 
 export interface SquadRoutingInput {
@@ -106,7 +112,16 @@ function scoreCandidate(c: RoutingCandidate, job: JobType | null): number {
   const fit = candidateUserFit(c);
   // 工种对口加成：成员声明工种与任务工种一致时 +15（封顶 100）
   const jobBonus = job && c.jobType === job ? 15 : 0;
-  return Math.min(100, Math.round(rScore * 0.6 + fit * 0.4 + jobBonus));
+  const base = rScore * 0.6 + fit * 0.4 + jobBonus;
+  // DyLAN 式绩效加权：有历史绩效（tasks>0）的成员按一次通过率加权
+  // （得分 × (0.6 + 0.4×approvedRate)）；tasks===0 的新成员不罚（系数 1）；
+  // 无 performance 字段时行为完全不变（向后兼容）。
+  const perf = c.performance;
+  const factor =
+    perf && perf.tasks > 0
+      ? 0.6 + 0.4 * Math.max(0, Math.min(1, perf.approvedRate))
+      : 1;
+  return Math.min(100, Math.round(base * factor));
 }
 
 /**

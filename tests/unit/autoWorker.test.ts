@@ -64,6 +64,22 @@ vi.mock('@/stores/approvals', () => ({
 }));
 vi.mock('@/lib/task-notify', () => ({ notifyTaskTerminal: vi.fn() }));
 
+// D/F 数据闭环 store 替身：本文件的用例均不带 teamId（不走编排路径），
+// 模块级 mock 仅为隔离 host-api 与引擎在途改动，不影响被测的网关路径。
+vi.mock('@/stores/performance', () => ({
+  usePerformanceStore: {
+    getState: () => ({ stats: {}, fetchMemberStats: async () => {}, recordOutcomes: async () => {} }),
+  },
+  subtasksToOutcomes: () => [],
+}));
+vi.mock('@/stores/experience', () => ({
+  useExperienceStore: {
+    getState: () => ({ getExperience: async () => [], appendExperience: async () => {} }),
+  },
+  buildExperienceText: () => undefined,
+  reflectExperience: async () => false,
+}));
+
 import { useAutoWorkerStore, __resetAutoWorkerForTest } from '@/stores/autoWorker';
 
 function makeTask(overrides: Partial<KanbanTask> = {}): KanbanTask {

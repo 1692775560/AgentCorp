@@ -19,6 +19,8 @@ import {
   projectRoutingCandidates,
 } from '@/stores/autoWorker';
 import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
+import { usePerformanceStore, subtasksToOutcomes } from '@/stores/performance';
+import { useExperienceStore, buildExperienceText, reflectExperience } from '@/stores/experience';
 import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { runRealChat } from '@/engine/llm/realExecutor';
@@ -88,8 +90,15 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
     const sink = createThrottledEventSink(taskId);
     // P0-3：里程碑 trace 实时广播到团队房间（失败静默，不影响编排）
     const forwardRoom = createRoomTraceForwarder(team.id);
+    // D：编排前拉最新绩效快照（projectRoutingCandidates 注入 performance；失败静默）
+    await usePerformanceStore.getState().fetchMemberStats();
+    // F：编排前注入团队经验卡（Reflexion 式记忆，arXiv:2303.11366）；无卡/失败 → 不注入
+    const experienceText = buildExperienceText(
+      await useExperienceStore.getState().getExperience(team.id),
+    );
     let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
     try {
+      // C/F 契约字段：qualityMode（双草案高质量模式）+ experience（团队经验卡）
       orch = await runSquadOrchestration({
         taskId,
         taskTitle: task.title,
@@ -104,6 +113,10 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         candidates: projectRoutingCandidates(team),
         personas,
         maxRounds: 3,
+        // C：高优先级任务走双草案高质量模式
+        qualityMode: task.priority === 'high',
+        // F：团队经验卡文本（最近 10 条，每行「- 内容」）
+        ...(experienceText ? { experience: experienceText } : {}),
         // maxTokens 8192：长交付物（动态上限最高 16000 字）需要足够的输出额度，2048 会腰斩。
         chat: (agentId, messages) => runRealChat(messages, 8192, { taskId, teamId: team.id, agentId }),
         onTrace: (t) => { sink.push(t); forwardRoom(t); },
@@ -111,6 +124,9 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
     } finally {
       await sink.flush();
     }
+
+    // D：编排结果按子任务归集成成员绩效上报（fire-and-forget，失败静默）
+    void usePerformanceStore.getState().recordOutcomes(subtasksToOutcomes(orch.subtasks));
 
     // 3) 汇总交付 + 文件落盘（与 autoWorker 同构）
     const passed = orch.subtasks.filter((s) => s.approved).length;
@@ -154,6 +170,16 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
           `\n\n> 交付文件在任务会话/看板任务详情里可直接打开或下载 ZIP。`,
       })
       .catch(() => { /* 房间同步失败不阻塞交付 */ });
+    // F：交付后 leader 视角复盘一条经验卡（≤150 字，source 记 taskId），
+    //    Reflexion 式记忆闭环（arXiv:2303.11366）；失败静默不阻塞交付。
+    void reflectExperience({
+      teamId: team.id,
+      taskId,
+      taskTitle: task.title,
+      subtasks: orch.subtasks,
+      chat: (messages) =>
+        runRealChat(messages, 512, { taskId, teamId: team.id, agentId: team.leaderId }),
+    });
     return true;
   } catch (err) {
     // 失败复位：workState 落 failed（看板可人工重试），status 回到进入派活前的列——

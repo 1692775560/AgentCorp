@@ -94,6 +94,42 @@ vi.mock('@/lib/api-client', () => ({
 }));
 vi.mock('@/lib/task-notify', () => ({ notifyTaskTerminal: vi.fn() }));
 
+// ── D/F 数据闭环 store 替身（绩效上报 + 经验卡注入/复盘）──────────────
+const fetchMemberStatsMock = vi.fn(async () => {});
+const recordOutcomesMock = vi.fn(async () => {});
+vi.mock('@/stores/performance', () => ({
+  usePerformanceStore: {
+    getState: () => ({
+      stats: {},
+      fetchMemberStats: fetchMemberStatsMock,
+      recordOutcomes: recordOutcomesMock,
+    }),
+  },
+  subtasksToOutcomes: (
+    subs: Array<{ assigneeId?: string; approved: boolean; rounds: number; error?: string }>,
+  ) =>
+    subs
+      .filter((s) => Boolean(s.assigneeId))
+      .map((s) => ({
+        agentId: s.assigneeId as string,
+        approved: s.error ? false : Boolean(s.approved),
+        rounds: Math.max(1, Math.round(s.rounds ?? 1)),
+      })),
+}));
+const getExperienceMock = vi.fn(async (): Promise<Array<{ id: string; content: string; source: string; createdAt: string }>> => []);
+const reflectExperienceMock = vi.fn(async () => false);
+vi.mock('@/stores/experience', () => ({
+  useExperienceStore: {
+    getState: () => ({
+      getExperience: getExperienceMock,
+      appendExperience: vi.fn(async () => {}),
+    }),
+  },
+  buildExperienceText: (cards: Array<{ content: string }>, limit = 10) =>
+    cards.length ? cards.slice(-limit).map((c) => `- ${c.content}`).join('\n') : undefined,
+  reflectExperience: (...args: unknown[]) => reflectExperienceMock(...args),
+}));
+
 import { runTeamChatWorkOrder, isWorkOrderRunning, retryFailedTask } from '@/stores/teamChatWorkOrder';
 import { claimTask, releaseClaim, __resetAutoWorkerForTest } from '@/stores/autoWorker';
 
@@ -124,6 +160,11 @@ beforeEach(() => {
   appendTeamChatEventMock.mockClear();
   runOrchestrationMock.mockReset();
   runOrchestrationMock.mockResolvedValue({ subtasks: [], deliverable: '汇总交付', traces: [] });
+  fetchMemberStatsMock.mockClear();
+  recordOutcomesMock.mockClear();
+  getExperienceMock.mockReset();
+  getExperienceMock.mockResolvedValue([]);
+  reflectExperienceMock.mockClear();
 });
 
 describe('runTeamChatWorkOrder · 双跑互斥', () => {
@@ -236,4 +277,58 @@ describe('retryFailedTask · 失败自救', () => {
   it('任务不存在 → false', async () => {
     expect(await retryFailedTask('ghost')).toBe(false);
   });
+});
+
+describe('runTeamChatWorkOrder · D/F 数据闭环接线', () => {
+  it('编排前拉绩效+经验注入（experience/qualityMode 契约字段），完成后上报 outcomes + 复盘经验卡', async () => {
+    getExperienceMock.mockResolvedValue([
+      { id: 'e1', content: '代码任务先定接口再动手', source: 't0', createdAt: '' },
+      { id: 'e2', content: '长文任务先列提纲', source: 't0', createdAt: '' },
+    ]);
+    runOrchestrationMock.mockResolvedValue({
+      subtasks: [
+        { title: '子1', assigneeId: 'm1', assignedBy: 'decompose', approved: true, rounds: 2, output: 'x', verdict: 'PASS' },
+        { title: '子2', assigneeId: 'leader', assignedBy: 'routing', approved: false, rounds: 3, output: null, verdict: 'FAIL', error: 'LLM 超时' },
+      ],
+      deliverable: '汇总交付',
+      traces: [],
+      llmCalls: 5,
+    });
+
+    const accepted = await runTeamChatWorkOrder('t1', '补充数据源');
+    expect(accepted).toBe(true);
+
+    // D：编排前拉绩效快照（供候选 performance 注入）
+    expect(fetchMemberStatsMock).toHaveBeenCalled();
+    // F：经验卡拼成「- 内容」文本注入编排输入
+    const input = runOrchestrationMock.mock.calls[0][0] as { experience?: string; qualityMode?: boolean };
+    expect(input.experience).toBe('- 代码任务先定接口再动手\n- 长文任务先列提纲');
+    // C：priority=medium → qualityMode false
+    expect(input.qualityMode).toBe(false);
+    // D：编排结果按子任务归集上报（error 子任务记 approved:false）
+    expect(recordOutcomesMock).toHaveBeenCalledWith([
+      { agentId: 'm1', approved: true, rounds: 2 },
+      { agentId: 'leader', approved: false, rounds: 3 },
+    ]);
+    // F：交付后 leader 视角复盘经验卡（source 记 taskId）
+    expect(reflectExperienceMock).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: 'team-1', taskId: 't1', taskTitle: '做调研' }),
+    );
+    expect(
+      (reflectExperienceMock.mock.calls[0][0] as { subtasks: unknown[] }).subtasks,
+    ).toHaveLength(2);
+  });
+
+  // 经验拉取失败的静默语义由 store 内部 catch 保证（见 experience-store.test.ts），
+  // 接线侧拿到的永远是 resolved 值，这里覆盖「无卡」路径即可。
+  it('高优先级任务 → qualityMode: true；无经验卡 → 不注入 experience 字段', async () => {
+    tasks = [makeTask({ priority: 'high' })];
+    const accepted = await runTeamChatWorkOrder('t1', '重做一版');
+    expect(accepted).toBe(true);
+
+    const input = runOrchestrationMock.mock.calls[0][0] as { experience?: string; qualityMode?: boolean };
+    expect(input.qualityMode).toBe(true);
+    expect(input.experience).toBeUndefined();
+  });
+
 });

@@ -28,6 +28,9 @@ import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
 import { useChatStore } from '@/stores/chat';
 import { useEvaluationStore } from '@/stores/evaluation';
+import { usePerformanceStore, subtasksToOutcomes } from '@/stores/performance';
+import { useExperienceStore, buildExperienceText, reflectExperience } from '@/stores/experience';
+import { toPerformance } from '@/types/performance';
 import type { KanbanTask } from '@/types/task';
 import {
   routeBySquadLeader,
@@ -35,7 +38,10 @@ import {
 } from '@/engine/squad/squadRouting';
 import { runRealExecution, runRealChat, isRealExecutorAvailable } from '@/engine/llm/realExecutor';
 import { runSquadCollaboration } from '@/engine/squad/squadCollaboration';
-import { runSquadOrchestration } from '@/engine/squad/squadOrchestration';
+import {
+  runSquadOrchestration,
+  type SubTaskResult,
+} from '@/engine/squad/squadOrchestration';
 import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { invokeIpc } from '@/lib/api-client';
@@ -308,6 +314,8 @@ interface LeaderRouting {
 export function projectRoutingCandidates(team: Team): RoutingCandidate[] {
   const agents = useAgentsStore.getState().agents;
   const profiles = useEvaluationStore.getState().profiles;
+  // D：成员绩效快照（DyLAN 贡献度信号，arXiv:2310.02170），注入契约字段 performance
+  const stats = usePerformanceStore.getState().stats;
   const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
   return memberIds
     .map((id): RoutingCandidate | null => {
@@ -322,6 +330,8 @@ export function projectRoutingCandidates(team: Team): RoutingCandidate[] {
         jobType: profile?.jobType ?? null,
         radar: profile?.radarLatest ?? null,
         userFit: profile?.userFitLatest ?? null,
+        // toPerformance 对无记录新成员给 approvedRate=1（新成员不罚）
+        performance: toPerformance(stats[id]),
       };
     })
     .filter((c): c is RoutingCandidate => c !== null);
@@ -560,6 +570,8 @@ async function runOne(
     let dispatchedAt = Date.now();
     /** 交付文件落盘目录（仅编排路径产出）。 */
     let deliverableDir: string | undefined;
+    /** 编排子任务结果（仅编排路径），交付后用于绩效上报与经验复盘。 */
+    let orchSubtasks: SubTaskResult[] | null = null;
 
     // 2. 真实执行优先：若真实 LLM 后端在线（Vite 代理已配置 key）：
     //    - 团队任务 → 多成员编排（leader 拆解 → 并行执行 → 审阅/返工 → 汇总）；
@@ -588,6 +600,13 @@ async function runOne(
           );
           let orch: Awaited<ReturnType<typeof runSquadOrchestration>>;
           try {
+            // D：编排前拉最新绩效快照（projectRoutingCandidates 注入 performance；失败静默）
+            await usePerformanceStore.getState().fetchMemberStats();
+            // F：编排前注入团队经验卡（Reflexion 式记忆，arXiv:2303.11366）；无卡/拉取失败 → 不注入
+            const experienceText = buildExperienceText(
+              await useExperienceStore.getState().getExperience(team.id),
+            );
+            // C/F 契约字段：qualityMode（双草案高质量模式）+ experience（团队经验卡）
             orch = await runSquadOrchestration({
               taskId: task.id,
               taskTitle: task.title,
@@ -596,6 +615,10 @@ async function runOne(
               candidates: projectRoutingCandidates(team),
               personas,
               maxRounds: 3,
+              // C：高优先级任务走双草案高质量模式
+              qualityMode: task.priority === 'high',
+              // F：团队经验卡文本（最近 10 条，每行「- 内容」）
+              ...(experienceText ? { experience: experienceText } : {}),
               // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
               // ctx 透传给用量采集（成本看板按 task/team/agent 归集）。
               // maxTokens 8192：长交付物需要足够输出额度，2048 会腰斩。
@@ -607,6 +630,9 @@ async function runOne(
             // 成功/失败都必须把尾部事件落库，时间线不丢尾
             await sink.flush();
           }
+          orchSubtasks = orch.subtasks;
+          // D：编排结果按子任务归集成成员绩效上报（fire-and-forget，失败静默）
+          void usePerformanceStore.getState().recordOutcomes(subtasksToOutcomes(orch.subtasks));
           const passed = orch.subtasks.filter((s) => s.approved).length;
           const failedCount = orch.subtasks.filter((s) => s.error).length;
           realOutput =
@@ -748,6 +774,18 @@ async function runOne(
             `\n\n> 交付文件在任务会话/看板任务详情里可直接打开或下载 ZIP。`,
         })
         .catch(() => { /* 房间同步失败不阻塞交付 */ });
+      // F：交付后 leader 视角复盘一条经验卡（≤150 字，source 记 taskId），
+      //    Reflexion 式记忆闭环（arXiv:2303.11366）；失败静默不阻塞交付。
+      if (team?.leaderId && orchSubtasks?.length) {
+        void reflectExperience({
+          teamId: task.teamId,
+          taskId: task.id,
+          taskTitle: task.title,
+          subtasks: orchSubtasks,
+          chat: (messages) =>
+            runRealChat(messages, 512, { taskId: task.id, teamId: task.teamId, agentId: team.leaderId }),
+        });
+      }
     }
     release();
     void get()._tick(); // 立即补槽

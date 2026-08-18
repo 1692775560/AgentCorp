@@ -22,6 +22,21 @@
  *   5. SUMMARIZE（leader）：把全部子任务产出汇总成一份交付物
  *      （上限按子任务数动态化：6000 + 2000/子任务，封顶 16000 字）。
  *
+ * 论文驱动的内核改造：
+ *   A. 结构化验收 checklist + 独立盲审（对治 MAST arXiv:2503.13657 的 verification
+ *      gap）：子任务可带 acceptance 验收标准，leader 审阅逐条 ✓/✗；leader 首次
+ *      PASS 后再由「既非执行者也非 leader」的第三成员盲审一次，盲审 PASS 才算真通过。
+ *   B. 结构化交付契约机检（MetaGPT ICLR2024 结构化文档思想）：子任务可带
+ *      requiredSections，成员产出先做 includes 机检，缺部分直接 REWORK，
+ *      不消耗 LLM 审阅。
+ *   C. 高质量模式双草案 + 合成（MoA arXiv:2406.04692）：qualityMode 开启时首轮
+ *      两名成员各自独立产出草案，leader 审阅两版后合成最优版（成本翻倍，默认关）。
+ *   E. 调用预算护栏（对治 MAST termination failure）：callBudget 限制 LLM 调用
+ *      次数（默认 80，qualityMode 默认 120）；耗尽后按序降级——先砍可选步骤
+ *      （KICKOFF/CROSS_REVIEW/REPLAN/盲审），再停返工（当前产出作最终版），
+ *      SUMMARIZE 永远保底并标注「预算受限，提前收敛」。
+ *   D（路由侧，见 squadRouting.ts）：绩效加权路由（DyLAN arXiv:2310.02170）。
+ *
  * 健壮性：每个新步骤独立 try/catch，失败降级为原行为，绝不影响主流程。
  *
  * 环境无关：通过注入 `chat(agentId, messages)` 执行函数解耦运行环境
@@ -39,6 +54,13 @@ export interface OrchestrationSubTask {
   title: string;
   instruction: string;
   assigneeId?: string;
+  /**
+   * A：可勾选验收标准（2~5 条，对治 MAST verification gap）。
+   * 有则 leader 审阅逐条 ✓/✗，且首次 PASS 后触发一次独立盲审；缺失则无 checklist。
+   */
+  acceptance?: string[];
+  /** B：交付必备部分标题（MetaGPT 结构化交付契约）；有则成员产出先做机检。 */
+  requiredSections?: string[];
 }
 
 export interface OrchestrationInput {
@@ -53,6 +75,12 @@ export interface OrchestrationInput {
   personas?: Record<string, string | null>;
   /** 单个子任务最大返工轮数（含首轮），默认 2。 */
   maxRounds?: number;
+  /** C：高质量模式（MoA 双草案 + 合成），成本翻倍，默认关。 */
+  qualityMode?: boolean;
+  /** 团队经验卡文本：有则拼进 DECOMPOSE system（「团队既往经验：…」），没有就不提。 */
+  experience?: string;
+  /** E：LLM 调用预算上限，默认 80（qualityMode 时默认 120）；SUMMARIZE 保底不受拦截。 */
+  callBudget?: number;
   chat: ChatFn;
   /** 每产生一条 A2A trace 时回调（用于实时展示 / 落盘）。 */
   onTrace?: (trace: A2aTraceRecord) => void;
@@ -70,6 +98,10 @@ export interface SubTaskResult {
   /** leader 最终审阅结论 */
   verdict: string;
   error?: string;
+  /** A：独立盲审结果（每子任务最多 1 次；未触发/无第三成员时为 undefined）。 */
+  blindReview?: { reviewer: string; approved: boolean; notes: string } | null;
+  /** C：qualityMode 首轮两版草案来源记录（退回单草案时为 undefined）。 */
+  drafts?: { assigneeId: string; output: string }[];
 }
 
 export interface OrchestrationResult {
@@ -78,6 +110,8 @@ export interface OrchestrationResult {
   deliverable: string;
   /** 完整 A2A 协议轨迹（真实往返） */
   traces: A2aTraceRecord[];
+  /** E：本次编排实际 LLM 调用次数（含保底的 SUMMARIZE）。 */
+  llmCalls: number;
 }
 
 /** 子任务工种分级（P0-1）：决定成员产出的字数天花板。 */
@@ -164,6 +198,21 @@ export function firstLineIsOk(reply: string): boolean {
   return normalized.startsWith('OK');
 }
 
+/**
+ * 容错解析字符串数组字段（acceptance / requiredSections）：
+ * 过滤非字符串与空串、截断到 max 条；不足 min 条或不是数组视为非法，
+ * 返回 undefined（该子任务无此字段），不导致整体解析失败。
+ */
+function parseStringList(value: unknown, min: number, max: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const list = value
+    .filter((s): s is string => typeof s === 'string')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, max);
+  return list.length >= min ? list : undefined;
+}
+
 /** 容错解析 leader 拆解输出：提取 ```json 块或首个 JSON 数组。 */
 export function parseSubTasks(raw: string): OrchestrationSubTask[] | null {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -179,12 +228,18 @@ export function parseSubTasks(raw: string): OrchestrationSubTask[] | null {
       const title = typeof o.title === 'string' ? o.title.trim() : '';
       const instruction = typeof o.instruction === 'string' ? o.instruction.trim() : '';
       if (!title || !instruction) return null;
+      // A：acceptance 验收标准 2~5 条；B：requiredSections 必备部分 1~8 条。
+      // 缺失/非法仅丢弃该字段，子任务本身仍有效。
+      const acceptance = parseStringList(o.acceptance, 2, 5);
+      const requiredSections = parseStringList(o.requiredSections, 1, 8);
       subtasks.push({
         title,
         instruction,
         ...(typeof o.assigneeId === 'string' && o.assigneeId.trim()
           ? { assigneeId: o.assigneeId.trim() }
           : {}),
+        ...(acceptance ? { acceptance } : {}),
+        ...(requiredSections ? { requiredSections } : {}),
       });
     }
     return subtasks;
@@ -201,11 +256,45 @@ export async function runSquadOrchestration(
 ): Promise<OrchestrationResult> {
   const { taskId, taskTitle, taskDescription, team, candidates, personas, chat } = input;
   const maxRounds = Math.max(1, input.maxRounds ?? 3);
+  const qualityMode = input.qualityMode === true;
   const rootId = id('root');
   const traces: A2aTraceRecord[] = [];
   const emit = (t: A2aTraceRecord) => {
     traces.push(t);
     input.onTrace?.(t);
+  };
+
+  // —— E：调用预算护栏（对治 MAST arXiv:2503.13657 termination failure）——
+  // 引擎内部包一层计数 chat，每调一次 +1；预算耗尽后按序降级：
+  // ① 跳过可选步骤（KICKOFF 提问 / CROSS_REVIEW / REPLAN / 盲审）；
+  // ② EXECUTE∥REVIEW 循环中耗尽 → 当前产出作为最终版，停止返工
+  //   （剩余未启动子任务仍执行首轮但不返工）；
+  // ③ SUMMARIZE 永远保底执行（不受预算拦截），交付标注「预算受限，提前收敛」。
+  const budget = Math.max(1, input.callBudget ?? (qualityMode ? 120 : 80));
+  let llmCalls = 0;
+  let budgetLimited = false;
+  let budgetGuardTraced = false;
+  const hasBudget = () => llmCalls < budget;
+  const call: ChatFn = (agentId, messages) => {
+    llmCalls += 1;
+    return chat(agentId, messages);
+  };
+  /** 预算护栏触发：置降级标记，trace 只落一条。 */
+  const noteBudgetGuard = (detail: string) => {
+    budgetLimited = true;
+    if (budgetGuardTraced) return;
+    budgetGuardTraced = true;
+    emit(
+      makeTrace({
+        taskId,
+        rootId,
+        delegator: `agent:${team.leaderId}`,
+        delegatee: `team:${team.id}`,
+        round: 1,
+        state: 'working',
+        summary: `预算护栏触发：LLM 调用达预算上限 ${budget}，${detail}`,
+      }),
+    );
   };
 
   const taskText = [taskTitle, taskDescription].filter(Boolean).join('\n');
@@ -216,17 +305,21 @@ export async function runSquadOrchestration(
   const roster = candidates
     .map((c) => `- ${c.agentId}${c.jobType ? `（擅长工种：${c.jobType}）` : ''}${c.agentId === team.leaderId ? '（leader）' : ''}`)
     .join('\n');
-  const decomposeRaw = await chat(team.leaderId, [
+  const experienceText = input.experience?.trim();
+  const decomposeRaw = await call(team.leaderId, [
     {
       role: 'system',
       content: personaSystem(
         personas,
         team.leaderId,
         '你是团队 leader，负责把任务拆解为可并行执行的子任务并指派给团队成员。' +
-          '只输出一个 JSON 数组，不要输出任何其它文字：[{"title":"子任务标题","instruction":"给成员的具体指令与验收标准","assigneeId":"成员agentId（可选）"}]。' +
+          '只输出一个 JSON 数组，不要输出任何其它文字：[{"title":"子任务标题","instruction":"给成员的具体指令","assigneeId":"成员agentId（可选）","acceptance":["可勾选验收标准1","验收标准2"],"requiredSections":["交付必备部分标题"]}]。' +
           `团队成员如下：\n${roster}\n` +
-          '拆解为 1~5 条；每条 instruction 控制在 120 字内，写清要做什么与验收标准；' +
-          '不要在 instruction 里限制成员的产出字数（长度由系统按工种自动控制，人为压短会导致交付残缺）。',
+          '拆解为 1~5 条；每条 instruction 控制在 120 字内，写清要做什么；' +
+          '每条子任务必须给出 acceptance：2~5 条可逐一勾选核对的验收标准（审阅与独立盲审逐条核对用）；' +
+          'requiredSections 可选：交付物必须包含的部分标题（将由程序机检核对，不写则跳过机检）；' +
+          '不要在 instruction 里限制成员的产出字数（长度由系统按工种自动控制，人为压短会导致交付残缺）。' +
+          (experienceText ? `\n\n团队既往经验：\n${experienceText}` : ''),
       ),
     },
     { role: 'user', content: `任务：\n${taskText}` },
@@ -295,25 +388,38 @@ export async function runSquadOrchestration(
   const assigned = subtasks.map(assignOne);
   for (const st of assigned) emitAssignTrace(st);
 
+  // —— C：qualityMode 第二草案成员挑选（排除主 assignee 与 leader，无人可选退回单草案）——
+  const pickSecondDraftee = (excludeId: string, title: string, instruction: string): string | null => {
+    const pool = candidates.filter(
+      (c) => c.agentId !== excludeId && c.agentId !== team.leaderId && c.active !== false,
+    );
+    if (pool.length === 0) return null;
+    const decision = routeBySquadLeader({
+      taskText: `${title}\n${instruction}`,
+      leaderId: team.leaderId,
+      candidates: pool,
+    });
+    return decision.leaderKept ? null : decision.assigneeId || null;
+  };
+
   // —— 单个子任务的 EXECUTE ∥ REVIEW 循环（REPLAN 追加的子任务复用）——
   const executeReviewLoop = async (
     st: SubTaskResult,
-    instruction: string,
+    sub: OrchestrationSubTask,
     kickoffQA?: string,
   ): Promise<void> => {
+    const instruction = sub.instruction;
     // P0-1：字数天花板按工种分级（code 4000 / long 2000 / short 800）。
     const wordLimit = KIND_WORD_LIMIT[classifySubTaskKind(st.title, instruction)];
     let lastReworkTrace: string | null = null;
-    while (st.rounds < maxRounds) {
-      st.rounds += 1;
-
-      // EXECUTE：成员按 persona + 指令产出交付物。
-      const executeMsgs: ChatMessage[] = [
+    /** 成员执行消息（主 assignee 与第二草案成员共用结构）。 */
+    const buildExecuteMsgs = (agentId: string): ChatMessage[] => {
+      const msgs: ChatMessage[] = [
         {
           role: 'system',
           content: personaSystem(
             personas,
-            st.assigneeId,
+            agentId,
             '你是团队中的执行成员。严格按 leader 指令产出可交付的真实成果，直接给结果，不要复述指令。' +
               `控制在 ${wordLimit} 字内。`,
           ),
@@ -325,18 +431,81 @@ export async function runSquadOrchestration(
       ];
       // P2：开工确认的 Q&A 作为附加上下文注入首轮执行。
       if (kickoffQA && st.rounds === 1) {
-        executeMsgs.push({
+        msgs.push({
           role: 'user',
           content: `【开工确认·你的提问与 leader 解答】\n${kickoffQA}`,
         });
       }
       if (st.verdict && st.rounds > 1) {
-        executeMsgs.push({
+        msgs.push({
           role: 'user',
           content: `上一轮被 leader 打回，返工意见：\n${st.verdict}\n请据此修订你的产出。`,
         });
       }
-      st.output = await chat(st.assigneeId, executeMsgs);
+      return msgs;
+    };
+    while (st.rounds < maxRounds) {
+      // E 预算护栏②：预算已耗尽则不再启动新一轮返工；未启动子任务（rounds===0）
+      // 仍执行首轮（见下），但不返工。
+      if (st.rounds > 0 && !hasBudget()) {
+        noteBudgetGuard(`「${st.title.slice(0, 24)}」停止返工，当前产出作为最终版`);
+        break;
+      }
+      st.rounds += 1;
+
+      // EXECUTE：成员按 persona + 指令产出交付物。
+      // C（MoA arXiv:2406.04692）：qualityMode 首轮双草案并行 + leader 合成最优版；
+      // 返工轮退回主 assignee 单草案修订（双草案只在首轮做，成本可控）。
+      if (qualityMode && st.rounds === 1) {
+        const secondId = pickSecondDraftee(st.assigneeId, st.title, instruction);
+        if (secondId && hasBudget()) {
+          const [draftA, draftB] = await Promise.all([
+            call(st.assigneeId, buildExecuteMsgs(st.assigneeId)),
+            call(secondId, buildExecuteMsgs(secondId)),
+          ]);
+          st.drafts = [
+            { assigneeId: st.assigneeId, output: draftA },
+            { assigneeId: secondId, output: draftB },
+          ];
+          const draftsText =
+            `【草案一·${st.assigneeId}】\n${draftA}\n\n【草案二·${secondId}】\n${draftB}`;
+          // leader 先分别审阅两版草案并给出合并指令；
+          const draftReview = await call(team.leaderId, [
+            {
+              role: 'system',
+              content: personaSystem(
+                personas,
+                team.leaderId,
+                `你是团队 leader，审阅子任务「${st.title}」的两版独立草案（成员 ${st.assigneeId} 与 ${secondId} 各自产出）。` +
+                  '分别点评两版的优缺点（各两三句），并给出明确的合并指令：最终版以哪版为底、补入另一版的哪些内容。',
+              ),
+            },
+            { role: 'user', content: `子任务要求：\n${instruction}\n\n${draftsText}` },
+          ]);
+          // 再合成最优版（MoA aggregator：输入两版产出 + 审阅意见，输出最终版）。
+          st.output = await call(team.leaderId, [
+            {
+              role: 'system',
+              content: personaSystem(
+                personas,
+                team.leaderId,
+                `合成：你是团队 leader，负责把子任务「${st.title}」的两版草案合成为一版最优最终稿。` +
+                  '依据审阅意见取长补短，直接输出最终版全文，不要复述意见。' +
+                  `控制在 ${wordLimit} 字内。`,
+              ),
+            },
+            {
+              role: 'user',
+              content: `子任务要求：\n${instruction}\n\n${draftsText}\n\n【审阅意见】\n${draftReview}`,
+            },
+          ]);
+        } else {
+          // 无第二草案成员（或预算耗尽）→ 退回单草案。
+          st.output = await call(st.assigneeId, buildExecuteMsgs(st.assigneeId));
+        }
+      } else {
+        st.output = await call(st.assigneeId, buildExecuteMsgs(st.assigneeId));
+      }
       emit(
         makeTrace({
           taskId,
@@ -350,8 +519,38 @@ export async function runSquadOrchestration(
         }),
       );
 
+      // B（MetaGPT ICLR2024 结构化交付契约）：必备部分机检，缺部分不消耗 LLM 审阅，
+      // 直接记 REWORK（算一轮返工）；机检全过才进 leader 审阅。
+      const missing = (sub.requiredSections ?? []).filter((s) => !(st.output ?? '').includes(s));
+      if (missing.length > 0) {
+        st.approved = false;
+        st.verdict = `机检未过：缺少必备部分 ${missing.join('、')}`;
+        const checkTrace = makeTrace({
+          taskId,
+          rootId,
+          delegator: `agent:${team.leaderId}`,
+          delegatee: `agent:${st.assigneeId}`,
+          round: st.rounds,
+          state: 'input-required',
+          summary: `「${st.title.slice(0, 24)}」机检未过：缺少必备部分 ${missing.join('、')}`,
+          reworkOf: lastReworkTrace,
+        });
+        emit(checkTrace);
+        lastReworkTrace = checkTrace.trace_id; // 下一轮 EXECUTE 标记为对本次的返工
+        continue;
+      }
+
+      // E 预算护栏②：预算耗尽后不再消耗 LLM 审阅，当前产出作为最终版。
+      if (!hasBudget()) {
+        noteBudgetGuard(`「${st.title.slice(0, 24)}」审阅跳过，当前产出作为最终版`);
+        st.approved = false;
+        st.verdict = '预算受限：未审阅，当前产出作为最终版';
+        break;
+      }
+
       // REVIEW：leader 审阅该子任务产出；第 2 轮起带上轮意见，便于核对是否已解决。
-      const reviewRaw = await chat(team.leaderId, [
+      // A：有 acceptance 时逐条列进 prompt，要求逐条 ✓/✗ 后再给首行结论（首行契约不变）。
+      const reviewRaw = await call(team.leaderId, [
         {
           role: 'system',
           content: personaSystem(
@@ -359,6 +558,9 @@ export async function runSquadOrchestration(
             team.leaderId,
             `你是团队 leader，审阅成员 ${st.assigneeId} 对子任务「${st.title}」的产出。` +
               '第一行只输出 PASS 或 REWORK；第二行起给出一句理由（打回则给出修改意见）。' +
+              (sub.acceptance?.length
+                ? '给出了验收标准：第二行起先对每条标准逐一标注 ✓/✗，再给理由；第一行契约不变（只输出 PASS 或 REWORK），任何一条 ✗ 即 REWORK。'
+                : '') +
               '审阅标准：内容质量达标、要求已覆盖即 PASS；若上一轮返工意见已被逐条解决，应 PASS，不要翻新账。' +
               '不要要求成员做他们做不到的外部核验（如验证链接有效性、访问付费数据库）；对来源存疑可要求标注「来源待核验」而非打回。' +
               'REWORK 意见必须具体可执行，一次最多 3 条。',
@@ -368,6 +570,9 @@ export async function runSquadOrchestration(
           role: 'user',
           content:
             `子任务要求：\n${instruction}\n\n成员产出：\n${st.output}` +
+            (sub.acceptance?.length
+              ? `\n\n验收标准（请逐条核对）：\n${sub.acceptance.map((a, i) => `${i + 1}. ${a}`).join('\n')}`
+              : '') +
             (st.rounds > 1 && st.verdict ? `\n\n上一轮审阅意见（请核对是否已被解决）：\n${st.verdict}` : ''),
         },
       ]);
@@ -387,20 +592,71 @@ export async function runSquadOrchestration(
       });
       emit(reviewTrace);
 
-      if (st.approved) break;
-      lastReworkTrace = reviewTrace.trace_id; // 下一轮 EXECUTE 标记为对本次的返工
+      if (!st.approved) {
+        lastReworkTrace = reviewTrace.trace_id; // 下一轮 EXECUTE 标记为对本次的返工
+        continue;
+      }
+
+      // A 独立盲审（对治 MAST verification gap）：leader 首次 PASS 后，挑一名既不是
+      // assignee 也不是 leader 的成员复核 checklist+产出（首行 PASS/REWORK 契约同款）。
+      // 每子任务最多盲审 1 次；无第三成员、无 checklist 或预算耗尽则跳过。
+      if (sub.acceptance?.length && st.blindReview === undefined && hasBudget()) {
+        const reviewer = memberIds.find((mid) => mid !== team.leaderId && mid !== st.assigneeId);
+        if (reviewer) {
+          const blindRaw = await call(reviewer, [
+            {
+              role: 'system',
+              content: personaSystem(
+                personas,
+                reviewer,
+                `盲审：你是团队中的独立评审成员，与子任务「${st.title}」的执行无关（既不是执行者也不是 leader），请独立盲审其产出。` +
+                  '第一行只输出 PASS 或 REWORK；第二行起对照验收标准逐条标注 ✓/✗ 并给一句总评。' +
+                  '标准：验收标准全部满足才 PASS；任何一条不满足即 REWORK 并指明是哪条。',
+              ),
+            },
+            {
+              role: 'user',
+              content:
+                `子任务要求：\n${instruction}\n\n验收标准：\n${sub.acceptance.map((a, i) => `${i + 1}. ${a}`).join('\n')}` +
+                `\n\n产出：\n${st.output}`,
+            },
+          ]);
+          const blindOk = parseReviewVerdict(blindRaw.trim().split('\n')[0]) === 'PASS';
+          st.blindReview = { reviewer, approved: blindOk, notes: blindRaw.trim() };
+          const blindTrace = makeTrace({
+            taskId,
+            rootId,
+            delegator: `agent:${reviewer}`,
+            delegatee: `agent:${team.leaderId}`,
+            round: st.rounds,
+            state: blindOk ? 'completed' : 'input-required',
+            summary: `「${st.title.slice(0, 24)}」盲审（${reviewer}）：${blindOk ? 'PASS' : 'REWORK'} — ${st.blindReview.notes.slice(0, 40)}`,
+            reworkOf: blindOk ? null : reviewTrace.trace_id,
+          });
+          emit(blindTrace);
+          if (!blindOk) {
+            // 盲审 REWORK → 转回未通过，verdict 记盲审意见；还有轮次则继续返工循环。
+            st.approved = false;
+            st.verdict = `盲审未过（${reviewer}）：${st.blindReview.notes}`;
+            lastReworkTrace = blindTrace.trace_id;
+            continue;
+          }
+        }
+      }
+      break; // leader PASS（有 checklist 时盲审也 PASS）→ 真通过
     }
   };
 
   // —— 单个子任务处理：execute+review，失败自动改派一次（P0-2）——
   const runSubTask = async (
     st: SubTaskResult,
-    instruction: string,
+    sub: OrchestrationSubTask,
     kickoffQA?: string,
   ): Promise<void> => {
+    const instruction = sub.instruction;
     const tried = new Set<string>([st.assigneeId]);
     try {
-      await executeReviewLoop(st, instruction, kickoffQA);
+      await executeReviewLoop(st, sub, kickoffQA);
       return;
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
@@ -435,7 +691,7 @@ export async function runSquadOrchestration(
         st.verdict = '';
         st.error = undefined;
         try {
-          await executeReviewLoop(st, instruction, kickoffQA);
+          await executeReviewLoop(st, sub, kickoffQA);
           emit(
             makeTrace({
               taskId,
@@ -484,14 +740,16 @@ export async function runSquadOrchestration(
   };
 
   // —— 步骤 2.5：KICKOFF 开工确认（P2，成员提问 → leader 一次批量解答）——
+  // E 预算护栏①：预算耗尽后跳过开工提问。
   const kickoffQA = new Map<number, string>();
-  if (memberIds.length > 1) {
+  if (memberIds.length > 1 && hasBudget()) {
     try {
       const questions: { idx: number; assigneeId: string; question: string }[] = [];
       await Promise.all(
         assigned.map(async (st, idx) => {
+          if (!hasBudget()) return; // 预算护栏：提问途中耗尽即停
           try {
-            const reply = await chat(st.assigneeId, [
+            const reply = await call(st.assigneeId, [
               {
                 role: 'system',
                 content: personaSystem(
@@ -516,8 +774,8 @@ export async function runSquadOrchestration(
         }),
       );
       // 有问题才发起 leader 批量解答（一次调用），全部 OK 则跳过。
-      if (questions.length > 0) {
-        const qaText = await chat(team.leaderId, [
+      if (questions.length > 0 && hasBudget()) {
+        const qaText = await call(team.leaderId, [
           {
             role: 'system',
             content: personaSystem(
@@ -556,21 +814,26 @@ export async function runSquadOrchestration(
 
   // —— 步骤 3+4：EXECUTE ∥ REVIEW（各子任务并行，单成员失败不阻塞）——
   await Promise.all(
-    assigned.map((st, idx) => runSubTask(st, subtasks[idx].instruction, kickoffQA.get(idx))),
+    assigned.map((st, idx) => runSubTask(st, subtasks[idx], kickoffQA.get(idx))),
   );
 
   // —— 步骤 4.5：CROSS_REVIEW 成员交叉评审（P1-1，一轮封顶）——
+  // E 预算护栏①：预算耗尽后跳过交叉评审。
   try {
     const reviewable = assigned.filter((st) => st.approved && !st.error);
-    if (reviewable.length >= 2) {
+    if (reviewable.length >= 2 && !hasBudget()) {
+      noteBudgetGuard('跳过交叉评审');
+    }
+    if (reviewable.length >= 2 && hasBudget()) {
       await Promise.all(
         reviewable.map(async (st) => {
+          if (!hasBudget()) return; // 预算护栏：评审途中耗尽即停
           try {
             const others = reviewable
               .filter((o) => o !== st)
               .map((o) => `### ${o.title}（执行者 ${o.assigneeId}）\n${(o.output ?? '').slice(0, 800)}`)
               .join('\n\n');
-            const reply = await chat(st.assigneeId, [
+            const reply = await call(st.assigneeId, [
               {
                 role: 'system',
                 content: personaSystem(
@@ -618,8 +881,12 @@ export async function runSquadOrchestration(
   }
 
   // —— 步骤 4.6：REPLAN leader 中途重规划（P1-2，最多一次、最多追加 3 条）——
+  // E 预算护栏①：预算耗尽后跳过重规划。
   try {
-    const replanRaw = await chat(team.leaderId, [
+    if (!hasBudget()) {
+      noteBudgetGuard('跳过重规划');
+    } else {
+    const replanRaw = await call(team.leaderId, [
       {
         role: 'system',
         content: personaSystem(
@@ -653,7 +920,8 @@ export async function runSquadOrchestration(
         assigned.push(st);
         emitAssignTrace(st);
       }
-      await Promise.all(appended.map((st, i) => runSubTask(st, toAdd[i].instruction)));
+      await Promise.all(appended.map((st, i) => runSubTask(st, toAdd[i])));
+    }
     }
   } catch {
     /* 重规划失败降级：按现有产出直接汇总 */
@@ -662,8 +930,9 @@ export async function runSquadOrchestration(
   // —— 步骤 5：SUMMARIZE（leader 汇总全部产出）——
   // 汇总上限按子任务规模动态化：底数 6000 + 每个子任务 2000，封顶 16000。
   // 固定小上限会让多子任务报告在句子中间被砍断（真实事故：6 子任务调研报告限 4000 字）。
+  // E 预算护栏③：SUMMARIZE 永远保底执行（不受预算拦截），预算受限时如实标注。
   const summarizeLimit = Math.min(6000 + assigned.length * 2000, 16000);
-  const deliverable = await chat(team.leaderId, [
+  const deliverableRaw = await call(team.leaderId, [
     {
       role: 'system',
       content: personaSystem(
@@ -676,6 +945,9 @@ export async function runSquadOrchestration(
     },
     { role: 'user', content: `原任务：\n${taskText}\n\n${buildDigest(assigned)}` },
   ]);
+  const deliverable = budgetLimited
+    ? `${deliverableRaw}\n\n（预算受限，提前收敛）`
+    : deliverableRaw;
   emit(
     makeTrace({
       taskId,
@@ -688,7 +960,7 @@ export async function runSquadOrchestration(
     }),
   );
 
-  return { subtasks: assigned, deliverable, traces };
+  return { subtasks: assigned, deliverable, traces, llmCalls };
 }
 
 /** 汇总/重规划共用的产出 digest：逐子任务列出执行者与产出（含失败/未通过标注）。 */

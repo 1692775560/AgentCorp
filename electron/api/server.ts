@@ -25,6 +25,8 @@ import { handleFeishuRoutes } from './routes/feishu';
 import { handleTeamRoutes } from './routes/teams';
 import { handleTaskRoutes } from './routes/tasks';
 import { handleScheduleRoutes } from './routes/schedules';
+import { handleMemberStatsRoutes } from './routes/member-stats';
+import { handleTeamExperienceRoutes } from './routes/team-experience';
 import { handleReactionsRoutes } from './routes/reactions';
 import { handleArenaRoutes } from './routes/arena';
 import { handleCraftRoutes } from './routes/craft';
@@ -54,6 +56,8 @@ const routeHandlers: RouteHandler[] = [
   handleTeamRoutes,
   handleTaskRoutes,
   handleScheduleRoutes,
+  handleMemberStatsRoutes,
+  handleTeamExperienceRoutes,
   handleSkillRoutes,
   handleFileRoutes,
   handleSessionRoutes,
