@@ -106,3 +106,69 @@ export function buildCraftEvidence(trials: CraftTrialRound[]): Record<string, st
   }
   return evidence;
 }
+
+/**
+ * 汇总多轮试做题的**机器可核验**证据（沙盒真实执行结果）。
+ *
+ * 与 buildCraftEvidence 的分工是这套评测最重要的一条界线：
+ * - buildCraftEvidence  → craftEvidence：裁判模型自己的引文，展示用，**不解除降权**；
+ * - buildVerifiedEvidence → verifiedEvidence：机器跑出来的事实，**可解除 Q6 降权**。
+ *
+ * 同一维被多题验证时全部拼接（每条都是独立可复核的事实，不取均值也不择优）。
+ * 沙盒未启用 / 没写测试 / 没抽到代码时后端不产出条目，这里自然为空 ——
+ * 缺证据就该继续降权，这正是闸门存在的意义。
+ */
+export function buildVerifiedEvidence(trials: CraftTrialRound[]): Record<string, string> {
+  const perDim: Record<string, string[]> = {};
+  for (const trial of trials) {
+    const verified = trial.judgement?.verified_evidence;
+    if (!verified) continue;
+    for (const [dim, text] of Object.entries(verified)) {
+      const clean = String(text ?? '').trim();
+      if (clean) (perDim[dim] ??= []).push(clean);
+    }
+  }
+  const out: Record<string, string> = {};
+  for (const [dim, list] of Object.entries(perDim)) {
+    out[dim] = list.join(' ／ ').slice(0, 500);
+  }
+  return out;
+}
+
+/** 沙盒执行统计（UI 概览用：跑了几题、通过几题、有没有真的验证过） */
+export interface SandboxSummary {
+  /** 实际执行过用例的题数 */
+  verifiedTasks: number;
+  /** 其中全部通过的题数 */
+  passedTasks: number;
+  /** 其中存在失败用例的题数 */
+  failedTasks: number;
+  /** 因未写测试而无法验证的题数（≠ 验证不通过） */
+  noTestTasks: number;
+  /** 累计通过 / 累计用例数 */
+  totalCases: number;
+  passedCases: number;
+}
+
+export function summarizeSandbox(trials: CraftTrialRound[]): SandboxSummary {
+  const summary: SandboxSummary = {
+    verifiedTasks: 0,
+    passedTasks: 0,
+    failedTasks: 0,
+    noTestTasks: 0,
+    totalCases: 0,
+    passedCases: 0,
+  };
+  for (const trial of trials) {
+    const sandbox = trial.judgement?.sandbox;
+    if (!sandbox) continue;
+    if (sandbox.outcome === 'no_tests') summary.noTestTasks += 1;
+    if (!sandbox.verifiable) continue;
+    summary.verifiedTasks += 1;
+    summary.totalCases += sandbox.total;
+    summary.passedCases += sandbox.passed;
+    if (sandbox.outcome === 'passed') summary.passedTasks += 1;
+    else summary.failedTasks += 1;
+  }
+  return summary;
+}

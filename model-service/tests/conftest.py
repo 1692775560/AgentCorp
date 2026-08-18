@@ -25,6 +25,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # MOCK=true 保证接口测试走 Mock（不触达模型 / 网络）
 os.environ.setdefault("MOCK", "true")
 
+# serve.py 在 import 期就会 makedirs(upload_dir)，默认值 /app/uploads 在开发机上无权限。
+# 统一指向临时目录，任何测试文件都能直接 `from app.serve import app`，
+# 不必各自记得先设环境变量（此前漏设就会得到一个与被测逻辑无关的 PermissionError）。
+import tempfile  # noqa: E402
+
+_TEST_TMP = os.path.join(tempfile.gettempdir(), "agentcorp-test")
+os.environ.setdefault("UPLOAD_DIR", os.path.join(_TEST_TMP, "uploads"))
+os.environ.setdefault("SAMPLES_DIR", os.path.join(_TEST_TMP, "samples"))
+os.makedirs(os.environ["UPLOAD_DIR"], exist_ok=True)
+os.makedirs(os.environ["SAMPLES_DIR"], exist_ok=True)
+
+from app.config import settings as _settings  # noqa: E402
+
+_settings.upload_dir = os.environ["UPLOAD_DIR"]
+_settings.samples_dir = os.environ["SAMPLES_DIR"]
+
 
 def reset_sse_app_status() -> None:
     """把 sse_starlette 的 Event 单例置回 None，令其在下次使用时于当前 loop 内重建。"""

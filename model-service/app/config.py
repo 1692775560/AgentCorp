@@ -38,6 +38,17 @@ class Settings:
         self.judge_max_tokens: int = int(os.getenv("JUDGE_MAX_TOKENS", "1536"))
         self.judge_timeout: float = float(os.getenv("JUDGE_TIMEOUT", "120"))
 
+        # ===== 代码沙盒（sandbox/runner.py）=====
+        # 真实执行候选给出的代码与测试，为 code_runnability 产出机器可核验证据。
+        # 默认关闭：它会在本机执行来自候选 agent 的代码，必须由部署者显式授权。
+        self.sandbox_enabled: bool = os.getenv("SANDBOX_ENABLED", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        self.sandbox_timeout: float = float(os.getenv("SANDBOX_TIMEOUT", "10"))
+        self.sandbox_mem_mb: int = int(os.getenv("SANDBOX_MEM_MB", "512"))
+
         # ===== 候选跑题通道（candidate_runner.py，A2/A3）=====
         # text    —— 直接使用调用方提供的答案文本（A3 演示/人工模式）
         # gateway —— 经 OpenClaw gateway 的 OpenAI 兼容 chat 调度（A2 真实跑题）

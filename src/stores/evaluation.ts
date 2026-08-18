@@ -65,6 +65,13 @@ export interface EvaluationRunInput {
   persona?: string;
   /** A · 老板原型（用户个性化）：描述「正在评估/雇佣这位 agent 的人」，区别于 agent.persona */
   bossProfile?: BossProfile;
+  /**
+   * 转录兜底：仅当主进程采集不到会话转录时启用（例如多 Agent 编排路径的
+   * LLM 调用不落在某个 gateway 会话里，`collectRunData` 会返回空 transcript）。
+   * 空转录会让裁判无证据可依、只能给中性分，那等于白评一次。
+   * 有采集到真实转录时**一律以采集为准**，这里只是补位，不是覆盖。
+   */
+  transcriptFallback?: string;
 }
 
 const ZERO_RADAR: RadarScore = {
@@ -317,7 +324,13 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
     });
     try {
       // 1+2) 一次采集：token 用量 + 遥测事件 + 转录（主进程完成，sessionId 为空时仅按 agent 兜底）
-      const { events, transcript, entries } = await collectRunData(input.agentId, input.sessionId);
+      const collected = await collectRunData(input.agentId, input.sessionId);
+      const { events, entries } = collected;
+      // 采集优先；采集为空时才用调用方提供的兜底转录（如编排交付物）
+      const transcript =
+        collected.transcript.trim().length > 0
+          ? collected.transcript
+          : (input.transcriptFallback ?? '');
       // 缓存 transcript 供 pass^k 复判复用（纯增量，不改变既有评估流）
       set({ lastTranscript: transcript });
 

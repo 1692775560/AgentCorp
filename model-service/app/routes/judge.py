@@ -2,6 +2,8 @@
 
 - GET  /api/craft-tasks   公开题库（**不含参考答案**，防刷题）
 - POST /api/craft-judge   一道试做题评分：answer（A3 直传）或 candidate 引用（A2 跑题）
+                          code 工种会附带真实执行验证（sandbox），产出 verifiedEvidence
+- POST /api/craft-verify  只跑沙盒不评分（调试/复核用：同一份答案的执行结果可独立复现）
 - POST /api/chat-judge    面试对话整段评分（C）：judge 可用 source=judge，否则降级 source=degraded
 
 与 routes/evaluate.py 的职责边界：evaluate.py 负责跨模态评估与运行期裁判的 SSE 流；
@@ -26,6 +28,15 @@ class CraftJudgeRequest(BaseModel):
     task_id: str
     answer: Optional[str] = None
     candidate: Optional[dict] = None
+    #: 是否对 code 工种执行真实沙盒验证（默认开；沙盒本身另有 SANDBOX_ENABLED 总开关）
+    verify: bool = True
+
+
+class CraftVerifyRequest(BaseModel):
+    """只执行不评分：用于人工复核「这段代码到底能不能跑」。"""
+
+    task_id: str = ""
+    answer: str
 
 
 class ChatJudgeRequest(BaseModel):
@@ -83,6 +94,19 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
     else:
         raise HTTPException(status_code=422, detail="需提供 answer 或 candidate 引用")
 
+    # —— 真实执行验证（只对 code 工种有意义）——
+    # 与评分完全解耦：沙盒结果不喂给裁判、也不改裁判分数，
+    # 只作为 verifiedEvidence 影响 stage_scorer 的 Q6 降权。
+    # 这样「模型怎么看」与「机器怎么测」两条证据链互相独立，可交叉验证。
+    sandbox_payload = None
+    verified_evidence: dict = {}
+    if req.verify and task.job_type == "code":
+        from ..sandbox import run_python_answer, verified_evidence_for
+
+        sandbox_result = run_python_answer(answer)
+        sandbox_payload = sandbox_result.to_dict()
+        verified_evidence = verified_evidence_for(task.id, sandbox_result)
+
     try:
         judgement = judge_craft_task(req.task_id, answer)
     except JudgeUnavailable as exc:
@@ -109,6 +133,26 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
         "ttft_ms": judgement.ttft_ms,
         "latency_ms": judgement.latency_ms,
         "backend": judgement.backend,
+        # 机器可核验证据（可为空）。空 = 未验证，下游据此继续对 requiresReal 维降权。
+        "verified_evidence": verified_evidence,
+        "sandbox": sandbox_payload,
+    }
+
+
+@router.post("/api/craft-verify")
+async def api_craft_verify(req: CraftVerifyRequest) -> dict:
+    """
+    只跑沙盒不评分。
+
+    存在意义：评审现场要能独立复现「这段代码通过了几个用例」，
+    而不必连带跑一次裁判推理（后者要花钱、要联网、且结果可能漂移）。
+    """
+    from ..sandbox import run_python_answer, verified_evidence_for
+
+    result = run_python_answer(req.answer)
+    return {
+        "sandbox": result.to_dict(),
+        "verified_evidence": verified_evidence_for(req.task_id or "adhoc", result),
     }
 
 

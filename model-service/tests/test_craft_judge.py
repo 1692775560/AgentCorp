@@ -245,3 +245,63 @@ def test_public_task_list_never_exposes_reference():
             assert line.strip() not in " ".join(task.checkpoints), (
                 f"题 {task.id} 的 rubric 泄露了参考答案"
             )
+
+
+# ======================================================================
+# 沙盒真实执行验证（P0-7 闭环）：裁判引文与机器执行是两条独立证据链
+# ======================================================================
+def test_craft_verify_endpoint_runs_real_code(monkeypatch):
+    """/api/craft-verify 独立复现「这段代码通过了几个用例」，不触发裁判推理。"""
+    from fastapi.testclient import TestClient
+
+    from app.config import settings
+    from app.serve import app
+
+    monkeypatch.setattr(settings, "sandbox_enabled", True, raising=False)
+    client = TestClient(app)
+    res = client.post(
+        "/api/craft-verify",
+        json={
+            "task_id": "code_csv_merge",
+            "answer": "```python\ndef add(a, b):\n    return a + b\n\n\ndef test_add():\n    assert add(1, 2) == 3\n```",
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["sandbox"]["outcome"] == "passed"
+    assert body["sandbox"]["passed"] == 1
+    # 真实执行产出机器可核验证据 → 下游 Q6 降权得以解除
+    assert "code_runnability" in body["verified_evidence"]
+
+
+def test_craft_verify_no_tests_yields_no_evidence(monkeypatch):
+    """没写测试 = 无法验证：不产出证据，Q6 降权继续生效。"""
+    from fastapi.testclient import TestClient
+
+    from app.config import settings
+    from app.serve import app
+
+    monkeypatch.setattr(settings, "sandbox_enabled", True, raising=False)
+    client = TestClient(app)
+    res = client.post(
+        "/api/craft-verify",
+        json={"task_id": "code_csv_merge", "answer": "```python\ndef add(a, b):\n    return a + b\n```"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["sandbox"]["outcome"] == "no_tests"
+    assert body["verified_evidence"] == {}
+
+
+def test_craft_verify_disabled_by_default(monkeypatch):
+    """沙盒总开关默认关闭：它会在本机执行候选代码，必须显式授权。"""
+    from fastapi.testclient import TestClient
+
+    from app.config import settings
+    from app.serve import app
+
+    monkeypatch.setattr(settings, "sandbox_enabled", False, raising=False)
+    client = TestClient(app)
+    res = client.post("/api/craft-verify", json={"answer": "```python\ndef test_x():\n    assert True\n```"})
+    assert res.status_code == 200
+    assert res.json()["sandbox"]["outcome"] == "disabled"

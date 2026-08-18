@@ -152,6 +152,9 @@ const electronAPI = {
         'marketplace:listTemplates',
         'marketplace:hireSingle',
         'marketplace:hireTeam',
+        'marketplace:importGithub',
+        'marketplace:listGithubImports',
+        'marketplace:removeGithubImport',
         // Agent persona
         'agent:getPersona',
       ];

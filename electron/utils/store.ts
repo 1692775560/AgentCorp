@@ -87,6 +87,13 @@ export interface AppSettings {
 
   // Evaluation (MiniCPM-o judge model service)
   modelServiceUrl: string;
+
+  /**
+   * 从 GitHub 导入的候选 agent（人才市集用）。
+   * 只存导入时的元信息与展示字段，**不存任何能力分**——
+   * 分数一律来自 S1/S2/S3 实测，避免导入时的 star 数变成事实上的初始分。
+   */
+  githubImports: unknown[];
 }
 
 /**
@@ -154,6 +161,7 @@ function createDefaultSettings(): AppSettings {
 
     // Evaluation (MiniCPM-o judge model service)
     modelServiceUrl: 'http://localhost:8000',
+    githubImports: [],
   };
 }
 

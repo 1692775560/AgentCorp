@@ -29,6 +29,29 @@ export interface CheckpointVerdict {
   quote: string;
 }
 
+/**
+ * 沙盒真实执行结果（仅 code 工种）。镜像后端 `app/sandbox/runner.py` 的 SandboxResult。
+ *
+ * 与裁判分数是**两条独立证据链**：裁判说「这段代码看起来能跑」，沙盒说「这段代码
+ * 真的跑了，4/4 用例通过」。两者可交叉验证，也可能互相打脸——那正是有价值的信号。
+ */
+export interface SandboxResult {
+  /** passed=全通过 / failed=有失败或超时 / no_tests=没写用例 / no_code=没抽到代码 / error=沙盒故障 / disabled=未启用 */
+  outcome: 'passed' | 'failed' | 'no_tests' | 'no_code' | 'error' | 'disabled';
+  total: number;
+  passed: number;
+  failed: number;
+  durationMs: number;
+  cases: { name: string; passed: boolean; detail: string }[];
+  outputTail: string;
+  reason: string;
+  codeBytes: number;
+  /** 是否真跑过用例（只有 true 才有资格解除 requiresReal 维的降权） */
+  verifiable: boolean;
+  /** 机器可核验证据文本，如「沙盒执行：4/4 用例通过（212ms）」 */
+  evidence: string;
+}
+
 /** 一道试做题的裁判结果 */
 export interface CraftJudgement {
   task_id: string;
@@ -48,6 +71,14 @@ export interface CraftJudgement {
   ttft_ms: number | null;
   latency_ms: number;
   backend: string;
+  /**
+   * 机器可核验证据（craft 维 → 证据文本）。只有真实执行/扫描产出的条目才会出现，
+   * 裁判引文不在此列——那是 checkpoints[].quote 的职责。
+   * 空对象 = 未验证，下游 stage_scorer 会继续对 requiresReal 维降权 ×0.4。
+   */
+  verified_evidence?: Record<string, string>;
+  /** 沙盒执行详情（非 code 工种或未启用时为 null） */
+  sandbox?: SandboxResult | null;
 }
 
 /** 评分入参 */
@@ -55,4 +86,6 @@ export interface CraftJudgeInput {
   task_id: string;
   answer?: string;
   candidate?: Record<string, unknown>;
+  /** 是否执行真实沙盒验证（默认 true；后端另有 SANDBOX_ENABLED 总开关） */
+  verify?: boolean;
 }
