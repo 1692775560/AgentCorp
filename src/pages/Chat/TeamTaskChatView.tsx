@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AtSign, ClipboardCheck, Loader2, RotateCcw, SendHorizonal, TriangleAlert, Users } from 'lucide-react';
+import { AtSign, ClipboardCheck, Download, FolderOpen, Globe, Loader2, RotateCcw, SendHorizonal, TriangleAlert, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
@@ -36,6 +36,7 @@ import {
 import { retryFailedTask, runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
 import { summarizeA2aEvents } from '@/lib/a2a-timeline';
 import { runRealChat } from '@/engine/llm/realExecutor';
+import { invokeIpc } from '@/lib/api-client';
 import { cn, isAvatarImage } from '@/lib/utils';
 import type { KanbanTask } from '@/types/task';
 
@@ -71,6 +72,8 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
+  // 交付气泡动作：ZIP 打包中状态
+  const [zipping, setZipping] = useState(false);
 
   useEffect(() => {
     void fetchTasks();
@@ -79,6 +82,36 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const task = tasks.find((t) => t.id === taskId) ?? null;
   const team = task?.teamId ? teams.find((t) => t.id === task.teamId) ?? null : null;
   const leaderId = team?.leaderId ?? task?.assigneeId ?? null;
+
+  /** 在系统浏览器打开 HTML 交付物（无 HTML 时如实提示） */
+  const handleOpenHtml = useCallback(async () => {
+    if (!task) return;
+    try {
+      const res = await invokeIpc<{ success: boolean; error?: string }>('task:openHtmlDeliverable', { taskId: task.id });
+      if (!res?.success) toast.error(res?.error || '没有可直接打开的 HTML 交付物');
+    } catch (err) {
+      toast.error(`打开失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [task]);
+
+  /** 交付目录打包 ZIP 并打开所在位置 */
+  const handleDownloadZip = useCallback(async () => {
+    if (!task || zipping) return;
+    setZipping(true);
+    try {
+      const res = await invokeIpc<{ success: boolean; zipPath?: string; error?: string }>('task:zipDeliverables', { taskId: task.id });
+      if (res?.success && res.zipPath) {
+        toast.success('ZIP 已生成');
+        await invokeIpc('shell:showItemInFolder', res.zipPath).catch(() => {});
+      } else {
+        toast.error(res?.error || '打包失败');
+      }
+    } catch (err) {
+      toast.error(`打包失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setZipping(false);
+    }
+  }, [task, zipping]);
 
   // 可对话成员：leader 在前，其余成员随后（@ 候选 + 默认接话人）
   const members = useMemo(() => {
@@ -361,6 +394,38 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                     <div className="rounded-2xl rounded-tl-md border border-[#22c55e]/25 bg-[#22c55e]/[0.06] px-3.5 py-2.5">
                       <MarkdownContent content={task.workResult!} className="text-[13px] leading-relaxed" />
                     </div>
+                    {task.deliverableDir && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenHtml()}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5"
+                          style={{ color: '#f59e0b' }}
+                        >
+                          <Globe className="h-3.5 w-3.5" />
+                          在浏览器打开
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void invokeIpc('shell:openPath', task.deliverableDir)}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5"
+                          style={{ color: '#22c55e' }}
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          打开交付目录
+                        </button>
+                        <button
+                          type="button"
+                          disabled={zipping}
+                          onClick={() => void handleDownloadZip()}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5 disabled:opacity-50"
+                          style={{ color: '#6366f1' }}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          {zipping ? '打包中…' : '下载 ZIP'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

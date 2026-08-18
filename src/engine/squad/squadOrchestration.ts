@@ -131,9 +131,10 @@ const KIND_WORD_LIMIT: Record<SubTaskKind, number> = {
   short: 800,
 };
 
-/** 各级输出 token 额度（P1-4 分档）：字数 → token 留足余量，推理模型会先烧思考额度。 */
+/** 各级输出 token 额度（P1-4 分档）：字数 → token 留足余量，推理模型会先烧思考额度。
+ *  code 给到 8192：整页 HTML/多文件代码经常被 6000 腰斩（闭合围栏丢失导致交付不落盘）。 */
 const KIND_TOKEN_BUDGET: Record<SubTaskKind, number> = {
-  code: 6000,
+  code: 8192,
   long: 4000,
   short: 1500,
 };
