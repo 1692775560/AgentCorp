@@ -621,8 +621,9 @@ async function runOne(
               ...(experienceText ? { experience: experienceText } : {}),
               // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
               // ctx 透传给用量采集（成本看板按 task/team/agent 归集）。
-              // maxTokens 8192：长交付物需要足够输出额度，2048 会腰斩。
-              chat: (agentId, messages) => runRealChat(messages, 8192, { taskId: task.id, teamId: team.id, agentId }),
+              // maxTokens 8192：长交付物需要足够输出额度，2048 会腰斩；
+              // 编排器按环节用 hints 分档（拆解/审阅给小额度），缺省回退 8192。
+              chat: (agentId, messages, hints) => runRealChat(messages, hints?.maxTokens ?? 8192, { taskId: task.id, teamId: team.id, agentId }),
               // SUMMARIZE 续写拼接依赖 finishReason 识别腰斩（见 squadOrchestration.chatRich）
               chatRich: (agentId, messages) => runRealChatRich(messages, 8192, { taskId: task.id, teamId: team.id, agentId }),
               // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。

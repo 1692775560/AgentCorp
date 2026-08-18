@@ -21,8 +21,14 @@ export interface ChatMessage {
   content: string;
 }
 
+/** 调用提示：按环节分档的输出 token 额度等（实现方缺省回退自身默认）。 */
+export interface ChatHints {
+  /** 本次调用的 maxTokens；拆解/审阅等短输出环节给小额度，避免推理模型空烧。 */
+  maxTokens?: number;
+}
+
 /** 注入的真实 LLM 执行函数：给定 agent 与消息，返回真实文本产出。 */
-export type ChatFn = (agentId: string, messages: ChatMessage[]) => Promise<string>;
+export type ChatFn = (agentId: string, messages: ChatMessage[], hints?: ChatHints) => Promise<string>;
 
 export interface CollaborationInput {
   taskId: string;

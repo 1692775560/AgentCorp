@@ -118,7 +118,8 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         // F：团队经验卡文本（最近 10 条，每行「- 内容」）
         ...(experienceText ? { experience: experienceText } : {}),
         // maxTokens 8192：长交付物（动态上限最高 16000 字）需要足够的输出额度，2048 会腰斩。
-        chat: (agentId, messages) => runRealChat(messages, 8192, { taskId, teamId: team.id, agentId }),
+        // 编排器按环节用 hints 分档（拆解/审阅给小额度），缺省回退 8192。
+        chat: (agentId, messages, hints) => runRealChat(messages, hints?.maxTokens ?? 8192, { taskId, teamId: team.id, agentId }),
         // SUMMARIZE 续写拼接依赖 finishReason 识别腰斩（见 squadOrchestration.chatRich）
         chatRich: (agentId, messages) => runRealChatRich(messages, 8192, { taskId, teamId: team.id, agentId }),
         onTrace: (t) => { sink.push(t); forwardRoom(t); },
