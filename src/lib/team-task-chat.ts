@@ -287,6 +287,19 @@ export function taskTitleFromInstruction(text: string): string {
   return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine;
 }
 
+/**
+ * 是否展示「最终交付」气泡。执行中（含返工重做）时任务上的 workResult
+ * 还是上一轮的旧交付物，展示出来会让老板误以为「刚开始重做就交付了」，
+ * 因此执行中一律隐藏，新交付落库（workState 回 done/review）后自然出现。
+ */
+export function shouldShowDelivery(
+  workResult: string | null | undefined,
+  workState: string | null | undefined,
+): boolean {
+  if (!workResult) return false;
+  return workState !== 'working' && workState !== 'starting';
+}
+
 // ── 立项 intake（意图分类 + 需求草稿，一次调用出全部）────────────────
 // 取代旧的两段式（分类器 + 草稿各一次 RTT）：「开工吧」这类指代性指令的
 // 真实需求藏在对话上下文里，intake 让模型一次给出「要不要立项 + 立什么项」。

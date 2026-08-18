@@ -29,6 +29,7 @@ import {
   parseExecuteMarker,
   parseMentionTarget,
   parseTaskIntake,
+  shouldShowDelivery,
   taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
@@ -96,10 +97,13 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     () => bubbles.filter((b) => b.kind === 'user' || (b.kind === 'a2a' && b.peerId === 'user')),
     [bubbles],
   );
+  // 执行中（含返工重做）时旧交付物视为过期：不展示，避免「刚开始重做就看到上一版交付」
+  const isWorking = task?.workState === 'working' || task?.workState === 'starting';
+  const hasDelivery = shouldShowDelivery(task?.workResult, task?.workState);
   // 渲染序列：「最终交付」按时间序插在协作过程末尾、后续对话之前
   const renderItems = useMemo(
-    () => buildTeamChatRenderItems(bubbles, Boolean(task?.workResult)),
-    [bubbles, task?.workResult],
+    () => buildTeamChatRenderItems(bubbles, hasDelivery),
+    [bubbles, hasDelivery],
   );
 
   // 新消息到达时：仅当用户本来就在底部附近才自动滚底（上滑看历史不打断）
@@ -427,6 +431,12 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               成员正在回复…
+            </div>
+          )}
+          {isWorking && (
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: '#6366f1' }} />
+              团队正在{task.workResult ? '按你的反馈重做' : '执行'}中，最新动态见上方协作记录…
             </div>
           )}
           <div ref={bottomRef} />
