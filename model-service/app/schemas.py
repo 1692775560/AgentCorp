@@ -249,7 +249,12 @@ class StageScoreRequest(BaseModel):
     jobType: str = "code"
     objective: Dict[str, float] = Field(default_factory=dict)  # dim -> 0–5
     subjective: Dict[str, float] = Field(default_factory=dict)  # sub_* -> 0–5
-    craftEvidence: Dict[str, str] = Field(default_factory=dict)  # craft dim -> 证据文本
+    craftEvidence: Dict[str, str] = Field(default_factory=dict)  # craft dim -> 证据文本（含裁判引文）
+    # requiresReal 维（code_runnability / code_security）的**机器可核验**证据：
+    # 真实执行结果（测试通过率 / 构建日志）或真实扫描结果。
+    # 关键：裁判模型自己的引文不算数——若允许模型引文抵消降权，
+    # 「缺真实执行则降权」这道闸门就等于自己把自己关掉了。
+    verifiedEvidence: Dict[str, str] = Field(default_factory=dict)
     presetId: str = "default"
     scoredBy: str = "owner"
     window: Optional[str] = None

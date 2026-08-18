@@ -81,6 +81,11 @@ export function aggregateCraftDims(trials: CraftTrialRound[]): CraftAggregate {
  *
  * 只写进真实命中的 checkpoint 引文，不写「未命中」的空条目 ——
  * 证据栏的语义是「凭什么给这个分」，无引文即无证据。
+ *
+ * 边界（重要）：这里产出的是**裁判模型自己的引文**，属于展示用证据。
+ * 它不会、也不应解除后端对 code_runnability / code_security 的 Q6 降权
+ * （那需要 verifiedEvidence：真实执行/扫描结果）。
+ * 让模型引文解除「缺真实执行则降权」，等于让被监管方给自己发合格证。
  */
 export function buildCraftEvidence(trials: CraftTrialRound[]): Record<string, string> {
   const perDim: Record<string, string[]> = {};

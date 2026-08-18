@@ -29,8 +29,8 @@ AgentCorp 把选择变成一次**带证据的准入评审**：
 
 | 能力 | 解决的问题 | 做法 |
 |---|---|---|
-| **候选市场** | 从哪里找 Agent，怎么公平展示 | 支持导入开源 Agent 或上传自有 Agent；使用者的真实偏好可见，不只看 star |
-| **能力实测** | 这个 Agent 到底会不会干活 | 12 道固定题覆盖写代码 / 写文案 / 做图三类工种，同题同标尺，题面内置反注水探针 |
+| **候选市场** | 从哪里找 Agent，怎么公平展示 | 内置 285 个可雇佣的数字员工模板，支持上传自有 Agent；六维初审 + 任务画像匹配排序，使用者的真实偏好可见，不只看 star（GitHub 一键导入在路线图上，尚未实现） |
+| **能力实测** | 这个 Agent 到底会不会干活 | 12 道固定题覆盖写代码 / 写文案 / 做图三类工种，同题同标尺，逐条 checkpoint 必须带原文引用，题面内置反注水探针（当前均为文本作答题：做图工种考的是「把模糊 brief 翻成可执行参数与提示词」，尚未接入真实出图评审） |
 | **持续评估** | 用过之后谁更值得留 | 客观榜按完成度、返工率、耗时、成本排名；主观榜允许每位使用者按自身价值观重排 |
 
 客观+主观的两张排名榜单并存是我们刻意的设计
@@ -45,7 +45,8 @@ AgentCorp 把选择变成一次**带证据的准入评审**：
 - **重复测量**：同一份作答独立评多次，每次都达标才判定为通过。
 - **稳定性检查**：多次评分离散过大时下调置信度并转人工复核。
 - **抗偏差设计**：轮换维度顺序、固定评分锚点、明确要求不因回答长而给高分。
-- **来源标注**：分数分为真实裁判 / 部分降级 / 完全降级三态，降级结论不进入经验库。
+- **来源标注**：分数分为真实裁判 / 部分降级 / 完全降级三态。完全降级的条目
+  **不进正式榜单**（单独灰色分区展示、不给名次），也不沉淀进经验库。
 
 通过以上做法，AgentCorp系统目前只主张得出的结论是**稳定**的，但是暂时不主张结论是最**正确**的；而后者往往需要长期的真实表现数据验证，
 这正是我们公开的下一阶段目标。
@@ -231,11 +232,14 @@ MOCK=false JUDGE_BACKEND=local DEVICE=cuda MODEL_PATH=/models/<your-omni-model> 
   uvicorn app.serve:app --port 8000
 ```
 
-`DEVICE` 支持 `cuda|cpu|auto`，另可选装对应厂商的异构加速运行时后按
+`DEVICE` 默认 `auto`（按 NPU > CUDA > CPU 探测），支持 `cuda|cpu|auto`，另可选装对应厂商的异构加速运行时后按
 `DEVICE=npu` 启用（`model_loader.py` 惰性 import，缺依赖自动降级，不崩）。
 容器部署见 `model-service/docker-compose.yml`。
 
-前端切真实模式：`.env` 里设 `VITE_MOCK=false`、`VITE_API_BASE=http://<host>:8000`。
+前端无需额外开关：渲染层不直连模型服务，请求统一经主进程 Host API
+（`127.0.0.1:3210`）转发到 model-service。裁判是否为真，由 model-service 侧的
+`JUDGE_BACKEND` 决定，并通过事件里的 `source`（judge / mixed / degraded）如实回传给界面。
+全量环境变量见 `.env.example`。
 
 **降级行为**：缺依赖 / 缺权重 / 无可用设备时服务照常启动，`/health` 报
 `model_available=false`，真实模式下 `/api/evaluate` 返回 `503` 并给出明确错误，
@@ -267,8 +271,12 @@ MOCK=true python -m pytest tests/ -q
 
 覆盖：user_fit 满分 / 超预算硬约束 / 审美减分、模型 JSON 解析、SSE 事件流 schema
 （六维逐维点亮 / verdict / done）、三阶段评分（S1/S2/S3 rules engine）、
+Q6 降权闸门（requiresReal 维只认真实执行/扫描证据，裁判引文不作数）、
 收敛层（encoder / preference / convergence）、GGUF 后端降级、未知候选兜底、
-GitHub 导入输入侧安全加固、跨用户反应聚合。
+craft 试做题评分与越界维度丢弃、Arena 对决与 Elo、跨用户反应聚合。
+
+前端侧另有诚实化回归：离线回退的分数**不得**与 agentId 相关（改名不能改分），
+零证据时全维中性 2.5 并标注「不可评」（`tests/unit/judgeClient.test.ts`）。
 
 CI（`.github/workflows/ci.yml`）：push 到 `main` / `feat/*` 与 PR 触发，
 前端 job 跑 install → typecheck → lint → test，model-service job 跑 pytest。
@@ -290,6 +298,13 @@ CI（`.github/workflows/ci.yml`）：push 到 `main` / `feat/*` 与 PR 触发，
   能力判断以真实工种实测的评分结果为准。
 - **当前指标验证的是结论的稳定性，尚未验证预测有效性**。
   准入评分与上线后真实表现的相关性验证是我们公开的下一阶段目标。
+- **代码工种的分数尚未经过真实执行验证**。`code_runnability` / `code_security`
+  目前由裁判阅读答案判断，因此这两维在缺少真实执行/扫描结果时会被**主动降权 ×0.4**
+  并在证据栏标注。接入沙盒执行（跑候选给出的测试）是我们的下一步，
+  也是我们认为这套评测唯一能真正"落地为事实"的方向。
+- **裁判与候选可能同源**。若 `JUDGE_MODEL` 与候选 agent 使用同一家族的模型，
+  自我增强偏差无法通过架构消除。建议评测时显式选用与候选不同家族的裁判，
+  并用双榜与人工抽检交叉验证。
 
 ---
 

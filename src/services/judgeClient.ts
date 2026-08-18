@@ -5,7 +5,8 @@
  * - evaluate(input)：经由 Host API 代理 POST http://127.0.0.1:3210/api/evaluate/run，
  *   解析 SSE 流为 EvaluationEvent（radar_update ×6 + verdict + done）。
  * - 非 200 / 503 / 网络错误时回退 fallbackMock：cost 维由真实 usage 折算，
- *   其余维有真实遥测走 metricsEngine 客观 KPI、遥测退化走 agentId 哈希派生，离线可用。
+ *   其余维有真实遥测走 metricsEngine 客观 KPI、无遥测走 transcript 弱信号、
+ *   零证据给中性基线并标注「不可评」，离线可用且绝不造分。
  *
  * 鉴权：Host API 需要 x-clawx-host-session 头（每会话随机 token），
  * 通过 renderer→main 的 ipc 'hostapi:token' 获取。
@@ -258,23 +259,36 @@ async function getHostApiToken(): Promise<string> {
 }
 
 /**
- * agentId 确定性哈希（FNV-1a 32bit）。
- * 对齐 model-service evaluator._derive_run_radar 的「agent_id 哈希派生」思路：
- * 渲染层无 node:crypto，用自包含 FNV-1a 保证同 agentId 可复现、agent 间有区分度。
+ * transcript 弱信号（0–1），与 model-service `evaluator._transcript_signals` **严格镜像**。
+ *
+ * 为什么要镜像而不是各写各的：同一条 transcript 在前端离线回退与后端降级路径下
+ * 必须得到同一组分数，否则「同一次运行、换条链路就换个分」，结论不可复现。
+ *
+ * 只看这一次运行实际产出了什么，与 agent 身份完全无关——
+ * 因此个人上传的新 agent 不会因为「没有名气」而吃亏。
  */
-function hashAgentId(agentId: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < agentId.length; i++) {
-    h ^= agentId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
+export function transcriptSignals(
+  transcript: string,
+): { volume: number; structure: number; specificity: number } | null {
+  const text = (transcript ?? '').trim();
+  if (!text) return null;
+  const lines = text.split('\n').filter((ln) => ln.trim().length > 0);
+  return {
+    // 产出体量：以 400 字为饱和点（中文信息密度高，按英文长度校准会误判为「过短」）
+    volume: Math.min(1, text.length / 400),
+    // 结构化：分点/编号说明在给方法
+    structure: Math.min(1, (/(^|\n)\s*(\d+[.、)]|[-*·])/.test(text) ? 1 : 0) + lines.length / 20),
+    // 具体性：数字与标识符
+    specificity: Math.min(
+      1,
+      (/\d/.test(text) ? 0.5 : 0) + (/[A-Za-z_]{3,}/.test(text) ? 0.5 : 0),
+    ),
+  };
 }
 
-/** 哈希抖动：base + [0,2) 的确定性偏移（对齐 _derive_run_radar 的 jitter） */
-function jitter(h: number, shift: number, base: number): number {
-  return base + (((h >>> shift) % 1000) / 1000) * 2;
-}
+/** 无证据时的中性基线（0–5 量表中位）。不是「及格分」，而是「未知」。 */
+export const NEUTRAL_SCORE = 2.5;
+
 
 /** 从 SSE 文本块解析单条 EvaluationEvent（容忍未知事件类型） */
 function parseBlock(block: string): EvaluationEvent | null {
@@ -400,26 +414,34 @@ export async function* evaluate(input: JudgeRunInput): AsyncIterable<EvaluationE
 
 /**
  * 离线回退：产出与真实裁判同构的事件流，不依赖网络。
- * 雷达派生（08-07 诚实化修复）：
+ *
+ * 雷达派生（诚实化口径，与 model-service `evaluator._derive_run_radar` 严格镜像）：
  * - cost 维始终由真实 usage 成本折算（预算 1.0 USD 为基准，越低越高分）；
  * - 有真实遥测（input.telemetry 非空）时，其余五维走 metricsEngine 客观 KPI 归一化；
- * - 遥测退化（无真实事件）时，其余五维由 agentId 确定性哈希派生
- *   （对齐 model-service evaluator._derive_run_radar）——不伪造完美 KPI，
- *   保证可复现、agent 间有区分度、FIRED 可达。
+ * - 无遥测但有 transcript 时，由「本次运行实际产出」的弱信号（体量/结构/具体性）折算，
+ *   creativity 无法由弱信号判断，保持中性 2.5；
+ * - 零证据时全维中性 2.5，明确标注「不可评」。
+ *
+ * 明确不做的事：**不再用 agentId 哈希派生分数**。
+ * 哈希派生会让分数只与 id 字符串有关、与实际表现无关，等于把随机数当评测结论，
+ * 也会让相同表现的 agent 因改名而分数变化。后端已废弃该做法，此处同步。
  */
 export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<EvaluationEvent> {
   const totalCost = input.usage.reduce(
     (sum, u) => sum + (u.costUsd ?? ((u.totalTokens ?? 0) / 1000) * 0.01),
     0,
   );
-  const costScore = clamp(5 - (totalCost / 1.0) * 5, 0, 5);
+  const costScore = totalCost > 0 ? clamp(5 - (totalCost / 1.0) * 5, 0, 5) : NEUTRAL_SCORE;
 
   const hasTelemetry = (input.telemetry?.length ?? 0) > 0;
   const kpi = hasTelemetry ? computeKpi(input.telemetry ?? [], currentWindow()) : null;
+  const signals = kpi ? null : transcriptSignals(input.transcript ?? '');
 
   let radar: RadarScore;
+  let derivation: 'kpi' | 'transcript' | 'none';
   if (kpi) {
     // 真实遥测路径：客观 KPI 归一化到 0–5
+    derivation = 'kpi';
     radar = {
       task: clamp(kpi.task_completion_rate * 5, 0, 5),
       quality: clamp(kpi.autonomy_rate * 5, 0, 5),
@@ -428,15 +450,27 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
       reliability: clamp(((1 - kpi.rework_rate) + kpi.stability_consistency) * 2.5, 0, 5),
       cost: costScore,
     };
-  } else {
-    // 遥测退化路径：agentId 哈希派生（确定性，可复现）
-    const h = hashAgentId(input.agentId);
+  } else if (signals) {
+    // transcript 弱信号路径（镜像后端 _derive_run_radar）
+    derivation = 'transcript';
     radar = {
-      task: clamp(jitter(h, 0, 3.0), 0, 5),
-      quality: clamp(jitter(h, 3, 3.0), 0, 5),
-      comm: clamp(jitter(h, 6, 2.5), 0, 5),
-      creativity: clamp(jitter(h, 9, 2.5), 0, 5),
-      reliability: clamp(jitter(h, 12, 3.0), 0, 5),
+      task: clamp(1.5 + 3.5 * signals.volume, 0, 5),
+      quality: clamp(1.5 + 3.5 * (0.5 * signals.structure + 0.5 * signals.specificity), 0, 5),
+      comm: clamp(1.5 + 3.5 * signals.structure, 0, 5),
+      // 创意无法从体量/结构判断，保持中性而非编造
+      creativity: NEUTRAL_SCORE,
+      reliability: clamp(1.5 + 3.5 * signals.specificity, 0, 5),
+      cost: costScore,
+    };
+  } else {
+    // 零证据：全维中性，不猜测
+    derivation = 'none';
+    radar = {
+      task: NEUTRAL_SCORE,
+      quality: NEUTRAL_SCORE,
+      comm: NEUTRAL_SCORE,
+      creativity: NEUTRAL_SCORE,
+      reliability: NEUTRAL_SCORE,
       cost: costScore,
     };
   }
@@ -449,19 +483,28 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
     'reliability',
     'cost',
   ];
-  const dimEvidence = kpi
-    ? (dim: keyof RadarScore) => `客观 KPI 归一化（${dim}）`
-    : (dim: keyof RadarScore) =>
-        dim === 'cost' ? '真实 usage 成本折算' : `${dim} 由 agentId 哈希派生（mock 回退）`;
+  const dimEvidence = (dim: keyof RadarScore): string => {
+    if (dim === 'cost') {
+      return totalCost > 0 ? '真实 usage 成本折算' : 'cost 维无花费数据：中性基线 2.5，不可评';
+    }
+    if (derivation === 'kpi') return `客观 KPI 归一化（${dim}）`;
+    if (derivation === 'transcript') {
+      return dim === 'creativity'
+        ? 'creativity 无法由弱信号判断：中性基线 2.5，不可评'
+        : `${dim} 由本次运行 transcript 弱信号折算（未经模型评测）`;
+    }
+    return `${dim} 无任何证据：中性基线 2.5，不可评`;
+  };
   for (const dim of dims) {
     await sleep(120);
     yield {
       type: 'radar_update',
       dim,
       score: round1(radar[dim]),
-      confidence: 0.8,
+      // 降级路径的置信度必须显著低于真实评测（与后端 _stream_mock_run 的 0.35 同口径）
+      confidence: derivation === 'kpi' ? 0.8 : 0.35,
       evidence: dimEvidence(dim),
-      // E · 透明披露：离线回退路径标记为 degraded（外部 MiniCPM-o 裁判不可达）
+      // E · 透明披露：离线回退路径标记为 degraded（外部裁判不可达）
       source: 'degraded',
     };
   }
@@ -469,18 +512,29 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
   const avg = dims.reduce((s, d) => s + radar[d], 0) / dims.length;
   const verdict = avg >= 4 ? 'MVP' : avg >= 2.5 ? 'OBSERVE' : 'FIRED';
   const userFit = Math.round(avg * 20);
-  // 证据留痕：真实遥测路径给客观 KPI；哈希路径诚实标注派生来源（对齐 model-service mock）
-  const evidenceTrace = kpi
-    ? [
-        `task_completion_rate=${(kpi.task_completion_rate * 100).toFixed(0)}%`,
-        `autonomy_rate=${(kpi.autonomy_rate * 100).toFixed(0)}%`,
-        `total_cost≈$${totalCost.toFixed(4)}`,
-      ]
-    : [
-        `total_cost≈$${totalCost.toFixed(4)}`,
-        `avg_radar=${avg.toFixed(2)}`,
-        'source=mock（遥测退化，agentId 哈希派生）',
-      ];
+  // 证据留痕：诚实标注派生来源与不可评维度（对齐 model-service _run_radar_evidence）
+  const evidenceTrace =
+    derivation === 'kpi'
+      ? [
+          'source=degraded（外部裁判不可达，由本机客观 KPI 归一化）',
+          `task_completion_rate=${((kpi as NonNullable<typeof kpi>).task_completion_rate * 100).toFixed(0)}%`,
+          `autonomy_rate=${((kpi as NonNullable<typeof kpi>).autonomy_rate * 100).toFixed(0)}%`,
+          `total_cost≈$${totalCost.toFixed(4)}`,
+        ]
+      : derivation === 'transcript'
+        ? [
+            'source=degraded（外部裁判不可达，未经模型评测）',
+            `transcript 弱信号：体量=${signals!.volume.toFixed(2)} 结构=${signals!.structure.toFixed(2)} 具体性=${signals!.specificity.toFixed(2)}`,
+            'creativity 维无法由弱信号判断，保持中性 2.5',
+            `total_cost≈$${totalCost.toFixed(4)}`,
+            `avg_radar=${avg.toFixed(2)}`,
+          ]
+        : [
+            'source=degraded（外部裁判不可达，且无 transcript）',
+            '全部能力维为中性基线 2.5，不可评',
+            `total_cost≈$${totalCost.toFixed(4)}`,
+          ];
+
 
   // 讲解文本（离线语音闭环：narration 由渲染层直接 TTS 播报）
   const DIM_LABELS: Record<keyof RadarScore, string> = {
@@ -511,7 +565,7 @@ export async function* fallbackMock(input: JudgeRunInput): AsyncIterable<Evaluat
     verdict,
     user_fit: userFit,
     evidence_trace: evidenceTrace,
-    confidence: 0.8,
+    confidence: derivation === 'kpi' ? 0.8 : 0.35,
     source: 'degraded',
   };
 

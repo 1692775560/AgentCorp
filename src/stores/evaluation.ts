@@ -93,6 +93,8 @@ interface EvaluationState {
   roiLatest: RoiSnapshot | null;
   lifecycle: Record<string, LifecycleState>;
   leaderboard: LeaderboardEntry[];
+  /** agentId → 展示名（榜单渲染用；由页面经 registerAgentNames 注入） */
+  agentNames: Record<string, string>;
   selectedAgentId: string | null;
   streaming: boolean;
   currentRunId: string | null;
@@ -122,6 +124,12 @@ interface EvaluationState {
   setLifecycle: (agentId: string, state: LifecycleState) => Promise<void>;
   /** 依据当前 profiles 重算擂台排名 */
   runLeaderboard: () => void;
+  /**
+   * 注册 agentId → 展示名映射（榜单显示用）。
+   * 画像本身不存名字（名字属于 agent 域、会被改名），故由持有 agent 列表的页面注入；
+   * 未注册时榜单回退显示 agentId。合并写入，不覆盖既有条目。
+   */
+  registerAgentNames: (names: Record<string, string>) => void;
   /** 完整评估编排：真实 KPI/ROI + 外部裁判 → 画像落库 + runlink */
   runEvaluation: (input: EvaluationRunInput) => Promise<EvaluationProfile | null>;
   selectAgent: (agentId: string | null) => void;
@@ -181,6 +189,8 @@ function computeLeaderboard(
       roi_norm: item.roiNorm,
       state,
       tier,
+      // 透明披露：把画像上的裁判来源带进榜单，渲染层据此分区展示（degraded 不与真实评测并列）
+      judge_source: item.profile.judgeSource ?? null,
     } satisfies LeaderboardEntry;
   });
 }
@@ -192,6 +202,7 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   roiLatest: null,
   lifecycle: {},
   leaderboard: [],
+  agentNames: {},
   selectedAgentId: null,
   streaming: false,
   currentRunId: null,
@@ -272,12 +283,31 @@ export const useEvaluationStore = create<EvaluationState>((set, get) => ({
   },
 
   runLeaderboard: () => {
-    const { profiles } = get();
-    set({ leaderboard: computeLeaderboard(profiles, {}) });
+    const { profiles, agentNames } = get();
+    set({ leaderboard: computeLeaderboard(profiles, agentNames) });
+  },
+
+  registerAgentNames: (names) => {
+    const prev = get().agentNames;
+    // 无新增/无变化时不 set，避免无谓的重渲染与递归重算
+    let changed = false;
+    for (const [id, name] of Object.entries(names)) {
+      if (name && prev[id] !== name) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return;
+    set({ agentNames: { ...prev, ...names } });
+    get().runLeaderboard();
   },
 
   runEvaluation: async (input) => {
     speech.cancel(); // 打断上一次播报
+    // 榜单名字来源之一：本次评估已经带了 agentName，直接登记，避免榜单显示裸 agentId
+    if (input.agentName) {
+      set((s) => ({ agentNames: { ...s.agentNames, [input.agentId]: input.agentName } }));
+    }
     set({
       streaming: true,
       error: null,

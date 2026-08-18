@@ -12,7 +12,10 @@ class Settings:
 
     def __init__(self) -> None:
         self.model_path: str = os.getenv("MODEL_PATH", "/models/MiniCPM-o-4.5")
-        self.device: str = os.getenv("DEVICE", "npu")
+        # auto：按 NPU > CUDA > CPU 自动探测（见 model_loader.resolve_device）。
+        # 不默认 npu —— 绝大多数机器上那是个必然失败的默认值，会让首次运行者
+        # 误以为是代码问题；显式声明 DEVICE=npu 才走异构加速卡路径。
+        self.device: str = os.getenv("DEVICE", "auto")
         self.host: str = os.getenv("API_HOST", "0.0.0.0")
         self.port: int = int(os.getenv("API_PORT", "8000"))
         self.samples_dir: str = os.getenv("SAMPLES_DIR", "/app/samples")

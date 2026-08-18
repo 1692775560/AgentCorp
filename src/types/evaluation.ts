@@ -362,6 +362,14 @@ export interface LeaderboardEntry {
   state: LifecycleState;
   tier: LeaderboardTier; // MVP / NORMAL / BOTTOM
   radar_delta?: number; // 能力增长轨迹（晋升依据）
+  /**
+   * 本条排名所依据的评分来源（透明披露）。
+   * judge = 全维真实裁判；mixed = 真裁判与回退混合；degraded = 全部回退；
+   * null = 无来源标注（历史数据 / 未评估）。
+   * 渲染层必须据此把 degraded 条目与真实评测条目**分区展示**，
+   * 不得让未经模型评测的分数与真实评测分数并列比较。
+   */
+  judge_source?: "judge" | "mixed" | "degraded" | null;
 }
 
 /* ===================== 运行期遥测（第二条契约，评估） ===================== */
@@ -600,7 +608,18 @@ export interface StageScoreRequest {
   jobType: JobType;
   objective: Record<string, number>;
   subjective: Record<string, number>;
+  /**
+   * 展示用证据（含裁判引文）。**不会**解除 requiresReal 维的降权。
+   */
   craftEvidence?: Record<string, string>;
+  /**
+   * 机器可核验证据：requiresReal 维（code_runnability / code_security）的
+   * 真实执行结果（测试通过率 / 构建日志）或真实扫描结果。
+   * 只有这里的键能解除后端 Q6 的 ×0.4 降权——裁判模型自己的引文没有这个资格，
+   * 否则「缺真实执行则降权」等于让被监管方给自己发合格证。
+   * 当前尚无沙盒执行链路，故通常为空；接入沙盒后由执行器填充。
+   */
+  verifiedEvidence?: Record<string, string>;
   presetId?: string;
   scoredBy?: string;
   window?: string;

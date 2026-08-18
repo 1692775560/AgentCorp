@@ -88,6 +88,7 @@ export function Evaluation() {
     runPassK,
     loadAll,
     runEvaluation,
+    registerAgentNames,
     setLifecycle,
     selectAgent,
     clearError,
@@ -111,6 +112,17 @@ export function Evaluation() {
     void fetchAgents();
     void loadAll();
   }, [fetchAgents, loadAll]);
+
+  // 榜单显示人名而非 agentId：agent 列表就绪后把 id→name 注册进评估 store。
+  // （画像里不存名字，因为名字属 agent 域且可被改名；这里做一次单向注入。）
+  useEffect(() => {
+    if (agents.length === 0) return;
+    const names: Record<string, string> = {};
+    for (const a of agents) {
+      if (a.id && a.name) names[a.id] = a.name;
+    }
+    registerAgentNames(names);
+  }, [agents, registerAgentNames]);
 
   // 离开评估页时停止播报
   useEffect(() => {

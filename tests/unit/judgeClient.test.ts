@@ -7,8 +7,9 @@
  *    （radar_update: dim/score/confidence/evidence；verdict: verdict/user_fit/evidence_trace/confidence；done: evaluation_id）
  *  - radar 分数 ∈ [0,5]；verdict ∈ {MVP,OBSERVE,FIRED}；user_fit ∈ [0,100]
  *  - 同输入 → 同输出（确定性，可复现）
- *  - 遥测退化（无 telemetry）：cost 维由真实 usage 折算，其余维 agentId 哈希派生
- *    → 不同 agentId 雷达不同、FIRED 可达（08-07 诚实化修复）
+ *  - 遥测退化（无 telemetry）：cost 维由真实 usage 折算，其余维由 transcript 弱信号折算
+ *    （与后端 evaluator._derive_run_radar 镜像）；零证据时全维中性 2.5 且标注「不可评」。
+ *    关键回归：分数**不得**与 agentId 相关——改名不能改分（诚实化修复）。
  *  - 有真实遥测（telemetry 非空）：radar 走 computeKpi 客观 KPI 路径
  *  - evaluate() 在 fetch 失败时回退 fallbackMock（此处直接测 fallbackMock，并验证未发起网络调用）
  *
@@ -35,12 +36,13 @@ function makeInput(
   usageCost: number,
   agentId = 'agent-jc-01',
   telemetry?: import('@/types/evaluation').TelemetryEvent[],
+  transcript = 'user: hi\nagent: done',
 ): JudgeRunInput {
   return {
     agentId,
     agentName: 'JC',
     task: { title: 't', description: 'd', weight: 1 },
-    transcript: 'user: hi\nagent: done',
+    transcript,
     usage: [
       {
         timestamp: '2025-01-01T00:00:00Z',
@@ -73,6 +75,20 @@ function makeTelemetry(agentId: string): import('@/types/evaluation').TelemetryE
 }
 
 const DIMS = ['task', 'quality', 'comm', 'creativity', 'reliability', 'cost'];
+
+/** 类型化取值助手：从事件流里取某一维的 radar_update（新增用例统一走这里，不再撒 any） */
+type RadarEvent = Extract<import('@/types/evaluation').EvaluationEvent, { type: 'radar_update' }>;
+function radarEvents(events: unknown[]): RadarEvent[] {
+  return (events as RadarEvent[]).filter((e) => e.type === 'radar_update');
+}
+function radarOf(events: unknown[], dim: string): RadarEvent {
+  const found = radarEvents(events).find((e) => e.dim === dim);
+  if (!found) throw new Error(`缺少 radar_update 事件：${dim}`);
+  return found;
+}
+function scoresOf(events: unknown[]): number[] {
+  return radarEvents(events).map((e) => e.score);
+}
 
 describe('judgeClient.fallbackMock', () => {
   it('事件序列：radar_update×6 + narration×4 + verdict + done', async () => {
@@ -160,20 +176,53 @@ describe('judgeClient.fallbackMock', () => {
     expect(costLow).toBeLessThanOrEqual(5);
   });
 
-  it('遥测退化时雷达由 agentId 哈希派生：不同 agentId → 不同雷达', async () => {
+  it('诚实化回归：改名不改分——agentId 不参与任何分数派生', async () => {
     const a = await collect(makeInput(0.2, 'agent-jc-01'));
     const b = await collect(makeInput(0.2, 'agent-jc-02'));
-    const scoresA = a.filter((e: any) => e.type === 'radar_update').map((e: any) => e.score);
-    const scoresB = b.filter((e: any) => e.type === 'radar_update').map((e: any) => e.score);
-    expect(scoresA).not.toEqual(scoresB);
-    // 不再伪造完美 KPI：六维不能全部钉在 5
+    const scoresA = scoresOf(a);
+    const scoresB = scoresOf(b);
+    // 同样的产出、同样的花费，只是名字不同 → 必须同分（旧实现在这里会不同）
+    expect(scoresA).toEqual(scoresB);
+    // 不伪造完美 KPI：六维不能全部钉在 5
     expect(scoresA.some((s: number) => s < 5)).toBe(true);
   });
 
-  it('FIRED 可达：高成本 + 低哈希抖动 → avg < 2.5', async () => {
-    // agent-fired-2663 由 hashAgentId/jitter 确定性得出五维均值 ≈2.47（cost=0 时）
-    const events = await collect(makeInput(2.0, 'agent-fired-2663'));
-    const v = events.find((e: any) => e.type === 'verdict') as any;
+  it('产出越充实 → task/comm 越高（分数只跟本次运行的实际产出有关）', async () => {
+    const thin = await collect(makeInput(0.2, 'agent-x', undefined, 'ok'));
+    const rich = await collect(
+      makeInput(
+        0.2,
+        'agent-x',
+        undefined,
+        ['1. 先读入两份 CSV（pandas.read_csv）', '2. 按 order_id 分组取 updated_at 最大者', '3. 金额清洗：去除千分位与货币符号后 float()', '4. 补充 3 个边界测试用例'].join('\n'),
+      ),
+    );
+    expect(radarOf(rich, 'task').score).toBeGreaterThan(radarOf(thin, 'task').score);
+    expect(radarOf(rich, 'comm').score).toBeGreaterThan(radarOf(thin, 'comm').score);
+  });
+
+  it('零证据（无 transcript 无遥测）：能力维全部中性 2.5 并标注不可评', async () => {
+    const events = await collect(makeInput(0.2, 'agent-empty', undefined, ''));
+    const radars = radarEvents(events);
+    for (const r of radars) {
+      if (r.dim === 'cost') continue;
+      expect(r.score).toBe(2.5);
+      expect(r.evidence).toContain('不可评');
+    }
+    // 降级路径的置信度必须显著低于真实评测
+    expect(radars[0].confidence).toBe(0.35);
+  });
+
+  it('creativity 在无遥测时始终保持中性（不编造创造力）', async () => {
+    const events = await collect(makeInput(0.2, 'agent-c', undefined, '1. 步骤一\n2. 步骤二 abc 123'));
+    const c = radarOf(events, 'creativity');
+    expect(c.score).toBe(2.5);
+    expect(c.evidence).toContain('不可评');
+  });
+
+  it('FIRED 可达：产出极稀薄 + 高成本 → avg < 2.5', async () => {
+    const events = await collect(makeInput(2.0, 'agent-fired', undefined, 'ok'));
+    const v = events.find((e) => e.type === 'verdict') as { verdict: string };
     expect(v.verdict).toBe('FIRED');
   });
 
