@@ -1,5 +1,5 @@
 # AgentCorp：Agent 适配与协同平台
-<img width="376" height="380" alt="e39900a59e427a887368dc6f694de7ea" src="https://github.com/user-attachments/assets/090ea2ca-fa0b-415c-849c-bd5aa8e93e21" />
+   <img width="376" height="380" alt="e39900a59e427a887368dc6f694de7ea" src="https://github.com/user-attachments/assets/090ea2ca-fa0b-415c-849c-bd5aa8e93e21" />
 
 
 > **LLM跑分测的是模型能力，却不是你的真实工作。**
