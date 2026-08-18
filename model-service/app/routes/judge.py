@@ -47,6 +47,10 @@ class ChatJudgeRequest(BaseModel):
     transcript: str = ""
     usage: List[dict] = Field(default_factory=list)
     task: Optional[dict] = None
+    #: ensemble 第几次采样。0 = 基准（温度 0，可复现）；>0 = 扰动采样
+    #: （温度 JUDGE_ENSEMBLE_TEMPERATURE，模型按 JUDGE_MODELS 轮转）。
+    #: 后端决定用哪个模型/温度，凭据与模型池不下发渲染层。
+    variant: int = 0
 
 
 @router.get("/api/craft-tasks")
@@ -100,12 +104,24 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
     # 这样「模型怎么看」与「机器怎么测」两条证据链互相独立，可交叉验证。
     sandbox_payload = None
     verified_evidence: dict = {}
+    scan_payload = None
     if req.verify and task.job_type == "code":
-        from ..sandbox import run_python_answer, verified_evidence_for
+        from ..sandbox import (
+            run_python_answer,
+            scan_python_answer,
+            security_evidence_for,
+            verified_evidence_for,
+        )
 
+        # 两条独立的机器证据链：执行验「能不能跑」，扫描验「有没有危险构造」。
+        # 测试全绿的代码照样可以是 eval(user_input)，所以二者不可互相替代。
         sandbox_result = run_python_answer(answer)
         sandbox_payload = sandbox_result.to_dict()
         verified_evidence = verified_evidence_for(task.id, sandbox_result)
+
+        scan_result = scan_python_answer(answer)
+        scan_payload = scan_result.to_dict()
+        verified_evidence.update(security_evidence_for(task.id, scan_result))
 
     try:
         judgement = judge_craft_task(req.task_id, answer)
@@ -136,6 +152,7 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
         # 机器可核验证据（可为空）。空 = 未验证，下游据此继续对 requiresReal 维降权。
         "verified_evidence": verified_evidence,
         "sandbox": sandbox_payload,
+        "security_scan": scan_payload,
     }
 
 
@@ -147,12 +164,22 @@ async def api_craft_verify(req: CraftVerifyRequest) -> dict:
     存在意义：评审现场要能独立复现「这段代码通过了几个用例」，
     而不必连带跑一次裁判推理（后者要花钱、要联网、且结果可能漂移）。
     """
-    from ..sandbox import run_python_answer, verified_evidence_for
+    from ..sandbox import (
+        run_python_answer,
+        scan_python_answer,
+        security_evidence_for,
+        verified_evidence_for,
+    )
 
+    task_id = req.task_id or "adhoc"
     result = run_python_answer(req.answer)
+    scan = scan_python_answer(req.answer)
+    evidence = verified_evidence_for(task_id, result)
+    evidence.update(security_evidence_for(task_id, scan))
     return {
         "sandbox": result.to_dict(),
-        "verified_evidence": verified_evidence_for(req.task_id or "adhoc", result),
+        "security_scan": scan.to_dict(),
+        "verified_evidence": evidence,
     }
 
 
@@ -170,11 +197,10 @@ async def api_chat_judge(req: ChatJudgeRequest) -> dict:
         _derive_run_radar,
         _run_radar_evidence,
         _verdict_from_radar,
-        infer,
         judge_available,
         parse_output,
     )
-    from ..judge_backend import JudgeUnavailable
+    from ..judge_backend import JudgeUnavailable, get_backend, resolve_ensemble_run
     from ..schemas import JudgeRunRequest
 
     jreq = JudgeRunRequest(
@@ -198,10 +224,16 @@ async def api_chat_judge(req: ChatJudgeRequest) -> dict:
         return degraded()
 
     messages = [{"role": "user", "content": _build_run_prompt(jreq)}]
+    # ensemble 扰动：第 0 次用温度 0 的可复现基准，之后每次换温度（并在配置了
+    # 跨家族模型池时换模型）。真实重复采样才让 pass^k / 离散度审计有统计意义。
+    model, temperature = resolve_ensemble_run(req.variant)
     try:
-        raw = infer({}, messages)
-        parsed = parse_output(raw)
+        completion = get_backend().complete(messages, temperature=temperature, model=model)
+        parsed = parse_output(completion.text)
     except JudgeUnavailable:
+        return degraded()
+    except Exception as exc:  # noqa: BLE001 —— 解析失败按降级处理，不 500
+        logger.warning("chat-judge 解析失败，降级：%s", exc)
         return degraded()
 
     radar = parsed["radar"]
@@ -211,4 +243,11 @@ async def api_chat_judge(req: ChatJudgeRequest) -> dict:
         "verdict": parsed["verdict"].value,
         "confidence": parsed["confidence"],
         "evidence_trace": parsed["evidence_trace"],
+        # 采样透明化：这一票由哪个模型、在什么温度下给出，必须可追溯。
+        # 否则「跨家族交叉验证」只是一句无法核对的声明。
+        "judge_model": completion.model,
+        "temperature": temperature,
+        "variant": req.variant,
+        "ttft_ms": completion.ttft_ms,
+        "latency_ms": completion.latency_ms,
     }

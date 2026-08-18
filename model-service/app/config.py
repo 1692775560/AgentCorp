@@ -38,6 +38,21 @@ class Settings:
         self.judge_max_tokens: int = int(os.getenv("JUDGE_MAX_TOKENS", "1536"))
         self.judge_timeout: float = float(os.getenv("JUDGE_TIMEOUT", "120"))
 
+        # ===== ensemble 采样（重复测量要真的有扰动才有意义）=====
+        # 单点评分 temperature=0 保证可复现；但 ensemble 的 k 次重复若也用 0，
+        # k 次输出逐字相同，pass^k 就退化成 pass^1 的复读，离散度警报永远不会响。
+        # 因此 ensemble 路径单独使用一个 >0 的温度做真实重复采样。
+        self.judge_ensemble_temperature: float = float(
+            os.getenv("JUDGE_ENSEMBLE_TEMPERATURE", "0.5")
+        )
+        # 跨家族裁判池（逗号分隔）。配置 ≥2 个不同家族的模型后，
+        # ensemble 的第 i 次采样会轮转到第 i 个模型 —— 这是对「自我增强偏差」
+        # 唯一有效的结构性缓解：让裁判不总是与被评方同源。
+        # 缺省回退单一 judge_model（行为与此前一致）。
+        self.judge_models: list = [
+            m.strip() for m in os.getenv("JUDGE_MODELS", "").split(",") if m.strip()
+        ]
+
         # ===== 代码沙盒（sandbox/runner.py）=====
         # 真实执行候选给出的代码与测试，为 code_runnability 产出机器可核验证据。
         # 默认关闭：它会在本机执行来自候选 agent 的代码，必须由部署者显式授权。

@@ -86,6 +86,17 @@ export interface JudgeEnsembleResult {
    * 与 biasAudit（维度极差）互补：α 低而极差小时说明「整体偏移」而非「单维不稳」。
    */
   agreementAlpha?: number | null;
+  /**
+   * 本轮 k 次采样实际用到的裁判模型（去重，顺序即首次出现顺序）。
+   * 长度 ≥2 说明真的做了跨家族交叉验证；长度 =1 说明只是同模型重复采样。
+   * 必须如实回传：否则「不绑定单一模型家族」就是一句无法核对的声明。
+   */
+  models?: string[];
+  /**
+   * 是否构成统计意义上的重复测量：至少一次采样温度 >0，或用到 ≥2 个模型。
+   * 全为温度 0 的同模型重复时，k 次输出逐字相同，pass^k 会退化为 pass^1 的复读。
+   */
+  realResampling?: boolean;
 }
 
 /** 全零六维 */
@@ -152,6 +163,8 @@ export async function judgeChatEnsemble(
   const verdicts: (Verdict | null)[] = [];
   const confidences: number[] = [];
   const evidence: string[] = [];
+  const models: string[] = [];
+  const temperatures: number[] = [];
   let judgeCount = 0;
 
   for (let i = 0; i < k; i += 1) {
@@ -164,6 +177,8 @@ export async function judgeChatEnsemble(
     if (res.verdict) verdicts.push(res.verdict);
     if (typeof res.confidence === 'number') confidences.push(res.confidence);
     if (res.source === 'judge') judgeCount += 1;
+    if (res.judgeModel && !models.includes(res.judgeModel)) models.push(res.judgeModel);
+    if (typeof res.temperature === 'number') temperatures.push(res.temperature);
     if (Array.isArray(res.evidence_trace)) evidence.push(...res.evidence_trace);
   }
 
@@ -202,6 +217,23 @@ export async function judgeChatEnsemble(
     ];
   }
 
+  // 采样真实性自检：k 次若全是同模型、温度 0，输出必然逐字相同，
+  // pass^k 与离散度审计都会失去统计意义。此时如实标注，不让「重复测量」名不副实。
+  const realResampling = models.length > 1 || temperatures.some((t) => t > 0);
+  if (radars.length > 1 && !realResampling) {
+    evidenceTrace = [
+      ...evidenceTrace,
+      'ℹ️ 本轮为同模型、温度 0 的确定性重复：结论可复现，但不构成统计意义上的重复测量'
+        + '（配置 JUDGE_ENSEMBLE_TEMPERATURE>0 或 JUDGE_MODELS 跨家族池可启用真实重采样）',
+    ];
+  }
+  if (models.length > 1) {
+    evidenceTrace = [
+      ...evidenceTrace,
+      `✓ 跨家族交叉验证：本轮由 ${models.length} 个不同裁判模型采样（${models.join(' / ')}）`,
+    ];
+  }
+
   const pk = passK(radars, { k: radars.length, threshold });
 
   const source: EnsembleSource =
@@ -218,6 +250,8 @@ export async function judgeChatEnsemble(
     evidence_trace: evidenceTrace,
     biasAudit: bias,
     agreementAlpha,
+    models,
+    realResampling,
   };
 }
 

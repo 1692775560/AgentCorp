@@ -15,6 +15,13 @@ from .runner import (  # noqa: F401
     run_python_answer,
     verified_evidence_for,
 )
+from .security_scan import (  # noqa: F401
+    SecurityFinding,
+    SecurityScanResult,
+    scan_python_answer,
+    scan_source_ast,
+    security_evidence_for,
+)
 
 __all__ = [
     "SandboxOutcome",
@@ -22,4 +29,9 @@ __all__ = [
     "extract_python_blocks",
     "run_python_answer",
     "verified_evidence_for",
+    "SecurityFinding",
+    "SecurityScanResult",
+    "scan_python_answer",
+    "scan_source_ast",
+    "security_evidence_for",
 ]

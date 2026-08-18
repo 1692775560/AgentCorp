@@ -274,8 +274,13 @@ def test_craft_verify_endpoint_runs_real_code(monkeypatch):
     assert "code_runnability" in body["verified_evidence"]
 
 
-def test_craft_verify_no_tests_yields_no_evidence(monkeypatch):
-    """没写测试 = 无法验证：不产出证据，Q6 降权继续生效。"""
+def test_craft_verify_no_tests_yields_no_runnability_evidence(monkeypatch):
+    """
+    没写测试 = 可运行性无法验证：不产出 code_runnability 证据，该维降权继续生效。
+
+    但静态扫描是另一条独立证据链：代码能解析就能扫，因此 code_security 照常产出。
+    两条链互不代偿 —— 这正是把它们拆开的意义。
+    """
     from fastapi.testclient import TestClient
 
     from app.config import settings
@@ -290,7 +295,11 @@ def test_craft_verify_no_tests_yields_no_evidence(monkeypatch):
     assert res.status_code == 200
     body = res.json()
     assert body["sandbox"]["outcome"] == "no_tests"
-    assert body["verified_evidence"] == {}
+    # 可运行性未验证
+    assert "code_runnability" not in body["verified_evidence"]
+    # 安全扫描仍然真实执行过
+    assert body["security_scan"]["outcome"] == "scanned"
+    assert "code_security" in body["verified_evidence"]
 
 
 def test_craft_verify_disabled_by_default(monkeypatch):
@@ -305,3 +314,41 @@ def test_craft_verify_disabled_by_default(monkeypatch):
     res = client.post("/api/craft-verify", json={"answer": "```python\ndef test_x():\n    assert True\n```"})
     assert res.status_code == 200
     assert res.json()["sandbox"]["outcome"] == "disabled"
+
+
+def test_craft_verify_runs_both_evidence_chains(monkeypatch):
+    """
+    功能正确 ≠ 安全：测试全绿的代码照样可以是 eval(user_input)。
+    因此执行与扫描必须各自出结论，且都进 verified_evidence。
+    """
+    from fastapi.testclient import TestClient
+
+    from app.config import settings
+    from app.serve import app
+
+    monkeypatch.setattr(settings, "sandbox_enabled", True, raising=False)
+    client = TestClient(app)
+    res = client.post(
+        "/api/craft-verify",
+        json={
+            "task_id": "code_api_hardening",
+            "answer": (
+                "```python\n"
+                "def run(expr):\n"
+                "    return eval(expr)\n\n\n"
+                "def test_run():\n"
+                "    assert run('1+1') == 2\n"
+                "```"
+            ),
+        },
+    )
+    body = res.json()
+    # 测试是过的
+    assert body["sandbox"]["outcome"] == "passed"
+    # 但扫描抓到了高危
+    assert body["security_scan"]["high"] >= 1
+    assert "dangerous-call:eval" in {f["rule"] for f in body["security_scan"]["findings"]}
+    # 两条证据都进了 verifiedEvidence，下游可分别解除两个维度的降权
+    assert "code_runnability" in body["verified_evidence"]
+    assert "code_security" in body["verified_evidence"]
+    assert "高危" in body["verified_evidence"]["code_security"]

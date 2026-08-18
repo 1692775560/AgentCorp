@@ -590,6 +590,10 @@ function currentWindow(): string {
 export interface ChatJudgeResult {
   /** judge = 模型评测；degraded = 启发式降级（前端应据此决定展示优先级） */
   source: 'judge' | 'degraded';
+  /** 本次采样实际使用的裁判模型（后端回传；跨家族轮转时每次可能不同） */
+  judgeModel?: string;
+  /** 本次采样温度（0 = 可复现基准运行；>0 = ensemble 扰动运行） */
+  temperature?: number;
   radar: RadarScore | null;
   verdict?: Verdict;
   confidence: number;
@@ -723,7 +727,11 @@ export function auditJudgeBias(radars: RadarScore[], threshold = 1.5): JudgeBias
  * 经 Host API 代理 POST /api/chat-judge；任何失败返回 null（调用方回退正则启发式）。
  * persona 非空时，自动在前缀注入老板原型上下文（不改后端字段名，向后兼容）；
  * history 非空时，注入历史协作上下文（状态化多轮评判）；
- * rubricVariant 用于维度顺序扰动（ensemble 内各次传不同值以平均顺序偏差）。
+ * rubricVariant 同时承担两件事：
+ *   1) 渲染层：旋转 rubric 的维度顺序，平均掉维度排列偏差；
+ *   2) 后端：选择本次采样的模型与温度（variant=0 为温度 0 的可复现基准，
+ *      variant>0 走 JUDGE_ENSEMBLE_TEMPERATURE 并按 JUDGE_MODELS 轮转家族）。
+ * 二者合起来，k 次重复才是真正的重复测量，而不是同一份输出的复读。
  */
 export async function judgeChat(
   agentId: string,
@@ -751,7 +759,13 @@ export async function judgeChat(
             'Content-Type': 'application/json',
             [SESSION_HEADER]: token,
           },
-          body: JSON.stringify({ agent_id: agentId, transcript: fullTranscript }),
+          // variant 决定后端用哪个模型与温度：0 = 可复现基准，>0 = 真实扰动采样。
+          // 模型池与凭据留在后端，渲染层只递一个序号 —— 换裁判不必改前端。
+          body: JSON.stringify({
+            agent_id: agentId,
+            transcript: fullTranscript,
+            variant: rubricVariant,
+          }),
         });
         if (!res.ok) return null;
         const json = (await res.json()) as Record<string, unknown>;
@@ -764,6 +778,8 @@ export async function judgeChat(
           evidence_trace: Array.isArray(json.evidence_trace)
             ? (json.evidence_trace as unknown[]).map(String)
             : [],
+          judgeModel: typeof json.judge_model === 'string' ? json.judge_model : undefined,
+          temperature: typeof json.temperature === 'number' ? json.temperature : undefined,
         };
       },
     );
