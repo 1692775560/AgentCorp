@@ -226,6 +226,12 @@ export function Sidebar() {
       path: '/',
       icon: Home,
     },
+    // 会话页：全高会话列表（团队房间/任务会话/Agent 会话）
+    {
+      label: tSidebar('chats', '会话'),
+      path: '/chats',
+      icon: MessageSquare,
+    },
     {
       label: tSidebar('marketplace', 'Marketplace'),
       path: '/marketplace',

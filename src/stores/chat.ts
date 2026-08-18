@@ -1253,8 +1253,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ]
             : dedupedSessions;
 
+          // 合并而非整体替换：团队房间（team:）、任务会话（team-task:）、私聊（:private-）
+          // 是纯本地条目，网关 sessions.list 不会返回，整体替换会把它们从侧边栏冲掉
+          //（表现为「新进入时没有团队会话，要从任务看板进去才出现」）。
+          // 同 key 的网关条目只采纳网关侧元数据（label/thinkingLevel/model/updatedAt），
+          // 本地标记（isPrivateChat/displayName/isTeamSession/teamTaskId 等）保留本地值。
+          const isLocalOnlyKey = (key: string) =>
+            key.startsWith('team:') || key.startsWith('team-task:') || key.includes(':private-');
+          const mergedKeySet = new Set(sessionsWithCurrent.map((s) => s.key));
+          const mergedSessions: ChatSession[] = [
+            ...sessionsWithCurrent.map((session) => {
+              if (!isLocalOnlyKey(session.key)) return session;
+              const local = localSessions.find((s) => s.key === session.key);
+              if (!local) return session;
+              return {
+                ...session,
+                displayName: local.displayName ?? session.displayName,
+                agentId: local.agentId ?? session.agentId,
+                targetAgentId: local.targetAgentId ?? session.targetAgentId,
+                isPrivateChat: local.isPrivateChat,
+                isLeaderChat: local.isLeaderChat,
+                isTeamSession: local.isTeamSession,
+                teamId: local.teamId,
+                teamName: local.teamName,
+                teamTaskId: local.teamTaskId,
+              };
+            }),
+            ...localSessions.filter((s) => isLocalOnlyKey(s.key) && !mergedKeySet.has(s.key)),
+          ];
+
           const discoveredActivity = Object.fromEntries(
-            sessionsWithCurrent
+            mergedSessions
               .filter((session) => typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt))
               .map((session) => [session.key, session.updatedAt!]),
           );
@@ -1262,7 +1291,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Merge unread counts and agent statuses into sessions
           const unreadCounts = get().sessionUnreadCounts;
           const agentStatuses = useAgentsStore.getState().agentStatuses;
-          const sessionsWithUnread = sessionsWithCurrent.map((session) => ({
+          const sessionsWithUnread = mergedSessions.map((session) => ({
             ...session,
             unreadCount: unreadCounts[session.key] || 0,
             agentStatus: session.agentId ? agentStatuses[session.agentId] || 'online' : 'online',
@@ -1284,7 +1313,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
           // Background: fetch first user message for every non-main session to populate labels upfront.
           // Uses a small limit so it's cheap; runs in parallel and doesn't block anything.
-          const sessionsToLabel = sessionsWithCurrent.filter((s) => !s.key.endsWith(':main'));
+          const sessionsToLabel = mergedSessions.filter((s) => !s.key.endsWith(':main')
+            && !s.key.startsWith('team:') && !s.key.startsWith('team-task:'));
           if (sessionsToLabel.length > 0) {
             void Promise.all(
               sessionsToLabel.map(async (session) => {
