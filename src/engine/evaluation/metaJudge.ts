@@ -72,8 +72,15 @@ export interface MetaJudgeReport {
   sampleCount: number;
   /** 总体一致率（accuracy） */
   accuracy: number;
-  /** 评估窗口（默认 0.67）内是否「总体可信」 */
+  /** 原始一致率是否达到下限（默认 0.75）。注意：未经随机校正，仅供参考。 */
   overallAcceptable: boolean;
+  /**
+   * 卡方校正后的一致性 α（Krippendorff）。二值判断下随机一致会被扣除，
+   * 因此这是判断「评委是否真的比抛硬币强」的唯一可靠指标。
+   */
+  alpha: number;
+  /** α 是否达到可接受线（默认 0.67）——**准入判据以此为准**。 */
+  alphaAcceptable: boolean;
   /** 漂移检测结果（样本足够时才有意义） */
   drift: {
     /** 旧窗口（更早 50% 样本）一致率 */
@@ -99,8 +106,10 @@ export interface MetaJudgeReport {
 
 /** 元评估选项 */
 export interface MetaJudgeOptions {
-  /** 总体可信阈值（Krippendorff α 分级：0.67 为可接受下限） */
+  /** 原始一致率下限（默认 0.75；未经随机校正，仅供参考） */
   acceptableThreshold?: number;
+  /** α 可接受下限（默认 0.67，Krippendorff 分级）——准入判据以此为准 */
+  alphaAcceptableThreshold?: number;
   /** 漂移判定阈值（|delta| 超过此值视为漂移） */
   driftThreshold?: number;
   /** 漂移检测所需最少样本数（不足则 direction='insufficient'） */
@@ -109,8 +118,23 @@ export interface MetaJudgeOptions {
 
 /** 默认阈值（文献依据） */
 export const META_JUDGE_DEFAULTS = {
-  /** α ≥ 0.67：可接受（Krippendorff 2004） */
-  acceptableThreshold: 0.67,
+  /**
+   * 原始一致率（accuracy）的可接受下限。
+   *
+   * ⚠️ 口径澄清：0.67 这个数字来自 Krippendorff 对 **α（卡方校正后的一致性）** 的分级，
+   * 直接套到未经随机校正的 accuracy 上会系统性高估评委质量 ——
+   * 二值判断的随机基线就有 0.5，accuracy=0.67 实际只比抛硬币好一点。
+   * 因此本项目：
+   *   - accuracy 用 0.75 作为下限（对应 α≈0.5 量级的弱一致性，仍属「勉强」）；
+   *   - **真正的准入判据是 alphaAcceptableThreshold（α ≥ 0.67）**，
+   *     报告里两者都给，UI 以 α 为准。
+   * 文献依据：Krippendorff 2004 的信度分级；chance-corrected 指标相对 accuracy
+   * 的必要性见 Rating Roulette（EMNLP 2025 Findings）—— 该文实测 MT-bench 上
+   * 人类之间 accuracy 0.827 但 α 仅 0.478，正是这个高估效应。
+   */
+  acceptableThreshold: 0.75,
+  /** α ≥ 0.67：可接受（Krippendorff 2004）。这才是 chance-corrected 的准入线。 */
+  alphaAcceptableThreshold: 0.67,
   /** 漂移判定：窗口间一致率变化超 0.15 视为显著 */
   driftThreshold: 0.15,
   /** 至少 20 个样本才做漂移检测（统计意义下限） */
@@ -246,6 +270,7 @@ export function assessMetaJudge(
   const judgeId = samples[0]?.judgeId ?? 'unknown';
 
   const agg = agreement(samples);
+  const alpha = krippendorffAlpha(samples);
   const byDim = diagnoseByDim(samples);
   const drift = driftCheck(samples, {
     driftThreshold: opts?.driftThreshold,
@@ -269,6 +294,9 @@ export function assessMetaJudge(
     sampleCount: agg.n,
     accuracy: agg.accuracy,
     overallAcceptable: agg.accuracy >= acceptableThreshold,
+    alpha,
+    alphaAcceptable:
+      alpha >= (opts?.alphaAcceptableThreshold ?? META_JUDGE_DEFAULTS.alphaAcceptableThreshold),
     drift,
     byDim,
     weakestDim,

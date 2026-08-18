@@ -13,11 +13,7 @@
 import { useMemo } from 'react';
 import { Activity, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
 
-import {
-  META_JUDGE_DEFAULTS,
-  assessMetaJudge,
-  krippendorffAlpha,
-} from '@/engine/evaluation/metaJudge';
+import { META_JUDGE_DEFAULTS, assessMetaJudge } from '@/engine/evaluation/metaJudge';
 import { useMetaJudgeStore } from '@/stores/metaJudgeStore';
 
 /** Krippendorff 1994/2004 的既有信度分级，直接引用不自造阈值 */
@@ -33,7 +29,9 @@ export function JudgeHealthPanel() {
   const clear = useMetaJudgeStore((s) => s.clear);
 
   const report = useMemo(() => assessMetaJudge(samples), [samples]);
-  const alpha = useMemo(() => krippendorffAlpha(samples), [samples]);
+  // 准入判据以 α 为准而非原始一致率：二值判断的随机基线就有 0.5，
+  // 未经卡方校正的 accuracy 会系统性高估评委质量。
+  const alpha = report.alpha;
 
   if (samples.length === 0) {
     return (
@@ -120,6 +118,16 @@ export function JudgeHealthPanel() {
       </div>
 
       {/* 结论区：只在有明确问题时说话，不制造无意义的绿色对勾 */}
+      {!report.alphaAcceptable && samples.length >= 10 && (
+        <p className="flex items-start gap-1.5 rounded-md bg-rose-500/10 px-2.5 py-2 text-[11px] text-rose-600">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+          <span>
+            卡方校正后的一致性 α={alpha.toFixed(2)} 低于可接受线{' '}
+            {META_JUDGE_DEFAULTS.alphaAcceptableThreshold}：扣除随机一致后，
+            该裁判与人工判断的吻合度不足以支撑准入结论。建议更换裁判或先校准 rubric。
+          </span>
+        </p>
+      )}
       {!report.overallAcceptable && (
         <p className="flex items-start gap-1.5 rounded-md bg-rose-500/10 px-2.5 py-2 text-[11px] text-rose-600">
           <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
@@ -148,7 +156,7 @@ export function JudgeHealthPanel() {
           </span>
         </p>
       )}
-      {report.overallAcceptable && !overconfident && report.drift.direction !== 'degraded' && (
+      {report.overallAcceptable && report.alphaAcceptable && !overconfident && report.drift.direction !== 'degraded' && (
         <p className="flex items-center gap-1.5 text-[11px] text-emerald-600">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
           当前裁判在已抽检样本上表现稳定。注意：这说明结论**稳定**，不等于结论**正确**。
