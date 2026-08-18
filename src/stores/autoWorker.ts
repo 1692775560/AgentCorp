@@ -595,10 +595,11 @@ async function runOne(
               team,
               candidates: projectRoutingCandidates(team),
               personas,
-              maxRounds: 2,
+              maxRounds: 3,
               // 注入真实 LLM 执行；persona/身份由编排器拼进 system 消息。
               // ctx 透传给用量采集（成本看板按 task/team/agent 归集）。
-              chat: (agentId, messages) => runRealChat(messages, 2048, { taskId: task.id, teamId: team.id, agentId }),
+              // maxTokens 8192：长交付物需要足够输出额度，2048 会腰斩。
+              chat: (agentId, messages) => runRealChat(messages, 8192, { taskId: task.id, teamId: team.id, agentId }),
               // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
               onTrace: (t) => { sink.push(t); forwardRoom?.(t); },
             });
@@ -637,9 +638,9 @@ async function runOne(
               taskDescription: task.description,
               leaderId: routing.leaderId,
               memberId: resolvedAssigneeId,
-              maxRounds: 2,
+              maxRounds: 3,
               // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
-              chat: (agentId, messages) => runRealChat(messages, 2048, { taskId: task.id, teamId: task.teamId, agentId }),
+              chat: (agentId, messages) => runRealChat(messages, 8192, { taskId: task.id, teamId: task.teamId, agentId }),
               // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
               onTrace: (t) => sink.push(t),
             });
@@ -659,7 +660,7 @@ async function runOne(
             .filter(Boolean)
             .join('\n');
           const result = await runRealExecution(
-            { message: prompt, system, maxTokens: 2048 },
+            { message: prompt, system, maxTokens: 8192 },
             { taskId: task.id, teamId: task.teamId, agentId: resolvedAssigneeId ?? undefined },
           );
           realOutput = result.content;
@@ -728,7 +729,8 @@ async function runOne(
       status: 'review',
       workState: 'done',
       ...(deliverableDir ? { deliverableDir } : {}),
-      workResult: realOutput.slice(0, 4000),
+      // workResult 上限 20000：完整保留汇总交付，看板/会话展示与返工上下文都依赖它。
+      workResult: realOutput.slice(0, 20000),
     });
     attemptCount.delete(task.id); // 成功后清计数
     set({ note: `已完成：${task.title.slice(0, 24)}` });

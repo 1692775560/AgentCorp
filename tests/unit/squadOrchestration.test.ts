@@ -399,4 +399,51 @@ describe("runSquadOrchestration", () => {
     );
     expect(execCall?.msgs[0].content).toContain("严谨的分析师");
   });
+
+  it("审阅标准：prompt 含「意见解决即 PASS」约束，第 2 轮带上轮意见核对", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "调研", instruction: "调研竞品", assigneeId: "m1" }]),
+      review: (i) => (i === 1 ? "REWORK\n补充数据来源" : "PASS\n已补充"),
+      calls,
+    });
+    const result = await runSquadOrchestration(baseInput({ chat, maxRounds: 2 }));
+
+    expect(result.subtasks[0].approved).toBe(true);
+    const reviewCalls = calls.filter((c) => c.msgs[0]?.content.includes("审阅成员"));
+    expect(reviewCalls.length).toBe(2);
+    // 审阅标准约束：意见被解决应 PASS、禁止要求无法完成的外部核验
+    expect(reviewCalls[0].msgs[0].content).toContain("逐条解决");
+    expect(reviewCalls[0].msgs[0].content).toContain("外部核验");
+    // 第 2 轮 user 消息带上轮意见供核对
+    expect(reviewCalls[1].msgs.at(-1)?.content).toContain("上一轮审阅意见");
+    expect(reviewCalls[1].msgs.at(-1)?.content).toContain("补充数据来源");
+  });
+
+  it("汇总上限动态化：随子任务数增大，prompt 明确告知上限且不压内容", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "A", instruction: "做 A", assigneeId: "m1" },
+        { title: "B", instruction: "做 B", assigneeId: "m2" },
+        { title: "C", instruction: "做 C", assigneeId: "m1" },
+      ]),
+      calls,
+    });
+    await runSquadOrchestration(baseInput({ chat }));
+
+    const summarizeCall = calls.find((c) => c.msgs[0]?.content.includes("汇总"));
+    // 3 个子任务 → 6000 + 3×2000 = 12000
+    expect(summarizeCall?.msgs[0].content).toContain("12000");
+    expect(summarizeCall?.msgs[0].content).toContain("不要为压缩篇幅砍掉实质内容");
+  });
+
+  it("拆解约束：prompt 禁止 leader 在指令里限制产出字数", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({ calls });
+    await runSquadOrchestration(baseInput({ chat }));
+
+    const decomposeCall = calls.find((c) => c.msgs[0]?.content.includes("拆解"));
+    expect(decomposeCall?.msgs[0].content).toContain("不要在 instruction 里限制成员的产出字数");
+  });
 });

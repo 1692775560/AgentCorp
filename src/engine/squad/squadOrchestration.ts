@@ -19,7 +19,8 @@
  *      需要衔接/修订则输出修订版替换原产出（一轮封顶）。
  *   4.6 REPLAN 中途重规划（P1-2）：leader 看当前产出 digest，覆盖有缺口则
  *      追加子任务（最多 3 条、只重规划 1 次），走同一套 execute+review 管线。
- *   5. SUMMARIZE（leader）：把全部子任务产出汇总成一份交付物（4000 字内）。
+ *   5. SUMMARIZE（leader）：把全部子任务产出汇总成一份交付物
+ *      （上限按子任务数动态化：6000 + 2000/子任务，封顶 16000 字）。
  *
  * 健壮性：每个新步骤独立 try/catch，失败降级为原行为，绝不影响主流程。
  *
@@ -199,7 +200,7 @@ export async function runSquadOrchestration(
   input: OrchestrationInput,
 ): Promise<OrchestrationResult> {
   const { taskId, taskTitle, taskDescription, team, candidates, personas, chat } = input;
-  const maxRounds = Math.max(1, input.maxRounds ?? 2);
+  const maxRounds = Math.max(1, input.maxRounds ?? 3);
   const rootId = id('root');
   const traces: A2aTraceRecord[] = [];
   const emit = (t: A2aTraceRecord) => {
@@ -224,7 +225,8 @@ export async function runSquadOrchestration(
         '你是团队 leader，负责把任务拆解为可并行执行的子任务并指派给团队成员。' +
           '只输出一个 JSON 数组，不要输出任何其它文字：[{"title":"子任务标题","instruction":"给成员的具体指令与验收标准","assigneeId":"成员agentId（可选）"}]。' +
           `团队成员如下：\n${roster}\n` +
-          '拆解为 1~5 条；每条 instruction 控制在 120 字内。',
+          '拆解为 1~5 条；每条 instruction 控制在 120 字内，写清要做什么与验收标准；' +
+          '不要在 instruction 里限制成员的产出字数（长度由系统按工种自动控制，人为压短会导致交付残缺）。',
       ),
     },
     { role: 'user', content: `任务：\n${taskText}` },
@@ -348,7 +350,7 @@ export async function runSquadOrchestration(
         }),
       );
 
-      // REVIEW：leader 审阅该子任务产出。
+      // REVIEW：leader 审阅该子任务产出；第 2 轮起带上轮意见，便于核对是否已解决。
       const reviewRaw = await chat(team.leaderId, [
         {
           role: 'system',
@@ -356,12 +358,17 @@ export async function runSquadOrchestration(
             personas,
             team.leaderId,
             `你是团队 leader，审阅成员 ${st.assigneeId} 对子任务「${st.title}」的产出。` +
-              '第一行只输出 PASS 或 REWORK；第二行起给出一句理由（打回则给出修改意见）。',
+              '第一行只输出 PASS 或 REWORK；第二行起给出一句理由（打回则给出修改意见）。' +
+              '审阅标准：内容质量达标、要求已覆盖即 PASS；若上一轮返工意见已被逐条解决，应 PASS，不要翻新账。' +
+              '不要要求成员做他们做不到的外部核验（如验证链接有效性、访问付费数据库）；对来源存疑可要求标注「来源待核验」而非打回。' +
+              'REWORK 意见必须具体可执行，一次最多 3 条。',
           ),
         },
         {
           role: 'user',
-          content: `子任务要求：\n${instruction}\n\n成员产出：\n${st.output}`,
+          content:
+            `子任务要求：\n${instruction}\n\n成员产出：\n${st.output}` +
+            (st.rounds > 1 && st.verdict ? `\n\n上一轮审阅意见（请核对是否已被解决）：\n${st.verdict}` : ''),
         },
       ]);
       const firstLine = reviewRaw.trim().split('\n')[0];
@@ -653,6 +660,9 @@ export async function runSquadOrchestration(
   }
 
   // —— 步骤 5：SUMMARIZE（leader 汇总全部产出）——
+  // 汇总上限按子任务规模动态化：底数 6000 + 每个子任务 2000，封顶 16000。
+  // 固定小上限会让多子任务报告在句子中间被砍断（真实事故：6 子任务调研报告限 4000 字）。
+  const summarizeLimit = Math.min(6000 + assigned.length * 2000, 16000);
   const deliverable = await chat(team.leaderId, [
     {
       role: 'system',
@@ -660,7 +670,8 @@ export async function runSquadOrchestration(
         personas,
         team.leaderId,
         '你是团队 leader。下面是各成员对子任务的真实产出，请汇总成一份完整、连贯的最终交付物交付给用户。' +
-          '如实反映各部分质量（含失败/未通过部分），不要编造不存在的内容。控制在 4000 字内。',
+          '如实反映各部分质量（含失败/未通过部分），不要编造不存在的内容。' +
+          `交付物可以写得完整充分，上限 ${summarizeLimit} 字；不要为压缩篇幅砍掉实质内容（数据、表格、案例都要保留）。`,
       ),
     },
     { role: 'user', content: `原任务：\n${taskText}\n\n${buildDigest(assigned)}` },

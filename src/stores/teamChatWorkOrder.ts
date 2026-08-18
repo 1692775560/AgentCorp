@@ -71,6 +71,8 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
 
     // 2) 注入成员 persona，起编排；任务文本带上追加要求与已有交付，
     //    让成员在现有成果基础上改进，而不是从零重做。
+    //    已有交付带足 12000 字（完整上一版），并明确要求保留不变部分——
+    //    之前只带 1500 字截断版，成员等于从零重写，返工后内容面目全非。
     const memberIds = Array.from(new Set([...(team.memberIds ?? []), team.leaderId]));
     const personas: Record<string, string | null> = {};
     await Promise.all(
@@ -94,13 +96,16 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         taskDescription: [
           task.description,
           `【追加要求（来自会话）】${instruction}`,
-          task.workResult ? `【已有交付，请在其基础上改进】\n${task.workResult.slice(0, 1500)}` : '',
+          task.workResult
+            ? `【上一版交付（在此基础上修订：保留与追加要求无关的部分不变，只改反馈涉及的内容）】\n${task.workResult.slice(0, 12000)}`
+            : '',
         ].filter(Boolean).join('\n\n'),
         team,
         candidates: projectRoutingCandidates(team),
         personas,
-        maxRounds: 2,
-        chat: (agentId, messages) => runRealChat(messages, 2048, { taskId, teamId: team.id, agentId }),
+        maxRounds: 3,
+        // maxTokens 8192：长交付物（动态上限最高 16000 字）需要足够的输出额度，2048 会腰斩。
+        chat: (agentId, messages) => runRealChat(messages, 8192, { taskId, teamId: team.id, agentId }),
         onTrace: (t) => { sink.push(t); forwardRoom(t); },
       });
     } finally {
@@ -128,12 +133,14 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
       /* 落盘失败不阻塞交付 */
     }
 
-    // 4) 落终态回「待验收」，通知用户验收
+    // 4) 落终态回「待验收」，通知用户验收。
+    //    workResult 上限 20000：完整保留汇总交付（动态上限最高 16000 字 + 头尾标注），
+    //    看板/会话展示与下次返工的「上一版」上下文都依赖它，4000 会腰斩长报告。
     await approvals.updateTask(taskId, {
       status: 'review',
       workState: 'done',
       ...(deliverableDir ? { deliverableDir } : {}),
-      workResult: realOutput.slice(0, 4000),
+      workResult: realOutput.slice(0, 20000),
     });
     notifyTaskTerminal(taskId, 'done', task.title);
     // 5) 交付同步到团队房间：与看板「交付结果」同一份内容，房间里直接可见
