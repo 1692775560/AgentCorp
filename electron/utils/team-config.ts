@@ -43,6 +43,66 @@ async function writeTeamsConfig(teams: Team[]): Promise<void> {
   });
 }
 
+// ── 立项草稿卡协议（与 src/lib/team-task-chat.ts 的 TASK_DRAFT_PREFIX /
+// TASK_DRAFT_RESOLUTION_PREFIX 保持一致；electron 构建隔离不能 import src/ 的
+// @/ 别名模块，此处内联，改动时请双侧同步）──────────────────────────────────
+const TASK_DRAFT_PREFIX = '[task-draft]';
+const TASK_DRAFT_RESOLUTION_PREFIX = '[task-draft-resolution]';
+
+/** 房间事件上限：超出时裁最旧。 */
+const CHAT_EVENTS_LIMIT = 200;
+/** 截断时额外保留的未处置草稿卡上限（防病态累积；超出的最旧未处置卡视为作废、允许裁掉）。 */
+const UNRESOLVED_DRAFT_KEEP_LIMIT = 10;
+
+/** 从协议事件 content 中解析 draft id，非协议事件或解析失败返回 null。 */
+function parseProtocolDraftId(content: string, prefix: string): string | null {
+  if (!content.startsWith(prefix)) return null;
+  try {
+    const parsed = JSON.parse(content.slice(prefix.length)) as Record<string, unknown>;
+    return typeof parsed.id === 'string' && parsed.id ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 房间事件截断到 CHAT_EVENTS_LIMIT：裁最旧，但跳过「未处置」的立项草稿卡
+ * （[task-draft] 无对应 [task-draft-resolution]）——一次编排会刷十几条 trace，
+ * 待确认的草稿卡被裁掉后老板永远无法确认，派活静默蒸发。
+ * 未处置草稿卡最多额外保留 UNRESOLVED_DRAFT_KEEP_LIMIT 张，超出的最旧卡视为作废。
+ */
+export function truncateChatEvents(events: TeamChatEvent[]): TeamChatEvent[] {
+  if (events.length <= CHAT_EVENTS_LIMIT) return events;
+
+  // 已有处置的 draft id 集合（confirmed/cancelled/superseded 都算已处置）
+  const resolvedDraftIds = new Set<string>();
+  for (const e of events) {
+    const id = parseProtocolDraftId(e.content, TASK_DRAFT_RESOLUTION_PREFIX);
+    if (id) resolvedDraftIds.add(id);
+  }
+  const isUnresolvedDraft = (e: TeamChatEvent): boolean => {
+    const id = parseProtocolDraftId(e.content, TASK_DRAFT_PREFIX);
+    return id !== null && !resolvedDraftIds.has(id);
+  };
+
+  // 未处置卡超上限时，最旧的若干张取消豁免资格
+  const unresolved = events.filter(isUnresolvedDraft);
+  const waivable = new Set(unresolved.slice(0, Math.max(0, unresolved.length - UNRESOLVED_DRAFT_KEEP_LIMIT)));
+
+  const dropCount = events.length - CHAT_EVENTS_LIMIT;
+  const kept: TeamChatEvent[] = [];
+  let dropped = 0;
+  for (const e of events) {
+    const droppable = !isUnresolvedDraft(e) || waivable.has(e);
+    if (dropped < dropCount && droppable) {
+      dropped += 1;
+      continue;
+    }
+    kept.push(e);
+  }
+  return kept;
+}
+
 /**
  * Calculate team status based on member activity
  * Per D-23: active if any member working, blocked if any blocked, else idle
@@ -398,7 +458,7 @@ export async function appendTeamChatEvent(
 
     teams[teamIndex] = {
       ...team,
-      chatEvents: [...(team.chatEvents ?? []), event].slice(-200),
+      chatEvents: truncateChatEvents([...(team.chatEvents ?? []), event]),
       updatedAt: Date.now(),
     };
     await writeTeamsConfig(teams);
