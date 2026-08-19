@@ -201,3 +201,100 @@ describe('路由分派', () => {
     expect(handled).toBe(false);
   });
 });
+
+// ── 群体经验共享路由（脱敏胶囊的社区池）──
+
+function publicCapsuleJson(over: Record<string, unknown>): string {
+  return JSON.stringify({
+    capsuleId: 'pub-1',
+    createdAt: '2025-01-01T00:00:00Z',
+    agentId: 'agent-1',
+    jobType: 'code',
+    radar: { task: 3, quality: 4, comm: 3, creativity: 2, reliability: 4, cost: 3 },
+    userFit: 70,
+    reworkRounds: 0,
+    approved: true,
+    humanJudgment: 'approved',
+    schemaVersion: 1,
+    ...over,
+  });
+}
+
+describe('GET /api/capsules/shared（拉取社区池）', () => {
+  it('空池 → { capsules: [] }', async () => {
+    const { handled, status, payload } = await call('GET', '/api/capsules/shared');
+    expect(handled).toBe(true);
+    expect(status).toBe(200);
+    expect(payload).toEqual({ capsules: [] });
+  });
+
+  it('按 jobType query 过滤', async () => {
+    // 先导入一个包建立社区池
+    const pkg = {
+      kind: 'agentcorp-public-capsules',
+      schemaVersion: 1,
+      capsules: [
+        JSON.parse(publicCapsuleJson({ capsuleId: 'a', jobType: 'code', agentId: 'a' })),
+        JSON.parse(publicCapsuleJson({ capsuleId: 'b', jobType: 'text', agentId: 'b' })),
+      ],
+    };
+    await call('POST', '/api/capsules/shared/import', pkg);
+    const { payload } = await call('GET', '/api/capsules/shared?jobType=code');
+    expect(payload.capsules).toHaveLength(1);
+    expect(payload.capsules[0].jobType).toBe('code');
+  });
+});
+
+describe('POST /api/capsules/shared（上传脱敏胶囊）', () => {
+  it('必填缺失 → 400', async () => {
+    const { status, payload } = await call('POST', '/api/capsules/shared', { capsuleId: 'x' });
+    expect(status).toBe(400);
+    expect(payload.ok).toBe(false);
+  });
+
+  it('合法公共胶囊 → 上传成功 ok=true', async () => {
+    const body = JSON.parse(publicCapsuleJson({ capsuleId: 'up-1' }));
+    const { status, payload } = await call('POST', '/api/capsules/shared', body);
+    expect(status).toBe(200);
+    expect(payload.ok).toBe(true);
+    // 验证入池
+    const list = await call('GET', '/api/capsules/shared');
+    expect(list.payload.capsules.some((c: { capsuleId: string }) => c.capsuleId === 'up-1')).toBe(true);
+  });
+});
+
+describe('POST /api/capsules/shared/import（导入社区包）', () => {
+  it('合法包 → 导入 N 条', async () => {
+    const pkg = {
+      kind: 'agentcorp-public-capsules',
+      schemaVersion: 1,
+      capsules: [
+        JSON.parse(publicCapsuleJson({ capsuleId: 'imp-1' })),
+        JSON.parse(publicCapsuleJson({ capsuleId: 'imp-2' })),
+      ],
+    };
+    const { status, payload } = await call('POST', '/api/capsules/shared/import', pkg);
+    expect(status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(payload.imported).toBe(2);
+    expect(payload.skipped).toBe(0);
+  });
+
+  it('kind 不匹配 → ok=false', async () => {
+    const { payload } = await call('POST', '/api/capsules/shared/import', { kind: 'other' });
+    expect(payload.ok).toBe(false);
+    expect(payload.imported).toBe(0);
+  });
+});
+
+describe('GET /api/capsules/shared/export（导出社区包）', () => {
+  it('返回合法包结构', async () => {
+    const { handled, status, payload } = await call('GET', '/api/capsules/shared/export');
+    expect(handled).toBe(true);
+    expect(status).toBe(200);
+    expect(payload.kind).toBe('agentcorp-public-capsules');
+    expect(payload.schemaVersion).toBe(1);
+    expect(Array.isArray(payload.capsules)).toBe(true);
+    expect(typeof payload.exportedAt).toBe('string');
+  });
+});

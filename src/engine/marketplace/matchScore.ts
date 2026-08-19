@@ -56,9 +56,30 @@ export interface MatchCandidateInput {
   radar: RadarScore | null;
   /** S3 绩效评分卡 total（0–100）；缺省 → perfBoost 取中性 0.5 */
   stageScoreTotal?: number | null;
+  /**
+   * 经验胶囊绩效摘要（来自 `summarizeAgentPerformance`，真实交付回流）。
+   * 当 stageScoreTotal 缺失时，用 approvalRate 作 perfBoost 次级回退，
+   * 让「真实交付反哺选人」闭环接通——取代此前无绩效时的中性 0.5 兜底。
+   * 样本不足（sampleSize < minSamples）时仍降级到中性，不编造。
+   */
+  performanceDigest?: AgentPerformanceDigest | null;
   /** 候选工种（用于工种不符的软惩罚，可选） */
   jobType?: JobType | null;
 }
+
+/**
+ * 经验胶囊绩效摘要（与 `engine/experience/capsule.ts` 的 summarizeAgentPerformance
+ * 返回结构兼容，本地定义避免 marketplace → experience 的类型依赖循环）。
+ */
+export interface AgentPerformanceDigest {
+  sampleSize: number;
+  approvalRate: number; // 0–1
+  avgRework?: number;
+  avgUserFit?: number | null;
+}
+
+/** 经验胶囊样本不足时的最小样本数门槛（诚实化：样本不足不编造） */
+export const PERF_MIN_SAMPLES = 3;
 
 /** 打分上下文 */
 export interface MatchContext {
@@ -124,12 +145,40 @@ export function computeCostPerf(
   return clamp01(ability / relativeCost);
 }
 
-/** 绩效回流项：S3 total/100；无绩效数据 → 0.5 中性 */
-export function computePerfBoost(stageScoreTotal: number | null | undefined): number {
-  if (typeof stageScoreTotal !== 'number' || !Number.isFinite(stageScoreTotal)) {
-    return NEUTRAL_PERF_BOOST;
+/**
+ * 绩效回流项（perfBoost），三级回退：
+ *   1. S3 绩效评分卡 total/100（面试期结构化绩效，最高优先级）
+ *   2. 经验胶囊 approvalRate（上岗期真实交付回流，sampleSize ≥ minSamples 时启用）
+ *   3. 中性 0.5（无任何绩效数据时）
+ *
+ * 诚实化纪律：经验胶囊样本不足（< minSamples）时不编造，直接降级到中性。
+ * 这样「真实交付反哺选人」闭环接通——取代此前无绩效时的空挡兜底，
+ * 但又不让「一次偶然交付」主导分数。
+ *
+ * @param stageScoreTotal S3 绩效卡 total（0–100）
+ * @param digest 经验胶囊绩效摘要（来自 summarizeAgentPerformance）
+ * @param minSamples 启用胶囊回退的最小样本数（默认 3）
+ */
+export function computePerfBoost(
+  stageScoreTotal: number | null | undefined,
+  digest?: AgentPerformanceDigest | null,
+  minSamples: number = PERF_MIN_SAMPLES,
+): number {
+  // ① S3 绩效卡优先
+  if (typeof stageScoreTotal === 'number' && Number.isFinite(stageScoreTotal)) {
+    return clamp01(stageScoreTotal / 100);
   }
-  return clamp01(stageScoreTotal / 100);
+  // ② 经验胶囊次级回退（样本足够时）
+  if (
+    digest &&
+    typeof digest.approvalRate === 'number' &&
+    Number.isFinite(digest.approvalRate) &&
+    digest.sampleSize >= minSamples
+  ) {
+    return clamp01(digest.approvalRate);
+  }
+  // ③ 中性兜底
+  return NEUTRAL_PERF_BOOST;
 }
 
 /** 列表最高报价（budgetRef），空列表返回 0 */
@@ -166,8 +215,11 @@ export function matchScore(
   // ③ 性价比
   const costPerf = computeCostPerf(candidate.radar, candidate.budgetNum, ctx.budgetRef);
 
-  // ④ 绩效回流（S3 → 市场
-  const perfBoost = computePerfBoost(candidate.stageScoreTotal);
+  // ④ 绩效回流（S3 绩效卡 → 经验胶囊真实交付 → 中性兜底，三级回退）
+  const perfBoost = computePerfBoost(
+    candidate.stageScoreTotal,
+    candidate.performanceDigest,
+  );
 
   const weightSum = weights.fit + weights.tag + weights.cost + weights.perf;
   const rawTotal =
