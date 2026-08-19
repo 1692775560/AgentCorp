@@ -117,11 +117,29 @@ def test_q6_downweight_keeps_sum_one_and_marks_evidence(stage, job):
         item = next(i for i in ss["objective"] if i["dim"] == dim)
         assert item["evidence"] == "缺真实结果·降权"
 
-    # 提供真实证据后不再降权
+    # 关键回归：只有裁判引文（craft_evidence）**不能**解除降权——
+    # 否则「缺真实执行则降权」这道闸门会被裁判自己的输出关掉。
+    ss_quote_only = build_stage_score(
+        stage=stage, job_type=job,
+        objective=_full_objective(job), subjective=_full_subjective(stage),
+        craft_evidence={"code_runnability": "「代码可直接运行」", "code_security": "「已做路径校验」"},
+        agent_id="a1",
+    )
+    assert set(ss_quote_only["craftScores"]["downweighted"]) == {
+        "code_runnability",
+        "code_security",
+    }
+    assert (
+        ss_quote_only["craftScores"]["evidence"]["code_runnability"]
+        == "缺真实执行/扫描结果·降权（裁判引文不作数）"
+    )
+
+    # 提供机器可核验证据（真实执行 / 扫描结果）后不再降权
     ss2 = build_stage_score(
         stage=stage, job_type=job,
         objective=_full_objective(job), subjective=_full_subjective(stage),
-        craft_evidence={"code_runnability": "CI 通过", "code_security": "trivy 扫描无高危"},
+        craft_evidence={},
+        verified_evidence={"code_runnability": "pytest 5/5 通过", "code_security": "trivy 扫描无高危"},
         agent_id="a1",
     )
     assert ss2["craftScores"]["downweighted"] == []

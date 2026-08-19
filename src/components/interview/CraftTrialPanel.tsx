@@ -19,15 +19,71 @@ import {
   FlaskConical,
   Loader2,
   PlayCircle,
+  Terminal,
   XCircle,
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { aggregateCraftDims } from '@/engine/interview/craftAggregate';
+import { aggregateCraftDims, summarizeSandbox } from '@/engine/interview/craftAggregate';
 import { dimLabel } from '@/engine/interview/dimTracker';
 import { useInterviewStore } from '@/stores/interview';
 import type { CraftTrialRound } from '@/types/interview';
+import type { SandboxResult } from '@/types/craft';
+
+/**
+ * 沙盒执行条：把「机器真的跑过」与「裁判觉得能跑」在视觉上分开。
+ * 这是本产品最硬的一块证据，值得单独占一行而不是折叠在证据列表里。
+ */
+function SandboxRow({ sandbox }: { sandbox: SandboxResult }) {
+  if (sandbox.outcome === 'disabled') return null;
+
+  const tone =
+    sandbox.outcome === 'passed'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : sandbox.outcome === 'failed'
+        ? 'text-rose-500'
+        : 'text-muted-foreground';
+
+  const label =
+    sandbox.outcome === 'passed'
+      ? `真实执行：${sandbox.passed}/${sandbox.total} 用例通过`
+      : sandbox.outcome === 'failed'
+        ? sandbox.reason === 'timeout'
+          ? '真实执行：超时未结束（疑似死循环）'
+          : `真实执行：${sandbox.passed}/${sandbox.total} 用例通过，${sandbox.failed} 个失败`
+        : sandbox.outcome === 'no_tests'
+          ? '未提供测试用例 → 无法验证（不解除降权，也不扣分）'
+          : sandbox.outcome === 'no_code'
+            ? '答案中没有可执行代码 → 无法验证'
+            : '沙盒执行异常，本题按未验证处理';
+
+  const firstFailure = sandbox.cases.find((c) => !c.passed);
+
+  return (
+    <div className="mt-2 rounded-md border border-dashed border-border/70 bg-muted/30 px-2 py-1.5">
+      <p className={`flex items-center gap-1 text-[10px] font-medium ${tone}`}>
+        <Terminal className="h-3 w-3 shrink-0" />
+        <span className="truncate">{label}</span>
+        {sandbox.verifiable && (
+          <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+            {Math.round(sandbox.durationMs)}ms
+          </span>
+        )}
+      </p>
+      {firstFailure && (
+        <p className="mt-1 truncate text-[10px] text-muted-foreground" title={firstFailure.detail}>
+          {firstFailure.name}：{firstFailure.detail}
+        </p>
+      )}
+      {sandbox.verifiable && (
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          机器可核验证据，已用于解除 code_runnability 的权重折减
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** 单题结果卡：分数 + 可展开的 checkpoint 证据 */
 function TrialCard({ trial }: { trial: CraftTrialRound }) {
@@ -85,6 +141,8 @@ function TrialCard({ trial }: { trial: CraftTrialRound }) {
               <span>{judgement.padding_note || '检测到空口承诺，评分已按 rubric 压分'}</span>
             </p>
           )}
+
+          {judgement.sandbox && <SandboxRow sandbox={judgement.sandbox} />}
 
           {judgement.unscored_dims.length > 0 && (
             <p className="mt-1 text-[10px] text-muted-foreground">
@@ -152,6 +210,7 @@ export function CraftTrialPanel() {
 
   const idle = status === 'idle';
   const summary = aggregateCraftDims(craftTrials);
+  const sandbox = summarizeSandbox(craftTrials);
   const pending = craftTasks.filter((t) => !craftTrials.some((r) => r.taskId === t.id));
 
   return (
@@ -170,6 +229,18 @@ export function CraftTrialPanel() {
         所有候选做同一道题、走同一套 rubric，分数只取决于答案是否兑现可核验要点，
         与仓库 star 数、雇佣次数无关。
       </p>
+
+      {/* 沙盒总览：只有真跑过用例才显示——没有可核验事实时宁可什么都不说 */}
+      {sandbox.verifiedTasks > 0 && (
+        <p className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+          <Terminal className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            真实执行验证：{sandbox.verifiedTasks} 题已跑，累计 {sandbox.passedCases}/
+            {sandbox.totalCases} 用例通过
+            {sandbox.noTestTasks > 0 ? `（另有 ${sandbox.noTestTasks} 题未提供用例，无法验证）` : ''}
+          </span>
+        </p>
+      )}
 
       {idle ? (
         <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">

@@ -140,8 +140,33 @@ export function OfficeEmployeeCard({ emp, accent }: { emp: OfficeEmployee; accen
         className="flex items-center justify-between border-t pt-2"
         style={{ borderColor: 'color-mix(in srgb, var(--neu-ink-soft) 16%, transparent)' }}
       >
-        <span className="text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
+        <span className="flex items-center gap-1 text-[10.5px]" style={{ color: 'var(--neu-ink-soft)' }}>
           用户契合度
+          {/* 证据来源三态：办公室是「看人」的地方，必须让人一眼看出这个分是怎么来的 */}
+          {emp.judgeSource === 'degraded' && (
+            <span
+              className="rounded-full bg-gray-400/20 px-1.5 py-px text-[9px] font-bold"
+              title="外部裁判不可达时的离线回退分数，未经模型评测，仅供参考"
+            >
+              未评测
+            </span>
+          )}
+          {emp.judgeSource === 'mixed' && (
+            <span
+              className="rounded-full bg-amber-400/20 px-1.5 py-px text-[9px] font-bold text-amber-700"
+              title="部分维度由真实裁判给出，部分为离线回退"
+            >
+              部分降级
+            </span>
+          )}
+          {emp.hasOnJobEvidence && (
+            <span
+              className="rounded-full bg-emerald-500/15 px-1.5 py-px text-[9px] font-bold text-emerald-600"
+              title="该分数已被上岗后的真实任务产出更新过，不只是面试期印象"
+            >
+              含上岗表现
+            </span>
+          )}
         </span>
         <span className="text-[13px] font-bold tabular-nums" style={{ color: accent, fontFamily: 'var(--font-accent)' }}>
           {emp.userFit}

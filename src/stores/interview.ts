@@ -62,6 +62,7 @@ import {
 import {
   aggregateCraftDims,
   buildCraftEvidence,
+  buildVerifiedEvidence,
 } from '@/engine/interview/craftAggregate';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { fetchCraftTasks, judgeCraftTask, tasksForJob } from '@/services/craftClient';
@@ -779,10 +780,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       if ((RADAR_DIMS as string[]).includes(dim)) continue;
       craftEvidence[dim] = list.join(' ／ ').slice(0, 500);
     }
-    // 试做题的 checkpoint 引文是可核验证据，优先于 HR 手写备注
+    // 试做题的 checkpoint 引文优先于 HR 手写备注（展示用证据）
     for (const [dim, text] of Object.entries(buildCraftEvidence(state.craftTrials))) {
       craftEvidence[dim] = text;
     }
+    // 机器可核验证据（沙盒真实执行）走独立字段：只有它能解除 requiresReal 维的 Q6 降权。
+    // 裁判引文再漂亮也不算数——否则等于让被监管方给自己发合格证。
+    const verifiedEvidence = buildVerifiedEvidence(state.craftTrials);
 
     let stageScore: StageScore | null = null;
     try {
@@ -793,6 +797,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         objective,
         subjective,
         craftEvidence,
+        verifiedEvidence,
         scoredBy: state.createdBy,
       });
     } catch (e) {
