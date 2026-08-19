@@ -31,6 +31,7 @@ import { handleReactionsRoutes } from './routes/reactions';
 import { handleArenaRoutes } from './routes/arena';
 import { handleCraftRoutes } from './routes/craft';
 import { handleTraceRoutes } from './routes/traces';
+import { handleCapsuleRoutes } from './routes/capsules';
 import { isAuthorizedHostApiRequest, applyCorsOrigin, sendJson, sendNoContent, sendUnauthorized } from './route-utils';
 
 type RouteHandler = (
@@ -77,6 +78,7 @@ const routeHandlers: RouteHandler[] = [
   handleArenaRoutes,
   handleCraftRoutes,
   handleTraceRoutes,
+  handleCapsuleRoutes,
 ];
 
 /**

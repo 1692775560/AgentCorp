@@ -26,6 +26,8 @@
  */
 import { useEvaluationStore } from '@/stores/evaluation';
 import type { EvaluationProfile } from '@/types/evaluation';
+import { hostApiFetch } from '@/lib/host-api';
+import { buildCapsule } from '@/engine/experience/capsule';
 
 /** 一次已完成的真实工作 */
 export interface CompletedWork {
@@ -101,7 +103,7 @@ export async function evaluateCompletedWork(
 ): Promise<EvaluationProfile | null> {
   if (!shouldEvaluateWork(work)) return null;
   try {
-    return await useEvaluationStore.getState().runEvaluation({
+    const profile = await useEvaluationStore.getState().runEvaluation({
       runId: work.runId ?? null,
       agentId: work.agentId,
       agentName: work.agentName,
@@ -117,9 +119,34 @@ export async function evaluateCompletedWork(
       // 主进程采集会返回空转录 —— 用真实交付物兜底，让裁判有证据可依。
       transcriptFallback: buildWorkTranscript(work),
     });
+    // 评测成功后，把这次协作沉淀为经验胶囊（best-effort，绝不阻塞回流）：
+    // 胶囊是 G12 eval-in-loop 的回归集原子，也是后续 Agent 适配与群体经验
+    // 共享的基础——兑现「真实交付回流成新的评测证据」与「人的能力增量」北极星。
+    void persistCapsuleBestEffort(work, profile);
+    return profile;
   } catch {
     // 评测是观察者：它自己出问题，不能反过来影响已经交付的工作
     return null;
+  }
+}
+
+/**
+ * best-effort 沉淀经验胶囊：主进程不可达 / 落盘失败时静默吞掉。
+ * 与回流闭环同口径——胶囊是观察者，不能成为生产链路的故障点。
+ */
+async function persistCapsuleBestEffort(
+  work: CompletedWork,
+  profile: EvaluationProfile | null,
+): Promise<void> {
+  try {
+    const capsule = buildCapsule(work, profile);
+    await hostApiFetch('/api/capsules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(capsule),
+    });
+  } catch {
+    // web 预览模式 / 主进程不可达 / 落盘失败——吞掉，回流不受影响
   }
 }
 
