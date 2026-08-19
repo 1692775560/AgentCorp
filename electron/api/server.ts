@@ -30,6 +30,7 @@ import { handleTeamExperienceRoutes } from './routes/team-experience';
 import { handleReactionsRoutes } from './routes/reactions';
 import { handleArenaRoutes } from './routes/arena';
 import { handleCraftRoutes } from './routes/craft';
+import { handleTraceRoutes } from './routes/traces';
 import { isAuthorizedHostApiRequest, applyCorsOrigin, sendJson, sendNoContent, sendUnauthorized } from './route-utils';
 
 type RouteHandler = (
@@ -75,6 +76,7 @@ const routeHandlers: RouteHandler[] = [
   handleReactionsRoutes,
   handleArenaRoutes,
   handleCraftRoutes,
+  handleTraceRoutes,
 ];
 
 /**

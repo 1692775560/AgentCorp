@@ -36,6 +36,7 @@ import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
 import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
 import { BossProfileSelector } from '@/components/persona/BossProfileSelector';
 import { JudgeHealthPanel } from '@/components/evaluation/JudgeHealthPanel';
+import { TraceBrowserPanel } from '@/components/evaluation/TraceBrowserPanel';
 import { SuiteView } from '@/components/evaluation/SuiteView';
 import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
@@ -506,6 +507,9 @@ export function Evaluation() {
 
                 {/* 裁判元评估：谁来监管裁判 */}
                 <JudgeHealthPanel />
+
+                {/* 协作 trace 回放：把已落盘的委派链路变成可回看的视图 */}
+                <TraceBrowserPanel />
 
                 {/* C · 基准套件：维度×原型矩阵 + 个性化增量（人格化评估的核心视图） */}
                 <SuiteView
