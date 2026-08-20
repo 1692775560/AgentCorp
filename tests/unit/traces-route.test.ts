@@ -4,7 +4,10 @@
  * 历史协作 trace 浏览路由单测：
  * 直接调用 handleTraceRoutes（mock req/res/ctx），覆盖：
  * - GET /api/traces              空目录 / 多 jsonl 文件（按最近活动降序）
+ * - GET /api/traces?taskId=      团队任务过滤：只列含该任务记录的文件
  * - GET /api/traces/<id>         存在 → records 升序；不存在 → []；空 id → 400
+ * - GET /api/traces/<id>?taskId= 详情按 task_id 过滤
+ * - POST /api/traces             渲染层团队任务 trace 落盘（合法写入 / 坏记录丢弃 / 非 JSON → 400）
  * - 路径穿越防护（id 含 ../ → sanitize 后读，绝不越出 a2a-traces 目录）
  * - 非匹配路径 → handled=false（让下个 handler 接管）
  *
@@ -32,8 +35,8 @@ import type { HostApiContext } from '@electron/api/context';
 
 const ctx = {} as unknown as HostApiContext;
 
-function makeReq(method: string): IncomingMessage {
-  const stream = Readable.from([]);
+function makeReq(method: string, body?: unknown): IncomingMessage {
+  const stream = Readable.from(body === undefined ? [] : [JSON.stringify(body)]);
   return Object.assign(stream, { method, headers: {} }) as unknown as IncomingMessage;
 }
 
@@ -57,10 +60,10 @@ function makeRes(): { res: ServerResponse; captured: Captured } {
   return { res: res as unknown as ServerResponse, captured };
 }
 
-async function call(method: string, rawUrl: string) {
+async function call(method: string, rawUrl: string, body?: unknown) {
   const { res, captured } = makeRes();
   const handled = await handleTraceRoutes(
-    makeReq(method),
+    makeReq(method, body),
     res,
     new URL(rawUrl, 'http://127.0.0.1:3210'),
     ctx,
@@ -234,14 +237,73 @@ describe('GET /api/traces/<rootSessionId>（详情）', () => {
   });
 });
 
+describe('GET /api/traces?taskId=（团队任务过滤）', () => {
+  it('列表按 taskId 过滤：只保留含该任务记录的文件', async () => {
+    writeTraceFile('root-a', [recordLine({ trace_id: 'a1', task_id: 'task-A', root_session_id: 'root-a' })]);
+    writeTraceFile('root-b', [recordLine({ trace_id: 'b1', task_id: 'task-B', root_session_id: 'root-b' })]);
+    const { handled, status, payload } = await call('GET', '/api/traces?taskId=task-A');
+    expect(handled).toBe(true);
+    expect(status).toBe(200);
+    expect(payload.traces).toHaveLength(1);
+    expect(payload.traces[0].rootSessionId).toBe('root-a');
+  });
+
+  it('详情按 taskId 过滤：只返回该任务的 records', async () => {
+    writeTraceFile('root-mix', [
+      recordLine({ trace_id: 'm1', task_id: 'task-A', root_session_id: 'root-mix', sent_at: '2025-01-01T00:00:00Z' }),
+      recordLine({ trace_id: 'm2', task_id: 'task-B', root_session_id: 'root-mix', sent_at: '2025-01-01T00:01:00Z' }),
+    ]);
+    const { status, payload } = await call('GET', '/api/traces/root-mix?taskId=task-B');
+    expect(status).toBe(200);
+    expect(payload.records).toHaveLength(1);
+    expect(payload.records[0].trace_id).toBe('m2');
+  });
+});
+
+describe('POST /api/traces（渲染层团队任务 trace 落盘）', () => {
+  it('合法 records 追加落盘，随后可读回', async () => {
+    const record = JSON.parse(recordLine({
+      trace_id: 'post-1', task_id: 'task-squad', root_session_id: 'root-squad',
+    }));
+    const { handled, status, payload } = await call('POST', '/api/traces', { records: [record] });
+    expect(handled).toBe(true);
+    expect(status).toBe(200);
+    expect(payload).toEqual({ success: true, appended: 1 });
+
+    const detail = await call('GET', '/api/traces/root-squad');
+    expect(detail.payload.records).toHaveLength(1);
+    expect(detail.payload.records[0].trace_id).toBe('post-1');
+  });
+
+  it('缺 root_session_id 的记录被丢弃，不写入', async () => {
+    const { status, payload } = await call('POST', '/api/traces', {
+      records: [{ trace_id: 'bad-1' }, JSON.parse(recordLine({ trace_id: 'good-1', root_session_id: 'root-post' }))],
+    });
+    expect(status).toBe(200);
+    expect(payload).toEqual({ success: true, appended: 1 });
+    const detail = await call('GET', '/api/traces/root-post');
+    expect(detail.payload.records).toHaveLength(1);
+  });
+
+  it('非 JSON body → 400，不抛出', async () => {
+    const { res, captured } = makeRes();
+    const stream = Readable.from(['not-json{{{']);
+    const req = Object.assign(stream, { method: 'POST', headers: {} }) as unknown as IncomingMessage;
+    const handled = await handleTraceRoutes(req, res, new URL('/api/traces', 'http://127.0.0.1:3210'), ctx);
+    expect(handled).toBe(true);
+    expect(captured.status).toBe(400);
+    expect(captured.payload.success).toBe(false);
+  });
+});
+
 describe('路由分派', () => {
   it('非 /api/traces 前缀 → handled=false（交下个 handler）', async () => {
     const { handled } = await call('GET', '/api/approvals');
     expect(handled).toBe(false);
   });
 
-  it('POST /api/traces → handled=false（仅支持 GET）', async () => {
-    const { handled } = await call('POST', '/api/traces');
+  it('PUT /api/traces → handled=false（未支持的方法）', async () => {
+    const { handled } = await call('PUT', '/api/traces');
     expect(handled).toBe(false);
   });
 });

@@ -98,6 +98,15 @@ export function mapEventsToTeamChatBubbles(events: TaskExecutionEvent[]): TeamCh
 }
 
 /**
+ * 是否「非 leader 成员直接回复用户」的气泡（@成员 私聊式提问的答复发言）。
+ * 视图层据此加视觉区分（@你 徽章 + 浅色高亮背景），让用户在 leader 与成员
+ * 交替说话时一眼看出「这条是被我点名的成员在回我」。leader 回复维持默认样式。
+ */
+export function isDirectReplyToUser(bubble: TeamChatBubble, leaderId: string | null): boolean {
+  return bubble.kind === 'a2a' && bubble.peerId === 'user' && bubble.actorId !== leaderId;
+}
+
+/**
  * 解析用户输入里的 @ 提及。命中成员名（@名字 或 @名字 出现在文中）即返回该成员，
  * 并给出去掉提及后的正文；未命中返回 null（调用方默认发给 leader）。
  */

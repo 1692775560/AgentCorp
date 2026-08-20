@@ -14,6 +14,7 @@
  * i18n：用户可见文案走 common:evaluation.*（含面板标签 / 表单 / 空态）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Loader2, Play, AlertTriangle, Volume2, VolumeX } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -102,6 +103,9 @@ export function Evaluation() {
   } = useEvaluationStore();
 
   const [panel, setPanel] = useState<PanelKey>('result');
+  // 看板任务详情「查看协作轨迹」入口：/evaluation?traceTaskId=<taskId> → trace 面板按任务过滤
+  const [searchParams] = useSearchParams();
+  const traceTaskId = searchParams.get('traceTaskId')?.trim() || undefined;
   const recordReview = useMetaJudgeStore((s) => s.recordReview);
   const [runIdInput, setRunIdInput] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
@@ -509,8 +513,9 @@ export function Evaluation() {
                 {/* 裁判元评估：谁来监管裁判 */}
                 <JudgeHealthPanel />
 
-                {/* 协作 trace 回放：把已落盘的委派链路变成可回看的视图 */}
-                <TraceBrowserPanel />
+                {/* 协作 trace 回放：把已落盘的委派链路变成可回看的视图；
+                    看板「查看协作轨迹」入口带 traceTaskId 跳来时按任务过滤 */}
+                <TraceBrowserPanel taskId={traceTaskId} />
 
                 {/* 经验胶囊：真实交付回流沉淀的可复用资产 */}
                 <CapsuleBrowserPanel />

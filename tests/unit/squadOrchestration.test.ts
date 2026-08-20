@@ -859,6 +859,79 @@ describe("P0-2 拆解覆盖机检", () => {
   });
 });
 
+describe("P0-5 leader 自留比例机检", () => {
+  // 覆盖任务要点（竞品 + 市场调研），不触发 P0-2 覆盖机检，隔离观察自留机检
+  const allSelf = JSON.stringify([
+    { title: "竞品调研", instruction: "调研竞品并整理要点", assigneeId: "leader" },
+    { title: "市场调研报告", instruction: "汇总输出市场调研报告", assigneeId: "leader" },
+  ]);
+  const shared = JSON.stringify([
+    { title: "竞品调研", instruction: "调研竞品并整理要点", assigneeId: "m1" },
+    { title: "市场调研报告", instruction: "汇总输出市场调研报告", assigneeId: "m2" },
+  ]);
+
+  it("leader 全自留 → 回喂修订一次并留 trace；修订后正常分配 → 通过", async () => {
+    let decomposeIdx = 0;
+    const chat: ChatFn = async (_agentId, msgs) => {
+      const sys = msgs[0]?.content ?? "";
+      if (sys.includes("拆解") || sys.includes("修订分工")) {
+        decomposeIdx += 1;
+        return decomposeIdx === 1 ? allSelf : shared;
+      }
+      if (sys.includes("汇总")) return "汇总交付物";
+      if (sys.includes("审阅")) return "PASS";
+      return "产出";
+    };
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(decomposeIdx).toBe(2); // 首拆 + 分工修订各一次
+    expect(result.traces.some((t) => t.summary.includes("自留比例机检未过") && t.summary.includes("已修订分工"))).toBe(true);
+    // 修订后的分工生效：执行类子任务分给了成员
+    expect(result.subtasks.map((s) => s.assigneeId)).toEqual(["m1", "m2"]);
+  });
+
+  it("拆解本就正常分工 → 不触发修订（不多花调用）", async () => {
+    const chat = scriptedChat({ decompose: shared });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(result.traces.some((t) => t.summary.includes("自留比例机检"))).toBe(false);
+  });
+
+  it("修订后仍超比例 → 不再强求，留 trace 说明并沿用修订结果", async () => {
+    let decomposeIdx = 0;
+    const chat: ChatFn = async (_agentId, msgs) => {
+      const sys = msgs[0]?.content ?? "";
+      if (sys.includes("拆解") || sys.includes("修订分工")) {
+        decomposeIdx += 1;
+        return allSelf; // 修订后仍全自留
+      }
+      if (sys.includes("汇总")) return "汇总交付物";
+      if (sys.includes("审阅")) return "PASS";
+      return "产出";
+    };
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(decomposeIdx).toBe(2);
+    expect(result.traces.some((t) => t.summary.includes("自留比例机检") && t.summary.includes("不再强求"))).toBe(true);
+  });
+
+  it("单成员团队（memberIds 为空）→ 不触发自留机检", async () => {
+    let decomposeIdx = 0;
+    const chat: ChatFn = async (_agentId, msgs) => {
+      const sys = msgs[0]?.content ?? "";
+      if (sys.includes("拆解") || sys.includes("修订分工")) {
+        decomposeIdx += 1;
+        return allSelf;
+      }
+      if (sys.includes("汇总")) return "汇总交付物";
+      if (sys.includes("审阅")) return "PASS";
+      return "产出";
+    };
+    const soloTeam: Team = { ...team, memberIds: [] };
+    const result = await runSquadOrchestration(baseInput({ chat, team: soloTeam }));
+    expect(decomposeIdx).toBe(1); // 只首拆，无分工修订
+    expect(result.traces.some((t) => t.summary.includes("自留比例机检"))).toBe(false);
+    expect(result.subtasks.map((s) => s.assigneeId)).toEqual(["leader", "leader"]);
+  });
+});
+
 describe("P0-3 举证审阅（结构化 verdict）", () => {
   const decomposeWithAcceptance = JSON.stringify([
     { title: "调研", instruction: "调研竞品", assigneeId: "m1", acceptance: ["覆盖竞品", "有数据支撑"] },

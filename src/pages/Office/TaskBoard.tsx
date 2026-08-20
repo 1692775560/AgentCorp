@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText, TriangleAlert, History } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
@@ -547,6 +547,17 @@ export function TaskBoard() {
                     style={{ color: '#6366f1' }}
                   >
                     <MessageCircle className="h-3 w-3" /> 会话
+                  </button>
+                )}
+                {selected.teamId && (
+                  <button
+                    type="button"
+                    title="回看本次协作的完整 A2A trace（谁委派给谁、谁审的谁）"
+                    onClick={() => navigate(`/evaluation?traceTaskId=${encodeURIComponent(selected.id)}`)}
+                    className="neu-btn flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] font-semibold"
+                    style={{ color: '#0ea5e9' }}
+                  >
+                    <History className="h-3 w-3" /> 协作轨迹
                   </button>
                 )}
               </div>

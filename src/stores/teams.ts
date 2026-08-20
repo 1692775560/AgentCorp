@@ -131,6 +131,19 @@ export const useTeamsStore = create<TeamsState>((set, get) => ({
     const team = get().teams.find((t) => t.id === teamId);
     if (!team) return Promise.resolve();
 
+    // 未读角标：房间来新消息时若用户不在该会话，未读 +1。
+    // 团队房间（team:<teamId>）是纯本地会话，事件不走 handleChatEvent，未读在这里记账；
+    // 用户正在该房间发消息时 currentSessionKey 命中，不会自增。动态 import 避免循环依赖。
+    void import('./chat')
+      .then(({ useChatStore }) => {
+        const chat = useChatStore.getState();
+        const sessionKey = `team:${teamId}`;
+        if (chat.currentSessionKey !== sessionKey) {
+          chat.updateSessionUnreadCount(sessionKey, 1);
+        }
+      })
+      .catch(() => {});
+
     // 串行化：挂到该团队的链尾，等前一次响应套用快照后再发，避免乱序覆盖丢消息。
     // catch 续链：前一次失败不阻断后续 append。
     const prev = appendChains.get(teamId) ?? Promise.resolve();

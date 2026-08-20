@@ -218,6 +218,59 @@ const HISTORY_POLL_SILENCE_WINDOW_MS = 2_500;
 const CHAT_EVENT_DEDUPE_TTL_MS = 30_000;
 const _chatEventDedupe = new Map<string, number>();
 
+// ── 非当前会话未读记账（run 级去重）──────────────────────────
+// 一条助手回复会产生多条流式事件（delta、工具结果 final、正文 final），
+// 按事件计数会把 1 条消息虚增成 N 条未读。这里以 runId 为单位去重：
+// 一个 run 最多贡献 1 条未读；无 runId 时退化为消息 id，两者都缺则
+// 在 TTL 内按 session|state 保守只计 1 次（宁可少计也不虚高）。
+const UNREAD_RUN_DEDUPE_TTL_MS = 10 * 60_000;
+const _unreadCountedRuns = new Map<string, number>();
+
+function pruneUnreadCountedRuns(now: number): void {
+  for (const [key, ts] of _unreadCountedRuns.entries()) {
+    if (now - ts > UNREAD_RUN_DEDUPE_TTL_MS) {
+      _unreadCountedRuns.delete(key);
+    }
+  }
+}
+
+/**
+ * 非当前会话收到「有实质内容」的事件时未读 +1。
+ * 只把一轮回复的完成/出错算作未读；started/delta/心跳等过程噪音不计。
+ * increment 由调用方传入（store 的 updateSessionUnreadCount），便于模块级复用。
+ */
+function noteUnreadForBackgroundSession(
+  sessionKey: string,
+  runId: string,
+  eventState: string,
+  event: Record<string, unknown>,
+  increment: (key: string) => void,
+): void {
+  // 与 handleChatEvent 的 resolvedState 推断一致：无 state 但带 stopReason 视为 final
+  let resolved = eventState;
+  if (!resolved && event.message && typeof event.message === 'object') {
+    const msg = event.message as Record<string, unknown>;
+    if (msg.stopReason ?? msg.stop_reason) resolved = 'final';
+  }
+  if (resolved !== 'final' && resolved !== 'error') return;
+
+  const msg = (event.message && typeof event.message === 'object')
+    ? event.message as Record<string, unknown>
+    : null;
+  const msgId = msg?.id != null ? String(msg.id) : '';
+  const dedupeKey = runId
+    ? `${sessionKey}|run|${runId}`
+    : msgId
+      ? `${sessionKey}|msg|${msgId}`
+      : `${sessionKey}|${resolved}`;
+
+  const now = Date.now();
+  pruneUnreadCountedRuns(now);
+  if (_unreadCountedRuns.has(dedupeKey)) return;
+  _unreadCountedRuns.set(dedupeKey, now);
+  increment(sessionKey);
+}
+
 function clearErrorRecoveryTimer(): void {
   if (_errorRecoveryTimer) {
     clearTimeout(_errorRecoveryTimer);
@@ -2082,8 +2135,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const eventSessionKey = event.sessionKey != null ? String(event.sessionKey) : null;
     const { activeRunId, currentSessionKey } = get();
 
-    // Only process events for the current session (when sessionKey is present)
-    if (eventSessionKey != null && eventSessionKey !== currentSessionKey) return;
+    // Only process events for the current session (when sessionKey is present).
+    // 非当前会话：不做流式处理，但要记未读——否则别的会话来了新消息用户永远看不到。
+    if (eventSessionKey != null && eventSessionKey !== currentSessionKey) {
+      noteUnreadForBackgroundSession(eventSessionKey, runId, eventState, event, (key) => {
+        get().updateSessionUnreadCount(key, 1);
+      });
+      return;
+    }
 
     // Only process events for the active run (or if no active run set)
     if (activeRunId && runId && runId !== activeRunId) return;

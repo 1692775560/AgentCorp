@@ -58,7 +58,9 @@ import {
   appendA2aTrace,
   delegatorFromSessionKey,
   deriveRootSessionId,
+  filterA2aTracesByTask,
   getA2aTracesDir,
+  listA2aTraceFiles,
   loadA2aTracesForRun,
   readA2aTraces,
 } from '@electron/services/evaluation/a2a-trace';
@@ -271,5 +273,42 @@ describe('collectRunData 消费 A2A trace', () => {
     const traces = await loadA2aTracesForRun('worker', 'sess-unrelated');
     expect(traces.length).toBeGreaterThan(0);
     expect(traces.every((t) => t.delegatee === 'agent:worker')).toBe(true);
+  });
+});
+
+describe('taskId 过滤（团队任务「协作轨迹」入口）', () => {
+  it('filterA2aTracesByTask：按 task_id 过滤；空 taskId 原样返回', () => {
+    const records = [
+      makeTrace({ trace_id: 't-a', task_id: 'task-1' }),
+      makeTrace({ trace_id: 't-b', task_id: 'task-2' }),
+    ];
+    expect(filterA2aTracesByTask(records, 'task-1').map((r) => r.trace_id)).toEqual(['t-a']);
+    expect(filterA2aTracesByTask(records, 'task-none')).toEqual([]);
+    expect(filterA2aTracesByTask(records, '')).toHaveLength(2);
+  });
+
+  it('listA2aTraceFiles 带 taskId：只保留含该任务记录的文件', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'a2a-trace-taskfilter-'));
+    try {
+      await appendA2aTrace(makeTrace({
+        trace_id: 'tf-1', task_id: 'task-A', root_session_id: 'root-A',
+        sent_at: '2025-01-01T00:00:00.000Z',
+      }), dir);
+      await appendA2aTrace(makeTrace({
+        trace_id: 'tf-2', task_id: 'task-B', root_session_id: 'root-B',
+        sent_at: '2025-01-02T00:00:00.000Z',
+      }), dir);
+
+      const all = await listA2aTraceFiles(dir);
+      expect(all.map((f) => f.rootSessionId).sort()).toEqual(['root-A', 'root-B']);
+
+      const onlyA = await listA2aTraceFiles(dir, 'task-A');
+      expect(onlyA).toHaveLength(1);
+      expect(onlyA[0].rootSessionId).toBe('root-A');
+
+      expect(await listA2aTraceFiles(dir, 'task-ghost')).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

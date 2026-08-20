@@ -6,6 +6,7 @@ import {
   buildTeamChatRenderItems,
   buildWorkIntentClassifierMessages,
   findReviewTaskForDelivery,
+  isDirectReplyToUser,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   mapTeamChatEventsToBubbles,
@@ -117,6 +118,47 @@ describe('chat: 对话事件映射', () => {
     ]);
     expect(bubbles[0].verdict).toBeNull();
     expect(bubbles[0].round).toBeNull();
+  });
+});
+
+describe('isDirectReplyToUser（@成员回复的视觉区分条件）', () => {
+  it('非 leader 成员的 chat: 回复（member→user）判定为直接回复', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:dev-1→user', '这个样式我按你说的改了'),
+    ]);
+    expect(isDirectReplyToUser(bubbles[0], 'leader-1')).toBe(true);
+  });
+
+  it('leader 的 chat: 回复维持现样，不算直接回复', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:leader-1→user', '收到，我来安排'),
+    ]);
+    expect(isDirectReplyToUser(bubbles[0], 'leader-1')).toBe(false);
+  });
+
+  it('用户发言与系统气泡一律不算', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:user→dev-1', '@阿强 样式再改改'),
+      ev('status', '任务已领取'),
+    ]);
+    expect(isDirectReplyToUser(bubbles[0], 'leader-1')).toBe(false);
+    expect(isDirectReplyToUser(bubbles[1], 'leader-1')).toBe(false);
+  });
+
+  it('协作 trace 气泡（peerId 非 user）不算直接回复', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('a2a:leader-1→dev-1', '【第1轮】分派：实现 UI'),
+      ev('a2a:dev-1→leader-1', '【第1轮】交付结果'),
+    ]);
+    expect(isDirectReplyToUser(bubbles[0], 'leader-1')).toBe(false);
+    expect(isDirectReplyToUser(bubbles[1], 'leader-1')).toBe(false);
+  });
+
+  it('leaderId 未知（null）时任何成员回复都算直接回复', () => {
+    const bubbles = mapEventsToTeamChatBubbles([
+      ev('chat:dev-1→user', '好的'),
+    ]);
+    expect(isDirectReplyToUser(bubbles[0], null)).toBe(true);
   });
 });
 

@@ -5,6 +5,9 @@
  * 数据来自主进程已落盘的 A2A 委派 trace
  *（~/.openclaw/a2a-traces/<rootSessionId>.jsonl，每行一条 A2aTraceRecord），
  * 经 Host API 路由 `GET /api/traces` 与 `GET /api/traces/<id>` 读取。
+ * 团队任务编排（squadOrchestration）的 A2A trace 经 POST /api/traces 同盘落盘，
+ * 传入 `taskId` prop 时列表/详情按 task_id 过滤——看板任务详情
+ * 「查看协作轨迹」入口即跳到本面板并带上该任务的 taskId。
  *
  * 这块面板存在的意义不是好看，而是**把「全程留痕」兑现为用户可消费的视图**：
  * - 列出历史协作 trace 文件，让用户回看每一次委派链路；
@@ -84,7 +87,18 @@ function stateBadge(state: A2aTraceRecord['state']): { text: string; tone: strin
   }
 }
 
-export function TraceBrowserPanel() {
+/** 组装 trace API 路径：带 taskId 时附过滤参数（团队任务「协作轨迹」入口）。 */
+export function traceListPath(taskId?: string): string {
+  return taskId ? `/api/traces?taskId=${encodeURIComponent(taskId)}` : '/api/traces';
+}
+
+/** 单文件详情路径（同样支持 taskId 过滤 records）。 */
+export function traceDetailPath(rootSessionId: string, taskId?: string): string {
+  const base = `/api/traces/${encodeURIComponent(rootSessionId)}`;
+  return taskId ? `${base}?taskId=${encodeURIComponent(taskId)}` : base;
+}
+
+export function TraceBrowserPanel({ taskId }: { taskId?: string }) {
   const [files, setFiles] = useState<TraceFileSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +112,7 @@ export function TraceBrowserPanel() {
     setError(null);
     setUnreachable(false);
     try {
-      const res = await hostApiFetch<TraceListResponse>('/api/traces');
+      const res = await hostApiFetch<TraceListResponse>(traceListPath(taskId));
       setFiles(res.traces ?? []);
     } catch (err) {
       const msg = String(err);
@@ -112,7 +126,7 @@ export function TraceBrowserPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [taskId]);
 
   useEffect(() => {
     void refresh();
@@ -130,7 +144,7 @@ export function TraceBrowserPanel() {
       setRecords([]);
       try {
         const res = await hostApiFetch<TraceDetailResponse>(
-          `/api/traces/${encodeURIComponent(rootSessionId)}`,
+          traceDetailPath(rootSessionId, taskId),
         );
         setRecords(res.records ?? []);
       } catch (err) {
@@ -140,7 +154,7 @@ export function TraceBrowserPanel() {
         setRecordsLoading(false);
       }
     },
-    [openId],
+    [openId, taskId],
   );
 
   return (
@@ -150,6 +164,11 @@ export function TraceBrowserPanel() {
           <Clock className="h-5 w-5 text-gray-500" />
           <h3 className="text-sm font-bold text-gray-700">协作 trace 回放</h3>
           <span className="text-xs text-gray-400">每一次委派都留痕</span>
+          {taskId ? (
+            <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-[10px] text-indigo-500">
+              任务 {taskId}
+            </span>
+          ) : null}
         </div>
         <button
           type="button"
@@ -172,7 +191,9 @@ export function TraceBrowserPanel() {
         <p className="mt-3 text-xs text-gray-400">加载中…</p>
       ) : files.length === 0 ? (
         <p className="mt-3 text-xs text-gray-400">
-          尚无协作 trace 记录。委派任务并完成一轮协作后，这里会出现可回放的历史。
+          {taskId
+            ? '该任务尚无协作 trace 记录。团队任务完成一轮协作（或落盘通道不可用）前，这里不会有内容。'
+            : '尚无协作 trace 记录。委派任务并完成一轮协作后，这里会出现可回放的历史。'}
         </p>
       ) : (
         <ul className="mt-3 space-y-1">

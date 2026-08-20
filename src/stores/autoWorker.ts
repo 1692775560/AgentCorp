@@ -47,6 +47,7 @@ import { createRoomTraceForwarder } from '@/stores/teamRoomBroadcast';
 import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { invokeIpc } from '@/lib/api-client';
 import { notifyTaskTerminal } from '@/lib/task-notify';
+import { persistA2aTrace } from '@/lib/a2a-trace-persist';
 import type { Team } from '@/types/team';
 import type { A2aTraceRecord } from '@/types/evaluation';
 import type { TaskExecutionEvent } from '@/types/task';
@@ -627,8 +628,9 @@ async function runOne(
               chat: (agentId, messages, hints) => runRealChat(messages, hints?.maxTokens ?? 8192, { taskId: task.id, teamId: team.id, agentId }),
               // SUMMARIZE 续写拼接依赖 finishReason 识别腰斩（见 squadOrchestration.chatRich）
               chatRich: (agentId, messages) => runRealChatRich(messages, 8192, { taskId: task.id, teamId: team.id, agentId }),
-              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
-              onTrace: (t) => { sink.push(t); forwardRoom?.(t); },
+              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回），
+              // 并落盘到主进程 a2a-traces（Trace 浏览面板可按 taskId 回放）。
+              onTrace: (t) => { sink.push(t); forwardRoom?.(t); persistA2aTrace(t); },
             });
           } finally {
             // 成功/失败都必须把尾部事件落库，时间线不丢尾
@@ -671,8 +673,8 @@ async function runOne(
               maxRounds: 3,
               // 注入真实 LLM 执行；agentId 作为身份写进系统提示。
               chat: (agentId, messages) => runRealChat(messages, 8192, { taskId: task.id, teamId: task.teamId, agentId }),
-              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回）。
-              onTrace: (t) => sink.push(t),
+              // 每产生一条 A2A 消息，实时 append 成执行事件（节流写回），并落盘留痕。
+              onTrace: (t) => { sink.push(t); persistA2aTrace(t); },
             });
           } finally {
             await sink.flush();
