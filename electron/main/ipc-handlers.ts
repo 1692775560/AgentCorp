@@ -35,6 +35,7 @@ import { updateSkillConfig, getSkillConfig, getAllSkillConfigs } from '../utils/
 import { saveTaskDeliverables, zipTaskDeliverables, findHtmlDeliverable, listTaskDeliverables } from '../utils/deliverables';
 import { showTaskNotification } from '../utils/task-notify';
 import { cloneWorkspaceFromTemplate, importLocalWorkspace, hireTeamFromTemplate, listMarketplaceTemplates, hireFromMarketplaceTemplate, hireTeamFromMarketplaceTemplate, readAgentPersona } from '../utils/openclaw-workspace';
+import { importGithubRepo, type GithubCandidate } from '../utils/github-import';
 import { whatsAppLoginManager } from '../utils/whatsapp-login';
 import { getProviderConfig } from '../utils/provider-registry';
 import { deviceOAuthManager, OAuthProviderType } from '../utils/device-oauth';
@@ -2708,6 +2709,48 @@ function registerWorkspaceHandlers(): void {
     try {
       const templates = await listMarketplaceTemplates();
       return { success: true, templates };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  /**
+   * GitHub 一键导入：把开源仓库变成人才市集里的候选卡。
+   *
+   * 出网与 SSRF 防护全在主进程（github-import.ts），渲染层只递一个字符串。
+   * 导入结果落 electron-store 持久化，但**不含任何能力分**——
+   * 导入只是让候选进场，能不能用要靠 S1/S2 实测说话。
+   */
+  ipcMain.handle('marketplace:importGithub', async (_event, input: string) => {
+    try {
+      const candidate = await importGithubRepo(String(input ?? ''));
+      logger.info(
+        `GitHub 导入：${candidate.githubMeta.owner}/${candidate.githubMeta.repo}（★${candidate.githubMeta.stars}，未评测）`,
+      );
+      const existing = ((await getSetting('githubImports')) ?? []) as GithubCandidate[];
+      // 同一仓库重复导入 → 覆盖旧记录（保持幂等，不产生重复卡）
+      const next = [candidate, ...existing.filter((c) => c?.id !== candidate.id)].slice(0, 200);
+      await setSetting('githubImports', next);
+      return { success: true, candidate };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('marketplace:listGithubImports', async () => {
+    try {
+      const list = ((await getSetting('githubImports')) ?? []) as GithubCandidate[];
+      return { success: true, candidates: list };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('marketplace:removeGithubImport', async (_event, id: string) => {
+    try {
+      const list = ((await getSetting('githubImports')) ?? []) as GithubCandidate[];
+      await setSetting('githubImports', list.filter((c) => c?.id !== id));
+      return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

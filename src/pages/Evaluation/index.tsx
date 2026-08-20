@@ -13,11 +13,14 @@
  *
  * i18n：用户可见文案走 common:evaluation.*（含面板标签 / 表单 / 空态）。
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Play, AlertTriangle, Volume2, VolumeX } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { toast } from 'sonner';
+
 import { useEvaluationStore } from '@/stores/evaluation';
+import { useMetaJudgeStore } from '@/stores/metaJudgeStore';
 import { useAgentsStore } from '@/stores/agents';
 import { getActiveBossProfile, listBossProfiles } from '@/stores/bossProfile';
 import { listAgentSessions, type AgentSessionOption } from '@/services/evaluationData';
@@ -32,6 +35,9 @@ import { DualTrackScoreCard } from '@/components/evaluation/DualTrackScoreCard';
 import { DualLeaderboard } from '@/components/evaluation/DualLeaderboard';
 import { BossFavoriteLeaderboard } from '@/components/marketplace/BossFavoriteLeaderboard';
 import { BossProfileSelector } from '@/components/persona/BossProfileSelector';
+import { JudgeHealthPanel } from '@/components/evaluation/JudgeHealthPanel';
+import { TraceBrowserPanel } from '@/components/evaluation/TraceBrowserPanel';
+import { CapsuleBrowserPanel } from '@/components/evaluation/CapsuleBrowserPanel';
 import { SuiteView } from '@/components/evaluation/SuiteView';
 import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsightPanel';
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
@@ -88,6 +94,7 @@ export function Evaluation() {
     runPassK,
     loadAll,
     runEvaluation,
+    registerAgentNames,
     setLifecycle,
     selectAgent,
     clearError,
@@ -95,6 +102,7 @@ export function Evaluation() {
   } = useEvaluationStore();
 
   const [panel, setPanel] = useState<PanelKey>('result');
+  const recordReview = useMetaJudgeStore((s) => s.recordReview);
   const [runIdInput, setRunIdInput] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [sessionOptions, setSessionOptions] = useState<AgentSessionOption[]>([]);
@@ -111,6 +119,17 @@ export function Evaluation() {
     void fetchAgents();
     void loadAll();
   }, [fetchAgents, loadAll]);
+
+  // 榜单显示人名而非 agentId：agent 列表就绪后把 id→name 注册进评估 store。
+  // （画像里不存名字，因为名字属 agent 域且可被改名；这里做一次单向注入。）
+  useEffect(() => {
+    if (agents.length === 0) return;
+    const names: Record<string, string> = {};
+    for (const a of agents) {
+      if (a.id && a.name) names[a.id] = a.name;
+    }
+    registerAgentNames(names);
+  }, [agents, registerAgentNames]);
 
   // 离开评估页时停止播报
   useEffect(() => {
@@ -148,6 +167,35 @@ export function Evaluation() {
 
   /** 当前选中 agent 的评估档案（含面试基线 interviewBaseline） */
   const selectedProfile = selectedAgentId ? (profiles[selectedAgentId] ?? null) : null;
+
+  /**
+   * 人工抽检：把「我认不认可这个结论」记成元评估样本。
+   * gold 只能由人给 —— 让模型为模型的结论背书会陷入无穷回归。
+   * 仅在结论确实来自裁判（judge/mixed）时可用：给离线回退分做抽检没有意义。
+   */
+  const handleReview = useCallback(
+    (agreed: boolean) => {
+      if (!selectedAgentId || !selectedProfile) return;
+      const verdict = selectedProfile.lifecycle === 'RETIRED' ? 'FIRED' : undefined;
+      const stages = selectedProfile.stageScores ?? [];
+      const lastVerdict =
+        verdict ?? stages[stages.length - 1]?.verdict ??
+        ((selectedProfile.userFitLatest ?? 0) >= 80
+          ? 'MVP'
+          : (selectedProfile.userFitLatest ?? 0) >= 50
+            ? 'OBSERVE'
+            : 'FIRED');
+      recordReview({
+        agentId: selectedAgentId,
+        verdict: lastVerdict,
+        confidence: passKResult?.passRate ?? null,
+        agreed,
+        dim: selectedProfile.jobType ?? null,
+      });
+      toast.success(agreed ? '已记录：认可该结论' : '已记录：不认可该结论');
+    },
+    [selectedAgentId, selectedProfile, recordReview, passKResult],
+  );
   // B · 状态化多轮：当前激活老板原型下、带完整 transcript 的历史会话数（≥2 才够跨会话测）
   const activeBossId = getActiveBossProfile()?.id ?? 'neutral';
   const sessionTranscriptCount = (
@@ -427,10 +475,45 @@ export function Evaluation() {
                         <p className="text-gray-400">
                           同一 agent 对不同老板、不同历史、不同裁判，分数会不同——这是个性化评估的应有之义（Wang 透明披露主张）。
                         </p>
+
+                        {/* 人工抽检：元评估唯一合法的 gold 来源。
+                            用模型给模型的结论做 gold 会陷入无穷回归，因此这一票必须由人投。 */}
+                        {selectedProfile?.judgeSource === 'judge' ||
+                        selectedProfile?.judgeSource === 'mixed' ? (
+                          <div className="flex flex-wrap items-center gap-2 border-t border-white/40 pt-2">
+                            <span className="text-gray-500">这个结论你认可吗？</span>
+                            <button
+                              type="button"
+                              onClick={() => handleReview(true)}
+                              className="rounded-full bg-emerald-500/15 px-3 py-1 font-bold text-emerald-700 transition-colors hover:bg-emerald-500/25"
+                            >
+                              认可
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleReview(false)}
+                              className="rounded-full bg-rose-500/15 px-3 py-1 font-bold text-rose-600 transition-colors hover:bg-rose-500/25"
+                            >
+                              不认可
+                            </button>
+                            <span className="text-gray-400">
+                              抽检结果进入「裁判健康度」，用于监管裁判本身
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })()
                 ) : null}
+
+                {/* 裁判元评估：谁来监管裁判 */}
+                <JudgeHealthPanel />
+
+                {/* 协作 trace 回放：把已落盘的委派链路变成可回看的视图 */}
+                <TraceBrowserPanel />
+
+                {/* 经验胶囊：真实交付回流沉淀的可复用资产 */}
+                <CapsuleBrowserPanel />
 
                 {/* C · 基准套件：维度×原型矩阵 + 个性化增量（人格化评估的核心视图） */}
                 <SuiteView

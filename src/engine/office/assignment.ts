@@ -72,6 +72,16 @@ export interface OfficeEmployee {
   userFit: number;
   /** 是否为 MVP（用于高亮） */
   isMvp: boolean;
+  /**
+   * 这名员工当前六维的证据来源（透明披露的最后一公里）。
+   * judge = 真实裁判；mixed = 部分降级；degraded = 完全降级（未经模型评测）；
+   * null = 无来源标注（历史数据）。
+   * 办公室是「看人」的地方，因此必须让人一眼看出：
+   * 这个分到底是实测出来的，还是离线兜底猜出来的。
+   */
+  judgeSource: 'judge' | 'mixed' | 'degraded' | null;
+  /** 是否已有上岗后的真实工作回流（radarHistory 超过一条即说明分数被真实任务更新过） */
+  hasOnJobEvidence: boolean;
 }
 
 /**
@@ -137,6 +147,8 @@ export function computeOfficeRoster(
       radar: profile.radarLatest,
       userFit: deriveUserFit(profile),
       isMvp: verdict === 'MVP',
+      judgeSource: profile.judgeSource ?? null,
+      hasOnJobEvidence: (profile.radarHistory?.length ?? 0) > 1,
     });
   }
 

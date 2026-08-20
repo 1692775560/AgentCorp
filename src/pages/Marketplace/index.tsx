@@ -22,6 +22,7 @@ import {
   type HireTypeFilter,
 } from '@/components/marketplace/MarketSearchBar';
 import { MarketCandidateCard } from '@/components/marketplace/MarketCandidateCard';
+import { GithubImportBar, type GithubImportedCandidate } from '@/components/marketplace/GithubImportBar';
 import type { MarketCandidateView } from '@/types/marketplace';
 
 type HireType = '雇佣团队' | '雇佣员工';
@@ -80,6 +81,8 @@ export function Marketplace() {
   const [purchasing, setPurchasing] = useState(false);
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<MarketplaceTemplate[]>([]);
+  // GitHub 导入的候选（与本地模板并列进入市集；不带任何初始能力分）
+  const [githubImports, setGithubImports] = useState<GithubImportedCandidate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
   const { fetchAgents } = useAgentsStore();
@@ -134,7 +137,7 @@ export function Marketplace() {
 
   // 模板 → 候选种子（六维解析与匹配分在 store 内完成）
   useEffect(() => {
-    if (templates.length === 0) return;
+    if (templates.length === 0 && githubImports.length === 0) return;
     const seeds: MarketCandidateSeed[] = templates.map((tpl) => ({
       id: tpl.id,
       name: tpl.name,
@@ -147,8 +150,25 @@ export function Marketplace() {
       hiredCount: tpl.hiredCount,
       capabilities: tpl.capabilities,
     }));
+    // GitHub 导入卡与本地模板并列进场。rating 传 0 表示「无评分」而不是「差评」：
+    // 排序依据是六维实测与任务匹配分，六维为空时走「待初审」分支，
+    // 因此新导入的项目不会因为没人用过就被压到列表底部。
+    for (const item of githubImports) {
+      seeds.push({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        tags: item.tags,
+        hireType: 'single',
+        price: item.price,
+        avatar: item.avatar,
+        rating: 0,
+        hiredCount: item.hiredCount,
+        jobType: item.jobType,
+      });
+    }
     hydrateCandidates(seeds);
-  }, [templates, hydrateCandidates]);
+  }, [templates, githubImports, hydrateCandidates]);
 
   // 心智权重变化 → 重算匹配分并重排（绩效结果回灌市场的可见执行点）
   useEffect(() => {
@@ -259,6 +279,9 @@ export function Marketplace() {
             {t('marketplace.listEmployee', '上架我的员工')}
           </button>
         </motion.div>
+
+        {/* GitHub 一键导入：让「新发布的开源 agent」也能公平进场 */}
+        <GithubImportBar onChange={setGithubImports} />
 
         {/* 统一搜索区：需求 → 工种/排序 → 雇佣形态 → 高级筛选（关键词/标签/六维门槛） */}
         <MarketSearchBar

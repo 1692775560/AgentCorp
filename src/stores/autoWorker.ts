@@ -28,6 +28,7 @@ import { useApprovalsStore } from '@/stores/approvals';
 import { useTeamsStore } from '@/stores/teams';
 import { useChatStore } from '@/stores/chat';
 import { useEvaluationStore } from '@/stores/evaluation';
+import { evaluateCompletedWork } from '@/services/workEvaluationLoop';
 import { usePerformanceStore, subtasksToOutcomes } from '@/stores/performance';
 import { useExperienceStore, buildExperienceText, reflectExperience } from '@/stores/experience';
 import { toPerformance } from '@/types/performance';
@@ -763,6 +764,27 @@ async function runOne(
     });
     attemptCount.delete(task.id); // 成功后清计数
     set({ note: `已完成：${task.title.slice(0, 24)}` });
+
+    // 「用人 → 选人」回流：把这次真实干活的产出送回评估层，
+    // 让上岗后的实际表现进入六维与榜单，而不是永远停留在面试那一刻的印象。
+    // best-effort：评测是观察者，它自己失败不能影响已经交付的工作。
+    if (resolvedAssigneeId) {
+      const workerAgent = useAgentsStore
+        .getState()
+        .agents.find((a) => a.id === resolvedAssigneeId);
+      void evaluateCompletedWork({
+        taskId: task.id,
+        taskTitle: task.title,
+        taskDescription: task.description,
+        agentId: resolvedAssigneeId,
+        agentName: workerAgent?.name ?? resolvedAssigneeId,
+        output: realOutput,
+        runId: runId ?? null,
+        sessionId,
+        sessionKey,
+        leaderId: team?.leaderId,
+      }).catch(() => { /* 回流失败静默：不影响交付 */ });
+    }
     // 系统通知：真实执行跑完进评审列，提醒用户验收（点击通知直达任务详情）
     notifyTaskTerminal(task.id, 'done', task.title);
     // 团队任务的交付同步到团队房间：与会话派活同一份内容，房间里直接可见

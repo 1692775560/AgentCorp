@@ -66,6 +66,7 @@ class JudgeBackend(Protocol):
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> JudgeCompletion:
         ...
 
@@ -105,12 +106,16 @@ class HttpJudgeBackend:
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> JudgeCompletion:
         if not self.available:
             raise JudgeUnavailable("未配置 JUDGE_BASE_URL / JUDGE_MODEL")
 
+        # model 覆盖用于 ensemble 的跨家族轮转：同一端点下换模型即可换裁判，
+        # 不必为每个家族起一套后端实例。
+        effective_model = model or self.model
         payload = {
-            "model": self.model,
+            "model": effective_model,
             "messages": messages,
             "temperature": settings.temperature if temperature is None else temperature,
             "max_tokens": settings.judge_max_tokens if max_tokens is None else max_tokens,
@@ -147,7 +152,7 @@ class HttpJudgeBackend:
         return JudgeCompletion(
             text=str(text),
             backend=self.name,
-            model=self.model,
+            model=effective_model,
             ttft_ms=elapsed_ms,
             latency_ms=elapsed_ms,
             usage=data.get("usage") or {},
@@ -208,6 +213,7 @@ class LocalJudgeBackend:
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,  # noqa: ARG002 —— 本机后端只有一套权重，忽略
     ) -> JudgeCompletion:
         self._ensure_loaded()
         if self._model is None:
@@ -253,6 +259,7 @@ class MockJudgeBackend:
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> JudgeCompletion:
         raise JudgeUnavailable("mock 后端不提供推理；请配置 JUDGE_BACKEND=http 或 local")
 
@@ -273,6 +280,24 @@ def build_backend(kind: Optional[str] = None) -> JudgeBackend:
     if kind == "local":
         return LocalJudgeBackend(settings.model_path, settings.device)
     return MockJudgeBackend()
+
+
+def resolve_ensemble_run(variant: int) -> tuple:
+    """
+    第 variant 次 ensemble 采样应使用的 (model, temperature)。
+
+    - variant=0：基准运行 —— 用默认模型与 settings.temperature（通常为 0），
+      保证「单点结论」始终可复现；
+    - variant>0：扰动运行 —— 温度取 judge_ensemble_temperature（>0），
+      模型按 JUDGE_MODELS 轮转（配置了跨家族池时，第 i 次换一个家族）。
+
+    这样 k 次重复既保留了一个可复现的锚点，又真的产生了统计意义上的重复测量。
+    """
+    models = settings.judge_models or [settings.judge_model]
+    if variant <= 0:
+        return models[0], settings.temperature
+    model = models[variant % len(models)]
+    return model, settings.judge_ensemble_temperature
 
 
 _backend: Optional[JudgeBackend] = None

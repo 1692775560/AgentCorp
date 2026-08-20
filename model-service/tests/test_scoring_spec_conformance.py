@@ -237,11 +237,12 @@ def test_q6_downweight_independent_recompute(stage):
     # 降权维的实际权重 ≈ 独立重算（远小于非 requires_real 的 craft 维）
     w_map = {i["dim"]: i["weight"] for i in ss["objective"]}
     assert w_map["code_runnability"] < w_map["code_efficiency"]
-    # 提供真实证据后不再降权
+    # 提供机器可核验证据后不再降权（裁判引文不具备该资格，见
+    # test_scoring_stage_and_preference.test_q6_downweight_keeps_sum_one_and_marks_evidence）
     ss2 = build_stage_score(
         stage=stage, job_type=job, objective=_full_objective(job, 4.0),
         subjective=_full_subjective(rules, stage, 4.0),
-        craft_evidence={"code_runnability": "CI 通过", "code_security": "trivy 无高危"}, agent_id="qa",
+        verified_evidence={"code_runnability": "CI 通过", "code_security": "trivy 无高危"}, agent_id="qa",
     )
     assert ss2["craftScores"]["downweighted"] == []
 

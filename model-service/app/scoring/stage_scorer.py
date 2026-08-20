@@ -7,9 +7,12 @@ model-service/app/scoring/stage_scorer.py
   → 装配一个 StageScore-like dict（S1/S2/S3 同构）。
   - 客观分：复用 rules_engine.flatten_dim_weight，
     加权求和 objective[dim]/5 × dimWeight[dim] × 100。
-  - Q6 降权：code_runnability / code_security 缺真实执行/扫描证据时，该维
+  - Q6 降权：code_runnability / code_security 缺**机器可核验**证据时，该维
     dimWeight × 0.4，其余维归一（保证 Σ=1 不变），并在 evidence 标注
     「缺真实结果·降权」。
+    这里只认 verified_evidence（真实执行/扫描结果），**不认 craft_evidence**——
+    craft_evidence 里装的是裁判模型自己的引文，若用它来解除降权，
+    等于让被监管方出具自己的合格证明，这道闸门就形同虚设。
   - Q7 craft 独立写库：craft 维除并入 objective（按 flatten 预折叠）外，
     单独抽出存入 StageScore.craftScores（CraftScores），供工种 craft 雷达
     独立对比，不污染通用六维 objective 记录。
@@ -49,6 +52,7 @@ def build_stage_score(
     subjective: Dict[str, float],
     craft_evidence: Optional[Dict[str, str]] = None,
     rules: Optional[dict] = None,
+    verified_evidence: Optional[Dict[str, str]] = None,
     agent_id: str = "unknown",
     scored_by: str = "owner",
     window: Optional[str] = None,
@@ -62,24 +66,32 @@ def build_stage_score(
       job_type: image / text / code
       objective: {dim: 0–5}（通用六维 + 本工种 craft 维）
       subjective: {sub_*: 0–5}（本阶段启用主观维）
-      craft_evidence: {craft_dim: evidence_text}；缺失键 → 视为缺真实结果（Q6 降权）
+      craft_evidence: {craft_dim: evidence_text}（裁判引文等展示用证据，不解除降权）
+      verified_evidence: {craft_dim: 机器可核验证据}（测试通过率/扫描结果）；
+                         requiresReal 维缺此键 → Q6 降权
       rules: 规则 dict（缺省按 preset_id 加载）
     返回：StageScore.model_dump(mode="json") 字典。
     """
     rules = rules or load_rules(preset_id)
     craft_evidence = craft_evidence or {}
+    verified_evidence = verified_evidence or {}
 
     # —— 1) 预折叠权重——
     dw = dict(flatten_dim_weight(stage, job_type, rules))
 
-    # —— 2) Q6 降权：requires_real 维缺真实证据 → ×0.4，再归一 Σ=1 不变 ——
+    # —— 2) Q6 降权：requires_real 维缺**机器可核验**证据 → ×0.4，再归一 Σ=1 不变 ——
+    # 只查 verified_evidence。裁判引文（craft_evidence）不具备解除降权的资格。
     downweighted: List[str] = []
     evidence_map: Dict[str, str] = {}
     for dim, w in list(dw.items()):
-        if CRAFT_REQUIRES_REAL.get(dim) and dim not in craft_evidence:
+        if CRAFT_REQUIRES_REAL.get(dim) and dim not in verified_evidence:
             dw[dim] = w * 0.4
             downweighted.append(dim)
-            evidence_map[dim] = "缺真实结果·降权"
+            evidence_map[dim] = (
+                "缺真实执行/扫描结果·降权（裁判引文不作数）"
+                if dim in craft_evidence
+                else "缺真实结果·降权"
+            )
     total_w = sum(dw.values())
     if total_w > 0:
         dw = {k: v / total_w for k, v in dw.items()}

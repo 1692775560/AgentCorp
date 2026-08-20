@@ -94,6 +94,7 @@ async def api_evaluate_stage(req: StageScoreRequest):
         objective=req.objective,
         subjective=req.subjective,
         craft_evidence=req.craftEvidence,
+        verified_evidence=req.verifiedEvidence,
         agent_id=req.agentId,
         scored_by=req.scoredBy,
         window=req.window,
