@@ -26,6 +26,10 @@ Arena 个性化对决的 LLM-as-judge 裁判。
 - MADRAG（arXiv:2606.06754）：Advocate-Skeptic-Judge 辩论 + rubric 对齐的 exemplar
   检索做无训练校准；消融显示「检索驱动校准增益，辩论改善高层特质推理」。
   以上为 arena 从「单次绝对分」迈向「鲁棒相对序」的落地路线。
+
+已落地：pairwise + 位置 swap（见 judge_pairwise / judge_pairwise_robust）。绝对分
+（objective_total）仍保留作展示与客观辅榜；当正好两个候选时，compare 端点会额外跑
+一次 robust pairwise，其结果记入 ArenaMatch.pairwise，供 UI 展示更鲁棒的相对序。
 """
 from __future__ import annotations
 
@@ -218,3 +222,154 @@ def judge_arena_answer(
     judgement["latency_ms"] = completion.latency_ms
     judgement["objective_total"] = objective_total(judgement)
     return judgement
+
+
+# ======================================================================
+# Pairwise 相对比较（Chatbot Arena 范式：配对 + 位置 swap 消位置偏差）
+# ======================================================================
+#: 匿名标签：两份方案只标 A/B，裁判看不到 agent 身份，避免名气/冗长偏差渗入。
+_PAIRWISE_SYSTEM_PROMPT = """你是 AgentCorp 的 Arena 配对裁判，由 MiniCPM-o 4.5 驱动。
+你的任务：针对同一需求，比较两份候选方案（A 与 B），判断哪一份更贴合需求且可执行。
+
+铁律：
+1. 只依据方案实际内容判定，不猜测、不因表述自信加分。
+2. A/B 只是呈现标签，不代表任何优劣；两份可能是同一作者的不同版本。
+3. 若两份质量实质相当，判 tie，不要硬分高下。
+4. 必须给出 ≤80 字的核心理由，且引用双方各自的依据（找得到原文才作数）。
+
+严格按以下 JSON 输出，不要输出 JSON 以外的任何内容：
+{"winner": "A", "confidence": 0.0, "reasoning": "..."}
+winner 只能是 "A" / "B" / "tie" 三者之一。"""
+
+
+def build_pairwise_messages(
+    requirement_text: str,
+    task_prompt: str,
+    job_type: str,
+    answer_a: str,
+    answer_b: str,
+) -> List[dict]:
+    """构造配对比较消息（A 与 B 匿名并列，供位置 swap 复用）。"""
+    user_text = (
+        f"【用户原始需求】\n{requirement_text.strip() or '(空)'}\n\n"
+        f"【题面】\n{task_prompt.strip()}\n\n"
+        f"【工种】{job_type}\n\n"
+        f"【方案 A】\n{answer_a.strip() or '(A 未作答)'}\n\n"
+        f"【方案 B】\n{answer_b.strip() or '(B 未作答)'}\n\n"
+        "请按系统提示的 JSON 输出谁更优（A / B / tie）。"
+    )
+    return [
+        {"role": "system", "content": _PAIRWISE_SYSTEM_PROMPT},
+        {"role": "user", "content": user_text},
+    ]
+
+
+def parse_pairwise_output(raw: str) -> dict:
+    """解析配对裁判输出 → {winner, confidence, reasoning}。winner 归一为 A/B/tie。"""
+    data = _extract_json(raw)
+    winner = str(data.get("winner", "tie")).strip().upper()
+    if winner not in ("A", "B", "TIE"):
+        winner = "TIE"
+    else:
+        winner = "A" if winner == "A" else ("B" if winner == "B" else "TIE")
+    try:
+        confidence = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
+    except (TypeError, ValueError):
+        confidence = 0.5
+    return {
+        "winner": winner,
+        "confidence": round(confidence, 3),
+        "reasoning": str(data.get("reasoning", "")).strip()[:200],
+    }
+
+
+def judge_pairwise(
+    requirement_text: str,
+    task_prompt: str,
+    job_type: str,
+    answer_a: str,
+    answer_b: str,
+) -> dict:
+    """单次配对比较（后端不可用抛 JudgeUnavailable）。"""
+    backend = get_backend()
+    if not backend.available:
+        raise JudgeUnavailable(
+            f"Arena 配对比较需要可用的 judge 后端（当前 {backend.name} 不可用）。"
+        )
+    completion: JudgeCompletion = backend.complete(
+        build_pairwise_messages(requirement_text, task_prompt, job_type, answer_a, answer_b)
+    )
+    result = parse_pairwise_output(completion.text)
+    result["backend"] = completion.backend
+    result["latency_ms"] = completion.latency_ms
+    return result
+
+
+def judge_pairwise_robust(
+    requirement_text: str,
+    task_prompt: str,
+    job_type: str,
+    answer_a: str,
+    answer_b: str,
+) -> dict:
+    """
+    鲁棒配对比较：跑两次（原序 + A/B 交换），用对称化消位置偏差。
+
+    返回：
+      winner        —— 归一化到实际候选的结论：'first' | 'second' | 'tie' | 'uncertain'
+      consistent    —— 两次判定是否一致（不一致通常意味着位置偏差或实质接近）
+      position_bias —— 两次都偏向「呈现顺序上的前者」→ 强烈提示位置偏差
+      confidence    —— 两次置信的均值
+      reasoning     —— 采纳的那一次理由
+      runs          —— 两次原始结果（审计用）
+
+    判定逻辑（关键）：把「呈现标签 A/B」映射回「实际候选 first/second」。
+    - 原序：A=first, B=second；
+    - 交换序：A=second, B=first（因为物理上把两份对调了）。
+    若两次映射后指向同一实际候选 → 一致（consistent）；否则 → uncertain。
+    若两次都判「呈现序前者」赢（raw 都是 A）→ position_bias（裁判只认位置）。
+    """
+    r1 = judge_pairwise(requirement_text, task_prompt, job_type, answer_a, answer_b)
+    # 交换：物理上把两份对调，看裁判是否还给同一个实际候选
+    r2 = judge_pairwise(requirement_text, task_prompt, job_type, answer_b, answer_a)
+
+    # 把 raw A/B 映射到实际候选
+    def to_actual(raw_winner: str, swapped: bool) -> str:
+        if raw_winner == "TIE":
+            return "tie"
+        # 未交换：A→first, B→second；已交换：A→second, B→first
+        if not swapped:
+            return "first" if raw_winner == "A" else "second"
+        return "second" if raw_winner == "A" else "first"
+
+    a1 = to_actual(r1["winner"], swapped=False)
+    a2 = to_actual(r2["winner"], swapped=True)
+
+    position_bias = r1["winner"] == "A" and r2["winner"] == "A"  # 两次都认呈现序首位
+    consistent = (a1 == a2) and a1 != "tie"
+
+    if position_bias:
+        winner, note = "uncertain", "两次均偏向呈现序首位，疑似位置偏差，结论降级为不确定"
+    elif consistent:
+        winner, note = a1, "两次交换位置后结论一致"
+    elif a1 == "tie" or a2 == "tie":
+        winner, note = "tie", "至少一次判为实质相当"
+    else:
+        winner, note = "uncertain", "交换位置后结论反转，疑似位置偏差或实质接近"
+
+    confidence = round((r1["confidence"] + r2["confidence"]) / 2, 3)
+    # 采纳与结论同向那一次的理由；不确定/平局用说明文字兜底
+    if winner == "first":
+        reasoning = r1["reasoning"] or note
+    elif winner == "second":
+        reasoning = r2["reasoning"] or note
+    else:
+        reasoning = note
+    return {
+        "winner": winner,
+        "consistent": consistent,
+        "position_bias": position_bias,
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "runs": [r1, r2],
+    }
