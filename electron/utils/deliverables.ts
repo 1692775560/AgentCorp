@@ -9,7 +9,7 @@
  */
 import { execFile } from 'child_process';
 import { mkdir, readdir, unlink, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 import { promisify } from 'util';
 import { getOpenClawConfigDir } from './paths';
 
@@ -30,11 +30,25 @@ export interface SaveDeliverablesResult {
 const MAX_FILES = 50;
 const MAX_FILE_BYTES = 1_000_000;
 
-/** 只保留安全文件名字符；空结果回退 untitled。 */
+/** 只保留安全文件名字符；空结果或纯点号回退安全名。
+ *  "." / ".." 能原样穿过字符白名单（点号被保留），但拼进路径即目录穿越——
+ *  taskId=".." 会让交付目录解析成 ~/.openclaw 本身（清空/打包整个配置目录）。 */
 function sanitizeFileName(name: string): string {
   const base = name.split('/').pop() ?? name;
   const cleaned = base.replace(/[^\w一-龥.-]/g, '_').slice(0, 80);
-  return cleaned || 'untitled.md';
+  if (!cleaned || cleaned === '.' || cleaned === '..') return 'untitled.md';
+  return cleaned;
+}
+
+/** taskId → 交付目录绝对路径。resolve 后必须仍落在 deliverables 目录内：
+ *  纵深防御——即使 sanitize 未来回归，穿越输入也在这里被直接拒绝。 */
+function deliverableDirFor(taskId: string): string {
+  const baseDir = resolve(join(getOpenClawConfigDir(), 'deliverables'));
+  const dir = resolve(baseDir, sanitizeFileName(taskId));
+  if (dir !== baseDir && !dir.startsWith(baseDir + sep)) {
+    throw new Error(`非法任务 ID（路径穿越）：${taskId}`);
+  }
+  return dir;
 }
 
 /** 同批文件按最终文件名去重：重名追加 -2/-3 后缀（插在扩展名前）。 */
@@ -60,8 +74,7 @@ export async function saveTaskDeliverables(
   taskId: string,
   files: DeliverableFileInput[],
 ): Promise<SaveDeliverablesResult> {
-  const safeTaskId = sanitizeFileName(taskId);
-  const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
+  const dir = deliverableDirFor(taskId);
   await mkdir(dir, { recursive: true });
 
   // 先规划本批可写文件（消毒 + 同批同名去重），再决定是否动旧目录：
@@ -100,8 +113,7 @@ export async function saveTaskDeliverables(
  * 返回完整路径；没有 HTML 或目录不存在时返回 null。
  */
 export async function findHtmlDeliverable(taskId: string): Promise<string | null> {
-  const safeTaskId = sanitizeFileName(taskId);
-  const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
+  const dir = deliverableDirFor(taskId);
   const entries = await readdir(dir).catch(() => [] as string[]);
   const htmls = entries.filter((name) => /\.html?$/i.test(name)).sort();
   const pick = htmls.find((name) => /^index\.html?$/i.test(name)) ?? htmls[0];
@@ -113,8 +125,7 @@ export async function findHtmlDeliverable(taskId: string): Promise<string | null
  * 目录不存在时返回空数组。
  */
 export async function listTaskDeliverables(taskId: string): Promise<string[]> {
-  const safeTaskId = sanitizeFileName(taskId);
-  const dir = join(getOpenClawConfigDir(), 'deliverables', safeTaskId);
+  const dir = deliverableDirFor(taskId);
   const entries = await readdir(dir).catch(() => [] as string[]);
   return entries.sort();
 }
@@ -125,15 +136,13 @@ export async function listTaskDeliverables(taskId: string): Promise<string[]> {
  * 其他平台用 zip -r。目录不存在或为空时如实抛错。
  */
 export async function zipTaskDeliverables(taskId: string): Promise<{ zipPath: string }> {
-  const safeTaskId = sanitizeFileName(taskId);
-  const baseDir = join(getOpenClawConfigDir(), 'deliverables');
-  const dir = join(baseDir, safeTaskId);
+  const dir = deliverableDirFor(taskId);
   const entries = await readdir(dir).catch(() => {
     throw new Error(`交付目录不存在：${dir}`);
   });
   if (entries.length === 0) throw new Error(`交付目录为空：${dir}`);
 
-  const zipPath = join(baseDir, `${safeTaskId}.zip`);
+  const zipPath = `${dir}.zip`;
   if (process.platform === 'darwin') {
     await execFileAsync('ditto', ['-c', '-k', '--norsrc', dir, zipPath]);
   } else if (process.platform === 'win32') {

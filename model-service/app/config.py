@@ -16,7 +16,9 @@ class Settings:
         # 不默认 npu —— 绝大多数机器上那是个必然失败的默认值，会让首次运行者
         # 误以为是代码问题；显式声明 DEVICE=npu 才走异构加速卡路径。
         self.device: str = os.getenv("DEVICE", "auto")
-        self.host: str = os.getenv("API_HOST", "0.0.0.0")
+        # 默认只监听本机回环：本服务无鉴权（judge/upload 直接可用），绑 0.0.0.0
+        # 会让同网段任何人白嫖配额甚至触达代码执行路径。确需对外时显式 API_HOST=0.0.0.0。
+        self.host: str = os.getenv("API_HOST", "127.0.0.1")
         self.port: int = int(os.getenv("API_PORT", "8000"))
         self.samples_dir: str = os.getenv("SAMPLES_DIR", "/app/samples")
         self.upload_dir: str = os.getenv("UPLOAD_DIR", "/app/uploads")
