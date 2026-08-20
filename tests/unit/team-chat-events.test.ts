@@ -3,6 +3,8 @@
  *
  * Bug 2：POST /api/teams/:id/chat-events 服务端原子 append 端点。
  * - appendTeamChatEvent 在 withConfigLock 内读-改-写：补 createdAt、封顶 200 条裁最旧；
+ *   截断时保留「未处置」的立项草稿卡（[task-draft] 无对应 resolution），
+ *   最多额外保留 10 张，超出的最旧未处置卡视为作废允许裁掉（Bug B6）；
  * - 并发 append 不丢消息（锁串行化）；
  * - 路由：200 返回 teams 快照 / 400 缺字段 / 404 team 不存在。
  *
@@ -148,6 +150,78 @@ describe('appendTeamChatEvent', () => {
     for (let i = 0; i < 50; i += 1) {
       expect(contents.has(`msg-${i}`)).toBe(true);
     }
+  });
+});
+
+describe('appendTeamChatEvent 截断保留未处置立项草稿卡（Bug B6）', () => {
+  // 与 src/lib/team-task-chat.ts 协议格式一致：[task-draft]{"id","title","requirement"}
+  const draftContent = (id: string) =>
+    `[task-draft]${JSON.stringify({ id, title: `任务-${id}`, requirement: '需求' })}`;
+  const resolutionContent = (id: string, action: string) =>
+    `[task-draft-resolution]${JSON.stringify({ id, action })}`;
+  const trace = (i: number) => ({
+    from: 'agent-leader',
+    to: 'agent-1',
+    content: `trace-${i}`,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+  const draftEvent = (id: string) => ({
+    from: 'agent-leader',
+    to: 'user',
+    content: draftContent(id),
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  it('200 条已满且最旧一条是未处置草稿卡：append 后草稿卡保留，普通事件照常裁最旧', async () => {
+    storedTeams = [
+      makeTeam('t1', [draftEvent('d1'), ...Array.from({ length: 199 }, (_, i) => trace(i))]),
+    ];
+
+    const teams = await appendTeamChatEvent('t1', { from: 'user', to: 'agent-leader', content: '新消息' });
+
+    const events = teams[0].chatEvents!;
+    expect(events.some((e) => e.content === draftContent('d1'))).toBe(true); // 未处置草稿卡保留
+    expect(events.some((e) => e.content === 'trace-0')).toBe(false); // 最旧的普通事件被裁
+    expect(events[events.length - 1].content).toBe('新消息');
+    expect(events.length).toBeLessThanOrEqual(201); // 200 普通位 + 额外保留的草稿卡
+  });
+
+  it('已 confirmed 的草稿卡不享受保留：位于最旧时照常裁掉', async () => {
+    storedTeams = [
+      makeTeam('t1', [
+        draftEvent('d1'),
+        { from: 'user', to: 'agent-leader', content: resolutionContent('d1', 'confirmed'), createdAt: '2026-01-01T00:00:01.000Z' },
+        ...Array.from({ length: 198 }, (_, i) => trace(i)),
+      ]),
+    ];
+
+    const teams = await appendTeamChatEvent('t1', { from: 'user', to: 'agent-leader', content: '新消息' });
+
+    const events = teams[0].chatEvents!;
+    expect(events).toHaveLength(200);
+    expect(events.some((e) => e.content === draftContent('d1'))).toBe(false); // 已处置，被裁
+    expect(events.some((e) => e.content === resolutionContent('d1', 'confirmed'))).toBe(true);
+    expect(events[events.length - 1].content).toBe('新消息');
+  });
+
+  it('未处置草稿卡超过 10 张时：最旧的视为作废允许裁掉（防病态累积）', async () => {
+    storedTeams = [
+      makeTeam('t1', [
+        ...Array.from({ length: 12 }, (_, i) => draftEvent(`d${i}`)),
+        ...Array.from({ length: 188 }, (_, i) => trace(i)),
+      ]),
+    ];
+
+    const teams = await appendTeamChatEvent('t1', { from: 'user', to: 'agent-leader', content: '新消息' });
+
+    const events = teams[0].chatEvents!;
+    expect(events).toHaveLength(200);
+    expect(events.some((e) => e.content === draftContent('d0'))).toBe(false); // 最旧的未处置卡作废被裁
+    // 其余 11 张未处置卡都保留
+    for (let i = 1; i < 12; i += 1) {
+      expect(events.some((e) => e.content === draftContent(`d${i}`))).toBe(true);
+    }
+    expect(events[events.length - 1].content).toBe('新消息');
   });
 });
 

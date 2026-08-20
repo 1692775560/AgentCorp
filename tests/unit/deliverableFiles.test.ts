@@ -88,4 +88,30 @@ describe("buildDeliverableFiles", () => {
     expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "01-脚本.md"]);
     expect(files[1].content).toBe(output);
   });
+
+  it("未闭合但内容足够长（≥200 字符）的收尾围栏保留（token 腰斩兜底）", () => {
+    const longCode = `<!DOCTYPE html><html><body>${'<p>内容</p>'.repeat(30)}`;
+    const files = buildDeliverableFiles([st("页面", `\`\`\`html\n${longCode}`)], "汇总");
+    expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "01-页面.html"]);
+    expect(files[1].content).toContain("<!DOCTYPE html>");
+  });
+
+  it("汇总里内嵌的 HTML 围栏落 index.html（浏览器打开优先命中）", () => {
+    const summary = `最终报告如下：\n\`\`\`html\n<!DOCTYPE html><html><body><h1>报告</h1></body></html>\n\`\`\``;
+    const files = buildDeliverableFiles([st("调研", "纯文字结论")], summary);
+    expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "index.html", "01-调研.md"]);
+    expect(files[1].content).toContain("<h1>报告</h1>");
+  });
+
+  it("汇总里多个 HTML 围栏：第一个 index.html，其余序号区分", () => {
+    const summary = "```html\n<html><body>A</body></html>\n```\n```html\n<html><body>B</body></html>\n```";
+    const files = buildDeliverableFiles([], summary);
+    expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "index.html", "汇总内嵌-2.html"]);
+  });
+
+  it("汇总里非 HTML 围栏按扩展名落盘", () => {
+    const summary = "用法：\n```js\nconsole.log('hi')\n```";
+    const files = buildDeliverableFiles([], summary);
+    expect(files.map((f) => f.name)).toEqual(["00-交付汇总.md", "汇总内嵌-1.js"]);
+  });
 });

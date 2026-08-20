@@ -13,6 +13,7 @@ import {
   parseExecuteMarker,
   parseMentionTarget,
   parseWorkIntent,
+  shouldShowDelivery,
   stripActorPrefix,
   taskTitleFromInstruction,
 } from '@/lib/team-task-chat';
@@ -502,5 +503,20 @@ describe('parseDirectAssignTarget（@成员直派解析）', () => {
 describe('buildDirectAssignInstruction', () => {
   it('加指定执行前缀，leader 拆解时带上指定人', () => {
     expect(buildDirectAssignInstruction('阿强', '重构登录页')).toBe('【指定执行：@阿强】重构登录页');
+  });
+});
+
+describe('shouldShowDelivery', () => {
+  it('执行中（working/starting）隐藏旧交付物，完成后恢复展示', () => {
+    expect(shouldShowDelivery('上一轮交付', 'working')).toBe(false);
+    expect(shouldShowDelivery('上一轮交付', 'starting')).toBe(false);
+    expect(shouldShowDelivery('本轮交付', 'done')).toBe(true);
+    expect(shouldShowDelivery('本轮交付', undefined)).toBe(true);
+  });
+
+  it('无交付物一律不展示', () => {
+    expect(shouldShowDelivery(null, 'done')).toBe(false);
+    expect(shouldShowDelivery('', 'done')).toBe(false);
+    expect(shouldShowDelivery(undefined, 'working')).toBe(false);
   });
 });

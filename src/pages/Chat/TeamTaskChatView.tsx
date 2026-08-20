@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AtSign, ClipboardCheck, Loader2, RotateCcw, SendHorizonal, TriangleAlert, Users } from 'lucide-react';
+import { AtSign, ClipboardCheck, Download, FolderOpen, Globe, Loader2, RotateCcw, SendHorizonal, TriangleAlert, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
@@ -19,20 +19,24 @@ import { useChatStore } from '@/stores/chat';
 import { useTeamsStore } from '@/stores/teams';
 import MarkdownContent from '@/pages/Chat/MarkdownContent';
 import {
+  acceptTaskRework,
+  buildTaskIntakeMessages,
   buildTeamChatMessages,
   buildTeamChatRenderItems,
-  buildWorkIntentClassifierMessages,
+  createTaskFromChatIntake,
   isNearBottom,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
-  parseWorkIntent,
+  parseTaskIntake,
+  shouldShowDelivery,
   taskTitleFromInstruction,
   type TeamChatBubble,
 } from '@/lib/team-task-chat';
 import { retryFailedTask, runTeamChatWorkOrder } from '@/stores/teamChatWorkOrder';
 import { summarizeA2aEvents } from '@/lib/a2a-timeline';
 import { runRealChat } from '@/engine/llm/realExecutor';
+import { invokeIpc } from '@/lib/api-client';
 import { cn, isAvatarImage } from '@/lib/utils';
 import type { KanbanTask } from '@/types/task';
 
@@ -68,6 +72,8 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
+  // 交付气泡动作：ZIP 打包中状态
+  const [zipping, setZipping] = useState(false);
 
   useEffect(() => {
     void fetchTasks();
@@ -76,6 +82,36 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const task = tasks.find((t) => t.id === taskId) ?? null;
   const team = task?.teamId ? teams.find((t) => t.id === task.teamId) ?? null : null;
   const leaderId = team?.leaderId ?? task?.assigneeId ?? null;
+
+  /** 在系统浏览器打开 HTML 交付物（无 HTML 时如实提示） */
+  const handleOpenHtml = useCallback(async () => {
+    if (!task) return;
+    try {
+      const res = await invokeIpc<{ success: boolean; error?: string }>('task:openHtmlDeliverable', { taskId: task.id });
+      if (!res?.success) toast.error(res?.error || '没有可直接打开的 HTML 交付物');
+    } catch (err) {
+      toast.error(`打开失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [task]);
+
+  /** 交付目录打包 ZIP 并打开所在位置 */
+  const handleDownloadZip = useCallback(async () => {
+    if (!task || zipping) return;
+    setZipping(true);
+    try {
+      const res = await invokeIpc<{ success: boolean; zipPath?: string; error?: string }>('task:zipDeliverables', { taskId: task.id });
+      if (res?.success && res.zipPath) {
+        toast.success('ZIP 已生成');
+        await invokeIpc('shell:showItemInFolder', res.zipPath).catch(() => {});
+      } else {
+        toast.error(res?.error || '打包失败');
+      }
+    } catch (err) {
+      toast.error(`打包失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setZipping(false);
+    }
+  }, [task, zipping]);
 
   // 可对话成员：leader 在前，其余成员随后（@ 候选 + 默认接话人）
   const members = useMemo(() => {
@@ -94,10 +130,13 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     () => bubbles.filter((b) => b.kind === 'user' || (b.kind === 'a2a' && b.peerId === 'user')),
     [bubbles],
   );
+  // 执行中（含返工重做）时旧交付物视为过期：不展示，避免「刚开始重做就看到上一版交付」
+  const isWorking = task?.workState === 'working' || task?.workState === 'starting';
+  const hasDelivery = shouldShowDelivery(task?.workResult, task?.workState);
   // 渲染序列：「最终交付」按时间序插在协作过程末尾、后续对话之前
   const renderItems = useMemo(
-    () => buildTeamChatRenderItems(bubbles, Boolean(task?.workResult)),
-    [bubbles, task?.workResult],
+    () => buildTeamChatRenderItems(bubbles, hasDelivery),
+    [bubbles, hasDelivery],
   );
 
   // 新消息到达时：仅当用户本来就在底部附近才自动滚底（上滑看历史不打断）
@@ -193,48 +232,41 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
       await appendEvent(task.id, { type: `chat:${targetId}→user`, content: replyText });
       // 4) leader 判定为派活 → 触发真实编排。三路意图：REWORK 改当前任务 /
       //    NEW 立新任务（过程在新任务会话展开）/ CHAT 不动手。
-      //    [EXECUTE] 标记视作 REWORK；模型没按约定输出时用独立分类器兜底。
+      //    intake 一次调用完成分类与需求归纳；[EXECUTE] 标记视作 REWORK。
       if (targetId === leaderId) {
-        let intent: 'rework' | 'new' | 'chat' = execute ? 'rework' : 'chat';
-        if (intent === 'chat') {
-          try {
-            const verdict = await runRealChat(buildWorkIntentClassifierMessages(userText, true), 8);
-            intent = parseWorkIntent(verdict);
-          } catch {
-            /* 分类器失败则保守不执行 */
-          }
+        let intake = null;
+        try {
+          intake = parseTaskIntake(await runRealChat(buildTaskIntakeMessages(userText, chatHistory, true), 900));
+        } catch {
+          /* intake 失败则保守不执行 */
         }
+        const intent = execute ? 'rework' : (intake?.intent ?? 'chat');
         if (intent === 'rework') {
-          toast.info('收到，leader 开始安排成员执行，过程会实时出现在这里');
-          void runTeamChatWorkOrder(task.id, userText).catch((err) => {
-            toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
-          });
+          // 受理成功才提示「开始执行」；任务被占用时提示稍后再试，不先报喜
+          await acceptTaskRework(task.id, userText, { runWorkOrder: runTeamChatWorkOrder, toast });
         } else if (intent === 'new' && task.teamId) {
-          try {
-            const created = await createTask({
-              title: taskTitleFromInstruction(userText),
-              description: userText,
-              priority: 'medium',
+          // intake 已按对话上下文归纳标题与需求；缺失时回退原文（原行为）。
+          // 知会消息 best-effort：执行触发不依赖它（append 抛错不能卡住派活）。
+          await createTaskFromChatIntake(
+            {
+              taskId: task.id,
               teamId: task.teamId,
-              teamName: team?.name ?? task.teamName,
-            });
-            useChatStore.getState().ensureTeamTaskSession({
-              id: created.id,
-              title: created.title,
-              teamId: task.teamId,
-              teamName: team?.name ?? task.teamName,
-            });
-            await appendEvent(task.id, {
-              type: `chat:${targetId}→user`,
-              content: `这是件新活，我已立项「${created.title}」并开始执行，过程在对应的任务会话里同步。`,
-            });
-            toast.info(`已立项「${created.title}」并开始执行`);
-            void runTeamChatWorkOrder(created.id, userText).catch((err) => {
-              toast.error(`派活执行失败：${err instanceof Error ? err.message : String(err)}`);
-            });
-          } catch (err) {
-            toast.error(`立项失败：${err instanceof Error ? err.message : String(err)}`);
-          }
+              teamName: team?.name ?? task.teamName ?? '',
+              leaderId: targetId,
+            },
+            {
+              title: intake?.title ?? taskTitleFromInstruction(userText),
+              requirement: intake?.requirement ?? userText,
+            },
+            userText,
+            {
+              createTask,
+              ensureTeamTaskSession: (t) => useChatStore.getState().ensureTeamTaskSession(t),
+              appendTaskEvent: appendEvent,
+              runWorkOrder: runTeamChatWorkOrder,
+              toast,
+            },
+          );
         }
       }
     } catch (err) {
@@ -362,6 +394,38 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                     <div className="rounded-2xl rounded-tl-md border border-[#22c55e]/25 bg-[#22c55e]/[0.06] px-3.5 py-2.5">
                       <MarkdownContent content={task.workResult!} className="text-[13px] leading-relaxed" />
                     </div>
+                    {task.deliverableDir && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenHtml()}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5"
+                          style={{ color: '#f59e0b' }}
+                        >
+                          <Globe className="h-3.5 w-3.5" />
+                          在浏览器打开
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void invokeIpc('shell:openPath', task.deliverableDir)}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5"
+                          style={{ color: '#22c55e' }}
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          打开交付目录
+                        </button>
+                        <button
+                          type="button"
+                          disabled={zipping}
+                          onClick={() => void handleDownloadZip()}
+                          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:bg-black/5 disabled:opacity-50"
+                          style={{ color: '#6366f1' }}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          {zipping ? '打包中…' : '下载 ZIP'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -432,6 +496,12 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               成员正在回复…
+            </div>
+          )}
+          {isWorking && (
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: '#6366f1' }} />
+              团队正在{task.workResult ? '按你的反馈重做' : '执行'}中，最新动态见上方协作记录…
             </div>
           )}
           <div ref={bottomRef} />

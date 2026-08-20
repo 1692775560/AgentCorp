@@ -46,7 +46,8 @@
  */
 import type { A2aTraceRecord, A2aTraceState } from '../../types/evaluation';
 import type { Team } from '../../types/team';
-import type { ChatFn, ChatMessage } from './squadCollaboration';
+import type { ChatFn, ChatHints, ChatMessage } from './squadCollaboration';
+import { checkCodeOutput } from './outputCheck';
 import { routeBySquadLeader, type RoutingCandidate } from './squadRouting';
 
 /** leader 拆解出的一条子任务。assigneeId 可缺省（由 ASSIGN 兜底指派）。 */
@@ -82,6 +83,12 @@ export interface OrchestrationInput {
   /** E：LLM 调用预算上限，默认 80（qualityMode 时默认 120）；SUMMARIZE 保底不受拦截。 */
   callBudget?: number;
   chat: ChatFn;
+  /**
+   * 可选富返回通道：带出 finishReason。提供时 SUMMARIZE 用它识别
+   * 「输出被 maxTokens 腰斩」（finishReason === 'length'）并自动续写拼接，
+   * 避免长交付物断在半句/半张表；未提供时退回单次 chat 调用（原行为）。
+   */
+  chatRich?: (agentId: string, messages: ChatMessage[]) => Promise<{ content: string; finishReason: string | null }>;
   /** 每产生一条 A2A trace 时回调（用于实时展示 / 落盘）。 */
   onTrace?: (trace: A2aTraceRecord) => void;
 }
@@ -124,12 +131,137 @@ const KIND_WORD_LIMIT: Record<SubTaskKind, number> = {
   short: 800,
 };
 
+/** 各级输出 token 额度（P1-4 分档）：字数 → token 留足余量，推理模型会先烧思考额度。
+ *  code 给到 8192：整页 HTML/多文件代码经常被 6000 腰斩（闭合围栏丢失导致交付不落盘）。 */
+const KIND_TOKEN_BUDGET: Record<SubTaskKind, number> = {
+  code: 8192,
+  long: 4000,
+  short: 1500,
+};
+
 /** 按子任务标题+指令关键词粗分工种：代码类优先，其次长文类，否则短答类。 */
 export function classifySubTaskKind(title: string, instruction: string): SubTaskKind {
   const text = `${title}\n${instruction}`.toLowerCase();
   if (/代码|实现|开发|网站|页面|html|css|脚本|程序|接口|应用/.test(text)) return 'code';
   if (/文案|方案|报告|分析|总结|设计|调研/.test(text)) return 'long';
   return 'short';
+}
+
+// ── P0-2：拆解覆盖机检（Chain-of-Verification 思想，arXiv:2309.11495）——
+// 从原任务提取关键实体词，核对拆解后的子任务集是否真的覆盖了它们；
+// 覆盖率过低时把缺口回喂 leader 修订一次，跑题在拆解层就被拦下。
+
+/** 需求文本里的虚词/套话，不作为关键实体。 */
+const KEY_TERM_STOPWORDS = new Set([
+  '帮我', '一下', '需要', '进行', '一个', '以及', '并且', '有关', '相关', '方面',
+  '内容', '要求', '希望', '可以', '不要', '完成', '输出', '包括', '包含', '整理',
+]);
+
+/** 子句开头的套话前缀（提取时剥掉，只留实质内容）。 */
+const CLAUSE_STRIP_PREFIX = /^(帮我|麻烦|请|我想|我要|我需要|我们需要|给我|帮忙|希望)+/;
+
+/**
+ * 提取需求文本的关键子句：拉丁词（≥3 字符）整词；CJK 按标点/空白切成子句、
+ * 剥套话前缀。子句保留完整语义单元（「皮肤病」会被包含在「调研中国皮肤病…」
+ * 子句里），不做暴力 n-gram 展开——碎片词元几乎必然漏报，会把机检变成噪音。
+ */
+export function extractKeyTerms(text: string): string[] {
+  const terms: string[] = [];
+  for (const m of text.matchAll(/[a-zA-Z][a-zA-Z0-9-]{2,}/g)) {
+    terms.push(m[0].toLowerCase());
+  }
+  for (const m of text.matchAll(/[一-鿿]{2,}/g)) {
+    const seg = m[0].replace(CLAUSE_STRIP_PREFIX, '');
+    if (seg.length >= 2 && !KEY_TERM_STOPWORDS.has(seg)) terms.push(seg);
+  }
+  return terms.slice(0, 12);
+}
+
+/** 子句覆盖判定：≤3 字须整体出现；长子句任意 3 字滑窗命中即视为覆盖（措辞可变、意图须在）。 */
+function clauseCovered(clause: string, haystack: string): boolean {
+  if (clause.length <= 3) return haystack.includes(clause);
+  for (let i = 0; i + 3 <= clause.length; i += 1) {
+    if (haystack.includes(clause.slice(i, i + 3))) return true;
+  }
+  return false;
+}
+
+/** 拆解覆盖率：子任务标题+指令里命中的关键子句占比（无子句时视为全覆盖）。 */
+export function decompositionCoverage(
+  subtasks: Pick<OrchestrationSubTask, 'title' | 'instruction'>[],
+  terms: string[],
+): { covered: number; total: number; missing: string[] } {
+  if (terms.length === 0) return { covered: 0, total: 0, missing: [] };
+  const haystack = subtasks.map((s) => `${s.title}\n${s.instruction}`.toLowerCase()).join('\n');
+  const missing = terms.filter((t) => !clauseCovered(t, haystack));
+  return { covered: terms.length - missing.length, total: terms.length, missing };
+}
+
+// ── P0-3：举证审阅（G-Eval 思想，arXiv:2303.16634）——
+// 有验收标准时要求 leader 输出结构化 verdict：逐条 ✓/✗ + 产出原文引用作证据，
+// 返工意见因此具体可执行（不再「感觉不对」整体打回）。
+
+export interface StructuredReview {
+  approved: boolean;
+  /** 逐条核对结果（缺失表示模型未按格式输出，调用方回退首行契约） */
+  checks: { criterion: string; pass: boolean; evidence: string }[];
+  feedback: string;
+}
+
+/** 容错解析结构化审阅 verdict：提取首个 JSON 对象；字段非法一律 null。 */
+export function parseStructuredReview(raw: string): StructuredReview | null {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+    const verdict = typeof parsed.verdict === 'string' ? parsed.verdict.trim().toUpperCase() : '';
+    if (verdict !== 'PASS' && verdict !== 'REWORK') return null;
+    const checks = Array.isArray(parsed.checks)
+      ? (parsed.checks as Record<string, unknown>[])
+          .filter((c) => c && typeof c.criterion === 'string')
+          .slice(0, 5)
+          .map((c) => ({
+            criterion: String(c.criterion).trim(),
+            pass: c.pass === true,
+            evidence: typeof c.evidence === 'string' ? c.evidence.trim().slice(0, 120) : '',
+          }))
+      : [];
+    return {
+      approved: verdict === 'PASS',
+      checks,
+      feedback: typeof parsed.feedback === 'string' ? parsed.feedback.trim().slice(0, 400) : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 结构化审阅 → 人类可读 verdict 文本（写事件流/给成员返工用，保持 UI 兼容）。 */
+export function formatStructuredReview(review: StructuredReview): string {
+  const lines = [review.approved ? 'PASS' : 'REWORK'];
+  if (review.checks.length > 0) {
+    lines.push(
+      ...review.checks.map((c) => `${c.pass ? '✓' : '✗'} ${c.criterion}${c.evidence ? `（证据：${c.evidence}）` : ''}`),
+    );
+  }
+  if (review.feedback) lines.push(review.feedback);
+  return lines.join('\n');
+}
+
+/**
+ * P1-2 动态圈选（DyLAN 思想）：按子任务工种预筛路由候选——
+ * 已知工种且不匹配的成员退出候选；筛完为空则返回原列表（宁可用错人也不无人可用）。
+ * code → 只留 jobType 'code' 或未知；long → 只留 'text' 或未知；short 不筛。
+ */
+export function filterCandidatesForKind(
+  candidates: RoutingCandidate[],
+  kind: SubTaskKind,
+): RoutingCandidate[] {
+  const want = kind === 'code' ? 'code' : kind === 'long' ? 'text' : null;
+  if (!want) return candidates;
+  const filtered = candidates.filter((c) => !c.jobType || c.jobType === want);
+  return filtered.length > 0 ? filtered : candidates;
 }
 
 let seq = 0;
@@ -275,9 +407,9 @@ export async function runSquadOrchestration(
   let budgetLimited = false;
   let budgetGuardTraced = false;
   const hasBudget = () => llmCalls < budget;
-  const call: ChatFn = (agentId, messages) => {
+  const call = (agentId: string, messages: ChatMessage[], hints?: ChatHints): Promise<string> => {
     llmCalls += 1;
-    return chat(agentId, messages);
+    return chat(agentId, messages, hints);
   };
   /** 预算护栏触发：置降级标记，trace 只落一条。 */
   const noteBudgetGuard = (detail: string) => {
@@ -323,12 +455,57 @@ export async function runSquadOrchestration(
       ),
     },
     { role: 'user', content: `任务：\n${taskText}` },
-  ]);
+  ], { maxTokens: 2500 });
 
   // 解析失败 / 空数组 → 兜底为单子任务（原任务），诚实继续而非假装拆解成功。
-  const subtasks: OrchestrationSubTask[] = parseSubTasks(decomposeRaw) ?? [
+  let subtasks: OrchestrationSubTask[] = parseSubTasks(decomposeRaw) ?? [
     { title: taskTitle, instruction: taskDescription || taskTitle },
   ];
+
+  // P0-2 拆解覆盖机检（Chain-of-Verification）：需求里的关键实体在子任务集中
+  // 覆盖率不足一半时，把缺口回喂 leader 修订一次——跑题在拆解层拦下，
+  // 而不是等到交付才发现（真实事故：「皮肤病调研」被拆成工地巡检任务）。
+  const keyTerms = extractKeyTerms(taskText);
+  const coverage = decompositionCoverage(subtasks, keyTerms);
+  if (coverage.total >= 2 && coverage.covered / coverage.total < 0.5 && hasBudget()) {
+    try {
+      const revisedRaw = await call(team.leaderId, [
+        {
+          role: 'system',
+          content: personaSystem(
+            personas,
+            team.leaderId,
+            '你是团队 leader。你之前的任务拆解遗漏了需求要点，请修订：' +
+              '输出修订后的完整 JSON 数组（格式与之前相同，1~5 条），确保每个遗漏要点都有对应子任务覆盖。' +
+              '只输出 JSON 数组，不要输出任何其它文字。',
+          ),
+        },
+        {
+          role: 'user',
+          content:
+            `任务：\n${taskText}\n\n你之前的拆解：\n${JSON.stringify(subtasks.map((s) => ({ title: s.title, instruction: s.instruction })))}\n\n` +
+            `遗漏的需求要点：${coverage.missing.join('、')}`,
+        },
+      ], { maxTokens: 2500 });
+      const revised = parseSubTasks(revisedRaw);
+      if (revised) {
+        emit(
+          makeTrace({
+            taskId,
+            rootId,
+            delegator: `agent:${team.leaderId}`,
+            delegatee: `team:${team.id}`,
+            round: 1,
+            state: 'working',
+            summary: `拆解覆盖机检未过（遗漏：${coverage.missing.join('、').slice(0, 40)}），leader 已修订拆解`,
+          }),
+        );
+        subtasks = revised;
+      }
+    } catch {
+      /* 修订失败降级：沿用首次拆解 */
+    }
+  }
   emit(
     makeTrace({
       taskId,
@@ -343,8 +520,7 @@ export async function runSquadOrchestration(
 
   // —— 步骤 2：ASSIGN（校验 / 兜底指派）——
   /** 单条子任务指派：leader 指定合法则用，否则路由兜底。 */
-  const assignOne = (st: OrchestrationSubTask): SubTaskResult => {
-    const legal = st.assigneeId && memberIds.includes(st.assigneeId);
+  const assignOne = (st: OrchestrationSubTask): SubTaskResult => {    const legal = st.assigneeId && memberIds.includes(st.assigneeId);
     if (legal) {
       return {
         title: st.title,
@@ -357,10 +533,11 @@ export async function runSquadOrchestration(
       };
     }
     // 缺失 / 非法指派 → 按子任务内容对成员画像打分路由兜底。
+    // P1-2：按子任务工种预筛候选（已知工种不匹配的成员退出，无人可用时回退全量）。
     const decision = routeBySquadLeader({
       taskText: `${st.title}\n${st.instruction}`,
       leaderId: team.leaderId,
-      candidates,
+      candidates: filterCandidatesForKind(candidates, classifySubTaskKind(st.title, st.instruction)),
     });
     return {
       title: st.title,
@@ -390,8 +567,12 @@ export async function runSquadOrchestration(
 
   // —— C：qualityMode 第二草案成员挑选（排除主 assignee 与 leader，无人可选退回单草案）——
   const pickSecondDraftee = (excludeId: string, title: string, instruction: string): string | null => {
-    const pool = candidates.filter(
-      (c) => c.agentId !== excludeId && c.agentId !== team.leaderId && c.active !== false,
+    // P1-2：同样按工种预筛，第二草案成员也得是这块料
+    const pool = filterCandidatesForKind(
+      candidates.filter(
+        (c) => c.agentId !== excludeId && c.agentId !== team.leaderId && c.active !== false,
+      ),
+      classifySubTaskKind(title, instruction),
     );
     if (pool.length === 0) return null;
     const decision = routeBySquadLeader({
@@ -410,7 +591,10 @@ export async function runSquadOrchestration(
   ): Promise<void> => {
     const instruction = sub.instruction;
     // P0-1：字数天花板按工种分级（code 4000 / long 2000 / short 800）。
-    const wordLimit = KIND_WORD_LIMIT[classifySubTaskKind(st.title, instruction)];
+    const kind = classifySubTaskKind(st.title, instruction);
+    const wordLimit = KIND_WORD_LIMIT[kind];
+    // P1-4：输出 token 额度同样按工种分档，短输出环节不占大额度
+    const tokenBudget = KIND_TOKEN_BUDGET[kind];
     let lastReworkTrace: string | null = null;
     /** 成员执行消息（主 assignee 与第二草案成员共用结构）。 */
     const buildExecuteMsgs = (agentId: string): ChatMessage[] => {
@@ -460,8 +644,8 @@ export async function runSquadOrchestration(
         const secondId = pickSecondDraftee(st.assigneeId, st.title, instruction);
         if (secondId && hasBudget()) {
           const [draftA, draftB] = await Promise.all([
-            call(st.assigneeId, buildExecuteMsgs(st.assigneeId)),
-            call(secondId, buildExecuteMsgs(secondId)),
+            call(st.assigneeId, buildExecuteMsgs(st.assigneeId), { maxTokens: tokenBudget }),
+            call(secondId, buildExecuteMsgs(secondId), { maxTokens: tokenBudget }),
           ]);
           st.drafts = [
             { assigneeId: st.assigneeId, output: draftA },
@@ -481,7 +665,7 @@ export async function runSquadOrchestration(
               ),
             },
             { role: 'user', content: `子任务要求：\n${instruction}\n\n${draftsText}` },
-          ]);
+          ], { maxTokens: 1200 });
           // 再合成最优版（MoA aggregator：输入两版产出 + 审阅意见，输出最终版）。
           st.output = await call(team.leaderId, [
             {
@@ -498,13 +682,13 @@ export async function runSquadOrchestration(
               role: 'user',
               content: `子任务要求：\n${instruction}\n\n${draftsText}\n\n【审阅意见】\n${draftReview}`,
             },
-          ]);
+          ], { maxTokens: tokenBudget });
         } else {
           // 无第二草案成员（或预算耗尽）→ 退回单草案。
-          st.output = await call(st.assigneeId, buildExecuteMsgs(st.assigneeId));
+          st.output = await call(st.assigneeId, buildExecuteMsgs(st.assigneeId), { maxTokens: tokenBudget });
         }
       } else {
-        st.output = await call(st.assigneeId, buildExecuteMsgs(st.assigneeId));
+        st.output = await call(st.assigneeId, buildExecuteMsgs(st.assigneeId), { maxTokens: tokenBudget });
       }
       emit(
         makeTrace({
@@ -521,10 +705,16 @@ export async function runSquadOrchestration(
 
       // B（MetaGPT ICLR2024 结构化交付契约）：必备部分机检，缺部分不消耗 LLM 审阅，
       // 直接记 REWORK（算一轮返工）；机检全过才进 leader 审阅。
+      // P1-1：代码类产出叠加真实校验（代码块存在性、HTML 标签闭合、JS 语法可编译），
+      // 把「能跑」从审阅口径变成机器事实。
       const missing = (sub.requiredSections ?? []).filter((s) => !(st.output ?? '').includes(s));
-      if (missing.length > 0) {
+      const machineIssues = [
+        ...(missing.length > 0 ? [`缺少必备部分 ${missing.join('、')}`] : []),
+        ...(kind === 'code' ? checkCodeOutput(st.output ?? '') : []),
+      ];
+      if (machineIssues.length > 0) {
         st.approved = false;
-        st.verdict = `机检未过：缺少必备部分 ${missing.join('、')}`;
+        st.verdict = `机检未过：${machineIssues.join('；')}`;
         const checkTrace = makeTrace({
           taskId,
           rootId,
@@ -532,7 +722,7 @@ export async function runSquadOrchestration(
           delegatee: `agent:${st.assigneeId}`,
           round: st.rounds,
           state: 'input-required',
-          summary: `「${st.title.slice(0, 24)}」机检未过：缺少必备部分 ${missing.join('、')}`,
+          summary: `「${st.title.slice(0, 24)}」机检未过：${machineIssues.join('；').slice(0, 60)}`,
           reworkOf: lastReworkTrace,
         });
         emit(checkTrace);
@@ -549,7 +739,8 @@ export async function runSquadOrchestration(
       }
 
       // REVIEW：leader 审阅该子任务产出；第 2 轮起带上轮意见，便于核对是否已解决。
-      // A：有 acceptance 时逐条列进 prompt，要求逐条 ✓/✗ 后再给首行结论（首行契约不变）。
+      // P0-3 举证审阅（G-Eval）：有验收标准时要求结构化输出——逐条 ✓/✗ 并引用
+      // 产出原文作证据，返工意见因此具体可执行；模型未按格式输出时回退首行契约。
       const reviewRaw = await call(team.leaderId, [
         {
           role: 'system',
@@ -557,10 +748,11 @@ export async function runSquadOrchestration(
             personas,
             team.leaderId,
             `你是团队 leader，审阅成员 ${st.assigneeId} 对子任务「${st.title}」的产出。` +
-              '第一行只输出 PASS 或 REWORK；第二行起给出一句理由（打回则给出修改意见）。' +
               (sub.acceptance?.length
-                ? '给出了验收标准：第二行起先对每条标准逐一标注 ✓/✗，再给理由；第一行契约不变（只输出 PASS 或 REWORK），任何一条 ✗ 即 REWORK。'
-                : '') +
+                ? '只输出一个 JSON 对象，不要输出任何其它文字：' +
+                  '{"verdict":"PASS"|"REWORK","checks":[{"criterion":"验收标准原文","pass":true|false,"evidence":"产出中的原文引用（不超过60字）"}],"feedback":"REWORK 时的具体修改意见，最多 3 条；PASS 时留空"}。' +
+                  '逐条核对验收标准，evidence 必须引用产出原文，不得捏造；任何一条 pass=false 即 REWORK。'
+                : '第一行只输出 PASS 或 REWORK；第二行起给出一句理由（打回则给出修改意见）。') +
               '审阅标准：内容质量达标、要求已覆盖即 PASS；若上一轮返工意见已被逐条解决，应 PASS，不要翻新账。' +
               '不要要求成员做他们做不到的外部核验（如验证链接有效性、访问付费数据库）；对来源存疑可要求标注「来源待核验」而非打回。' +
               'REWORK 意见必须具体可执行，一次最多 3 条。',
@@ -575,10 +767,17 @@ export async function runSquadOrchestration(
               : '') +
             (st.rounds > 1 && st.verdict ? `\n\n上一轮审阅意见（请核对是否已被解决）：\n${st.verdict}` : ''),
         },
-      ]);
-      const firstLine = reviewRaw.trim().split('\n')[0];
-      st.approved = parseReviewVerdict(firstLine) === 'PASS';
-      st.verdict = reviewRaw.trim();
+      ], { maxTokens: 1200 });
+      // 举证解析：structured 命中时 verdict 与 checks 联合判定（verdict 说 PASS 但
+      // 有 ✗ 证据 → 以证据为准判 REWORK）；未命中回退首行 PASS/REWORK 契约。
+      const structured = sub.acceptance?.length ? parseStructuredReview(reviewRaw) : null;
+      if (structured) {
+        st.approved = structured.approved && structured.checks.every((c) => c.pass);
+        st.verdict = formatStructuredReview(structured);
+      } else {
+        st.approved = parseReviewVerdict(reviewRaw.trim().split('\n')[0]) === 'PASS';
+        st.verdict = reviewRaw.trim();
+      }
 
       const reviewTrace = makeTrace({
         taskId,
@@ -620,7 +819,7 @@ export async function runSquadOrchestration(
                 `子任务要求：\n${instruction}\n\n验收标准：\n${sub.acceptance.map((a, i) => `${i + 1}. ${a}`).join('\n')}` +
                 `\n\n产出：\n${st.output}`,
             },
-          ]);
+          ], { maxTokens: 1000 });
           const blindOk = parseReviewVerdict(blindRaw.trim().split('\n')[0]) === 'PASS';
           st.blindReview = { reviewer, approved: blindOk, notes: blindRaw.trim() };
           const blindTrace = makeTrace({
@@ -741,8 +940,24 @@ export async function runSquadOrchestration(
 
   // —— 步骤 2.5：KICKOFF 开工确认（P2，成员提问 → leader 一次批量解答）——
   // E 预算护栏①：预算耗尽后跳过开工提问。
+  // P1-3 按需触发：任务文本足够具体且每条子任务都有验收标准时，说明分工
+  // 已经讲清，跳过提问环节（省下 2N 次调用）；含糊任务才留提问通道。
+  const kickoffNeeded = taskText.trim().length < 50 || subtasks.some((s) => !s.acceptance);
   const kickoffQA = new Map<number, string>();
-  if (memberIds.length > 1 && hasBudget()) {
+  if (memberIds.length > 1 && hasBudget() && !kickoffNeeded) {
+    emit(
+      makeTrace({
+        taskId,
+        rootId,
+        delegator: `agent:${team.leaderId}`,
+        delegatee: `team:${team.id}`,
+        round: 1,
+        state: 'working',
+        summary: '开工确认跳过：任务指令明确，各子任务均有验收标准',
+      }),
+    );
+  }
+  if (memberIds.length > 1 && hasBudget() && kickoffNeeded) {
     try {
       const questions: { idx: number; assigneeId: string; question: string }[] = [];
       await Promise.all(
@@ -764,7 +979,7 @@ export async function runSquadOrchestration(
                 role: 'user',
                 content: `指派给你的子任务：「${st.title}」\nLeader 指令：\n${subtasks[idx].instruction}\n\n原任务背景：\n${taskText}`,
               },
-            ]);
+            ], { maxTokens: 400 });
             if (!firstLineIsOk(reply)) {
               questions.push({ idx, assigneeId: st.assigneeId, question: reply.trim().slice(0, 300) });
             }
@@ -791,7 +1006,7 @@ export async function runSquadOrchestration(
               `原任务：\n${taskText}\n\n成员提问：\n` +
               questions.map((q, i) => `${i + 1}.（${q.assigneeId}）${q.question}`).join('\n'),
           },
-        ]);
+        ], { maxTokens: 1200 });
         for (const q of questions) {
           kickoffQA.set(q.idx, `你的问题：${q.question}\nLeader 解答：\n${qaText}`);
         }
@@ -850,7 +1065,7 @@ export async function runSquadOrchestration(
                   `你的子任务：「${st.title}」\n你的产出：\n${(st.output ?? '').slice(0, 800)}` +
                   `\n\n其他子任务产出：\n${others}`,
               },
-            ]);
+            ], { maxTokens: KIND_TOKEN_BUDGET[classifySubTaskKind(st.title, '')] });
             const revised = reply.trim();
             // 「OK，无需调整。」等确认变体归一化后仍判 OK，不当修订版；
             // 且修订版必须足够长（> 原产出的 50% 或 >200 字），防止一句话回复覆盖真实产出。
@@ -899,7 +1114,7 @@ export async function runSquadOrchestration(
         ),
       },
       { role: 'user', content: `原任务：\n${taskText}\n\n${buildDigest(assigned)}` },
-    ]);
+    ], { maxTokens: 1500 });
     const extra = parseSubTasks(replanRaw);
     if (extra) {
       const toAdd = extra.slice(0, 3);
@@ -932,19 +1147,57 @@ export async function runSquadOrchestration(
   // 固定小上限会让多子任务报告在句子中间被砍断（真实事故：6 子任务调研报告限 4000 字）。
   // E 预算护栏③：SUMMARIZE 永远保底执行（不受预算拦截），预算受限时如实标注。
   const summarizeLimit = Math.min(6000 + assigned.length * 2000, 16000);
-  const deliverableRaw = await call(team.leaderId, [
-    {
-      role: 'system',
-      content: personaSystem(
-        personas,
-        team.leaderId,
-        '你是团队 leader。下面是各成员对子任务的真实产出，请汇总成一份完整、连贯的最终交付物交付给用户。' +
-          '如实反映各部分质量（含失败/未通过部分），不要编造不存在的内容。' +
-          `交付物可以写得完整充分，上限 ${summarizeLimit} 字；不要为压缩篇幅砍掉实质内容（数据、表格、案例都要保留）。`,
-      ),
-    },
-    { role: 'user', content: `原任务：\n${taskText}\n\n${buildDigest(assigned)}` },
-  ]);
+  const summarizeSystem = personaSystem(
+    personas,
+    team.leaderId,
+    '你是团队 leader。下面是各成员对子任务的真实产出，请汇总成一份完整、连贯的最终交付物交付给用户。' +
+      '如实反映各部分质量（含失败/未通过部分），不要编造不存在的内容。' +
+      `交付物可以写得完整充分，上限 ${summarizeLimit} 字；不要为压缩篇幅砍掉实质内容（数据、表格、案例都要保留）。`,
+  );
+  const summarizeUser = `原任务：\n${taskText}\n\n${buildDigest(assigned)}`;
+  let deliverableRaw: string;
+  if (input.chatRich) {
+    // 续写拼接：汇总被 maxTokens 腰斩（finishReason === 'length'）时，把已产出前段
+    // 回喂给 leader 让它接着写，最多续 2 次；写不完宁可在标注后收尾，也不交半句话。
+    llmCalls += 1;
+    let rich = await input.chatRich(team.leaderId, [
+      { role: 'system', content: summarizeSystem },
+      { role: 'user', content: summarizeUser },
+    ]);
+    deliverableRaw = rich.content;
+    for (let cont = 0; rich.finishReason === 'length' && cont < 2; cont += 1) {
+      llmCalls += 1;
+      rich = await input.chatRich(team.leaderId, [
+        { role: 'system', content: summarizeSystem },
+        {
+          role: 'user',
+          content:
+            `${summarizeUser}\n\n【你已写出的交付物前段】\n${deliverableRaw}\n\n` +
+            '上次的输出在长度上限处戛然而止。请紧接着上文继续写完剩余部分（不要重复已写内容），' +
+            '写到最后并自然收尾。',
+        },
+      ]);
+      deliverableRaw += rich.content;
+    }
+    if (rich.finishReason === 'length') {
+      emit(
+        makeTrace({
+          taskId,
+          rootId,
+          delegator: `agent:${team.leaderId}`,
+          delegatee: `team:${team.id}`,
+          round: 1,
+          state: 'working',
+          summary: '汇总交付续写 2 次后仍达输出上限，按现有内容收尾',
+        }),
+      );
+    }
+  } else {
+    deliverableRaw = await call(team.leaderId, [
+      { role: 'system', content: summarizeSystem },
+      { role: 'user', content: summarizeUser },
+    ]);
+  }
   const deliverable = budgetLimited
     ? `${deliverableRaw}\n\n（预算受限，提前收敛）`
     : deliverableRaw;

@@ -12,7 +12,10 @@
  *     其它语言或无围栏 → 全文存 .md。
  *   - 一个子任务多个同扩展名围栏（含 ```js + ```javascript 这类同义语言）→
  *     按扩展名追加序号区分，不互相覆盖。
- *   - 围栏逐行扫描解析，支持 LF/CRLF；未闭合或空围栏不落文件。
+ *   - 围栏逐行扫描解析，支持 LF/CRLF；过短的未闭合围栏视为残片丢弃，
+ *     足够长（≥200 字符）的未闭合收尾围栏保留（token 腰斩时的兜底）。
+ *   - 汇总里内嵌的代码围栏同样落盘，其中第一个 HTML 命名 index.html
+ *     （「在浏览器打开」优先命中最终成品）。
  *   - 最前面固定补一份 00-交付汇总.md（leader 汇总全文）。
  */
 import type { SubTaskResult } from './squadOrchestration';
@@ -48,7 +51,10 @@ function slug(text: string, max = 24): string {
 /**
  * 提取产出中的代码围栏：[{lang, code}]。
  * 逐行扫描（而非正则），支持 LF/CRLF：fence 行须独立成行（```lang，允许行尾空白），
- * 内容直到下一个独立 fence 行（```）为止；未闭合的围栏丢弃。
+ * 内容直到下一个独立 fence 行（```）为止。
+ * 例外：收尾的未闭合围栏若内容已足够长（≥200 字符）仍保留——长 HTML/JS 产出
+ * 被 token 上限腰斩时闭合围栏丢失，截断版本总比整个交付物消失好（浏览器对
+ * 缺尾标签有一定容错）；过短的未闭合片段仍视为残片丢弃。
  */
 function extractCodeFences(output: string): Array<{ lang: string; code: string }> {
   const fences: Array<{ lang: string; code: string }> = [];
@@ -68,11 +74,18 @@ function extractCodeFences(output: string): Array<{ lang: string; code: string }
     }
     open.buf.push(line);
   }
+  if (open) {
+    const code = open.buf.join('\n');
+    if (code.trim().length >= 200) fences.push({ lang: open.lang, code });
+  }
   return fences;
 }
 
 /**
  * 从编排结果构建交付文件列表。无任何有效产出时只返回汇总文件。
+ * 汇总里的代码围栏也会落盘：整页 HTML 报告这类「最终制品」常由 leader
+ * 汇总时内嵌（而非某个子任务原样持有），其中第一个 HTML 固定命名
+ * index.html，让「在浏览器打开」优先命中最终成品。
  */
 export function buildDeliverableFiles(
   subtasks: SubTaskResult[],
@@ -81,6 +94,18 @@ export function buildDeliverableFiles(
   const files: DeliverableFile[] = [
     { name: '00-交付汇总.md', content: summary },
   ];
+
+  // 汇总内嵌的代码制品（最终组装结果）优先落盘，HTML 直接给 index.html
+  const summaryFences = extractCodeFences(summary).filter((f) => f.lang in LANG_EXT);
+  const summaryExtCount: Record<string, number> = {};
+  for (const f of summaryFences) {
+    const ext = LANG_EXT[f.lang];
+    summaryExtCount[ext] = (summaryExtCount[ext] ?? 0) + 1;
+    const name = ext === '.html' && summaryExtCount[ext] === 1
+      ? 'index.html'
+      : `汇总内嵌-${summaryExtCount[ext]}${ext}`;
+    files.push({ name, content: f.code });
+  }
 
   subtasks.forEach((st, i) => {
     if (!st.output) return; // 执行失败的子任务没有产出，不捏造文件

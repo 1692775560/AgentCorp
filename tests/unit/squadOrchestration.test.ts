@@ -535,7 +535,8 @@ describe("机检（requiredSections 结构化交付契约）", () => {
       decompose: JSON.stringify([
         {
           title: "写报告",
-          instruction: "输出调研报告",
+          // 指令忠实覆盖任务要点（竞品 + 市场调研），不触发拆解覆盖机检修订
+          instruction: "调研竞品并输出市场调研报告",
           assigneeId: "m1",
           requiredSections: ["数据", "结论"],
         },
@@ -590,8 +591,10 @@ describe("独立盲审（acceptance checklist + 第三成员复核）", () => {
     expect(userMsg).toContain("验收标准（请逐条核对）");
     expect(userMsg).toContain("覆盖竞品");
     expect(userMsg).toContain("有数据支撑");
-    // 首行契约不变的约束写进了 system
-    expect(reviewCall?.msgs[0].content).toContain("第一行契约不变");
+    // 举证审阅契约写进了 system：结构化 verdict + 逐条核对 + 原文证据
+    expect(reviewCall?.msgs[0].content).toContain('"verdict"');
+    expect(reviewCall?.msgs[0].content).toContain("evidence");
+    expect(reviewCall?.msgs[0].content).toContain("逐条核对验收标准");
   });
 
   it("盲审 REWORK → 转回未通过继续返工；每子任务最多盲审 1 次", async () => {
@@ -765,5 +768,258 @@ describe("experience 团队经验卡", () => {
 
     const decomposeCall = calls.find((c) => c.msgs[0]?.content.includes("拆解"));
     expect(decomposeCall?.msgs[0].content).not.toContain("团队既往经验");
+  });
+});
+
+describe("SUMMARIZE 续写拼接（chatRich）", () => {
+  /** chatRich 假实现：汇总首轮返回 length，续写轮返回 stop；记录调用。 */
+  function scriptedChatRich(segments: { content: string; finishReason: string | null }[]) {
+    const calls: ChatMessage[][] = [];
+    let summarizeIdx = 0;
+    const chatRich = async (_agentId: string, msgs: ChatMessage[]) => {
+      calls.push(msgs);
+      const user = msgs[msgs.length - 1]?.content ?? "";
+      const isContinuation = user.includes("请紧接着上文继续");
+      const seg = segments[Math.min(isContinuation ? ++summarizeIdx : summarizeIdx, segments.length - 1)];
+      if (!isContinuation) summarizeIdx = 0;
+      return seg;
+    };
+    return { chatRich, calls };
+  }
+
+  it("汇总被腰斩（finishReason=length）→ 自动续写拼接为完整交付物", async () => {
+    const { chatRich } = scriptedChatRich([
+      { content: "前半段报告", finishReason: "length" },
+      { content: "后半段报告", finishReason: "stop" },
+    ]);
+    const result = await runSquadOrchestration(baseInput({ chatRich }));
+    expect(result.deliverable).toBe("前半段报告后半段报告");
+  });
+
+  it("续写最多 2 次：仍 length 则按现有内容收尾并留 trace", async () => {
+    const { chatRich } = scriptedChatRich([
+      { content: "段1", finishReason: "length" },
+      { content: "段2", finishReason: "length" },
+      { content: "段3", finishReason: "length" },
+    ]);
+    const result = await runSquadOrchestration(baseInput({ chatRich }));
+    expect(result.deliverable).toBe("段1段2段3");
+    expect(result.traces.some((t) => t.summary.includes("续写 2 次后仍达输出上限"))).toBe(true);
+  });
+
+  it("未提供 chatRich → 退回单次 chat 汇总（原行为）", async () => {
+    const result = await runSquadOrchestration(baseInput({}));
+    expect(result.deliverable).toBe("汇总交付物");
+  });
+});
+
+describe("P0-2 拆解覆盖机检", () => {
+  it("拆解丢要点（跑题）→ 回喂 leader 修订一次并留 trace", async () => {
+    // 首次拆解完全跑题（工地巡检 vs 皮肤病调研），修订后回归正题
+    const offTopic = JSON.stringify([{ title: "工地巡检", instruction: "梳理工地安全巡检流程", assigneeId: "m1" }]);
+    const onTopic = JSON.stringify([{ title: "皮肤病调研", instruction: "调研中国皮肤病常见病发病案例", assigneeId: "m1" }]);
+    let decomposeIdx = 0;
+    const chat: ChatFn = async (_agentId, msgs) => {
+      const sys = msgs[0]?.content ?? "";
+      if (sys.includes("拆解") || sys.includes("修订")) {
+        decomposeIdx += 1;
+        return decomposeIdx === 1 ? offTopic : onTopic;
+      }
+      if (sys.includes("汇总")) return "汇总交付物";
+      if (sys.includes("审阅")) return "PASS";
+      return "产出";
+    };
+    const result = await runSquadOrchestration(
+      baseInput({ chat, taskTitle: "皮肤病调研", taskDescription: "帮我调研一下中国皮肤病常见病发病的案例" }),
+    );
+    expect(result.subtasks[0].title).toBe("皮肤病调研");
+    expect(result.traces.some((t) => t.summary.includes("拆解覆盖机检未过"))).toBe(true);
+    expect(decomposeIdx).toBe(2); // 首拆 + 修订各一次
+  });
+
+  it("拆解覆盖达标 → 不触发修订（不多花调用）", async () => {
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "调研", instruction: "调研竞品并输出市场调研报告", assigneeId: "m1" }]),
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(result.traces.some((t) => t.summary.includes("拆解覆盖机检"))).toBe(false);
+  });
+
+  it("extractKeyTerms / decompositionCoverage 子句语义", async () => {
+    const { extractKeyTerms, decompositionCoverage } = await import("../../src/engine/squad/squadOrchestration");
+    const terms = extractKeyTerms("帮我调研一下中国皮肤病常见病发病的案例，输出 Markdown 报告");
+    expect(terms.some((t) => t.includes("皮肤病"))).toBe(true);
+    expect(terms).toContain("markdown");
+    // 「皮肤病」子句被任意 3 字滑窗覆盖即算达标
+    const cov = decompositionCoverage(
+      [{ title: "案例梳理", instruction: "整理皮肤病常见病的发病案例，输出 Markdown 报告" }],
+      terms,
+    );
+    expect(cov.missing).toEqual([]);
+  });
+});
+
+describe("P0-3 举证审阅（结构化 verdict）", () => {
+  const decomposeWithAcceptance = JSON.stringify([
+    { title: "调研", instruction: "调研竞品", assigneeId: "m1", acceptance: ["覆盖竞品", "有数据支撑"] },
+  ]);
+
+  it("JSON verdict：PASS 且逐条 ✓ → 通过；verdict 文本带逐条证据", async () => {
+    const chat = scriptedChat({
+      decompose: decomposeWithAcceptance,
+      review: () => JSON.stringify({
+        verdict: "PASS",
+        checks: [
+          { criterion: "覆盖竞品", pass: true, evidence: "竞品 A/B 对比表" },
+          { criterion: "有数据支撑", pass: true, evidence: "市占率 32%" },
+        ],
+        feedback: "",
+      }),
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(result.subtasks[0].verdict).toContain("✓ 覆盖竞品");
+    expect(result.subtasks[0].verdict).toContain("市占率 32%");
+  });
+
+  it("verdict 写 PASS 但有 ✗ 证据 → 以证据为准判 REWORK", async () => {
+    const chat = scriptedChat({
+      decompose: decomposeWithAcceptance,
+      review: () => JSON.stringify({
+        verdict: "PASS",
+        checks: [
+          { criterion: "覆盖竞品", pass: true, evidence: "x" },
+          { criterion: "有数据支撑", pass: false, evidence: "全文无数据" },
+        ],
+        feedback: "补上数据来源",
+      }),
+      blindReview: () => "PASS",
+    });
+    const result = await runSquadOrchestration(baseInput({ chat, maxRounds: 2 }));
+    expect(result.subtasks[0].verdict).toContain("✗ 有数据支撑");
+    // 首轮被打回（返工第二轮脚本仍给同一份 REWORK → 最终不通过）
+    expect(result.subtasks[0].approved).toBe(false);
+  });
+
+  it("模型未按 JSON 输出 → 回退首行 PASS/REWORK 契约（旧行为）", async () => {
+    const chat = scriptedChat({ decompose: decomposeWithAcceptance, review: () => "PASS\n整体不错。" });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(result.subtasks[0].approved).toBe(true);
+    expect(result.subtasks[0].verdict).toBe("PASS\n整体不错。");
+  });
+});
+
+describe("P1-1 代码类产出机检", () => {
+  it("代码子任务产出无代码块 → 机检 REWORK，不消耗 LLM 审阅", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "开发登录页面", instruction: "用 HTML 开发登录页面", assigneeId: "m1" }]),
+      execute: () => "页面思路：先写表单再写样式。（没有任何代码块）",
+      calls,
+    });
+    const result = await runSquadOrchestration(baseInput({ chat, maxRounds: 2 }));
+    expect(calls.filter((c) => c.msgs[0]?.content.includes("审阅成员"))).toHaveLength(0);
+    expect(result.subtasks[0].verdict).toContain("机检未过");
+    expect(result.subtasks[0].verdict).toContain("代码块");
+  });
+
+  it("代码块语法正常 → 过机检进 leader 审阅", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "开发登录页面", instruction: "用 HTML 开发登录页面", assigneeId: "m1" }]),
+      execute: () => "```html\n<div><p>登录</p></div>\n```",
+      calls,
+    });
+    const result = await runSquadOrchestration(baseInput({ chat }));
+    expect(calls.filter((c) => c.msgs[0]?.content.includes("审阅成员"))).toHaveLength(1);
+    expect(result.subtasks[0].approved).toBe(true);
+  });
+});
+
+describe("P1-3 开工确认按需触发", () => {
+  it("指令明确（长任务文本 + 全部子任务有验收标准）→ 跳过提问并留 trace", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([
+        { title: "调研", instruction: "调研竞品并输出市场调研报告", assigneeId: "m1", acceptance: ["覆盖竞品", "有数据"] },
+        { title: "写报告", instruction: "输出市场调研报告", assigneeId: "m2", acceptance: ["结构完整", "结论明确"] },
+      ]),
+      calls,
+    });
+    const result = await runSquadOrchestration(baseInput({
+      chat,
+      // 任务文本 ≥50 字 = 指令足够具体，满足跳过条件之一
+      taskDescription: "调研竞品并输出报告：覆盖主要竞品的功能、定价、用户评价三个维度，报告分数据与结论两部分",
+    }));
+    expect(calls.filter((c) => c.msgs[0]?.content.includes("开工确认"))).toHaveLength(0);
+    expect(result.traces.some((t) => t.summary.includes("开工确认跳过"))).toBe(true);
+  });
+
+  it("指令含糊（短任务文本）→ 保留提问通道（旧行为）", async () => {
+    const calls: { agentId: string; msgs: ChatMessage[] }[] = [];
+    const chat = scriptedChat({
+      decompose: JSON.stringify([{ title: "做", instruction: "做", assigneeId: "m1" }]),
+      kickoff: () => "交付格式是什么？",
+      calls,
+    });
+    const result = await runSquadOrchestration(
+      baseInput({ chat, taskTitle: "做一下", taskDescription: "" }),
+    );
+    expect(calls.filter((c) => c.msgs[0]?.content.includes("开工确认"))).toHaveLength(2); // 提问 + leader 解答
+    expect(result.traces.some((t) => t.summary.includes("开工确认：成员提出 1 个问题"))).toBe(true);
+  });
+});
+
+describe("P1-4 按环节分档 maxTokens", () => {
+  it("拆解/审阅给小额度，执行按工种给额度，调用方收到 hints", async () => {
+    const hintsSeen: (number | undefined)[] = [];
+    const chat: ChatFn = async (_agentId, msgs, hints) => {
+      hintsSeen.push(hints?.maxTokens);
+      const sys = msgs[0]?.content ?? "";
+      if (sys.includes("拆解")) return JSON.stringify([{ title: "调研", instruction: "调研竞品并输出市场调研报告", assigneeId: "m1" }]);
+      if (sys.includes("汇总")) return "汇总交付物";
+      if (sys.includes("审阅")) return "PASS";
+      return "产出";
+    };
+    await runSquadOrchestration(baseInput({ chat }));
+    expect(hintsSeen[0]).toBe(2500); // DECOMPOSE
+    // 执行（long 工种）：4000
+    expect(hintsSeen).toContain(4000);
+    // 审阅：1200
+    expect(hintsSeen).toContain(1200);
+  });
+});
+
+describe("P1-2 动态成员圈选（工种预筛）", () => {
+  it("filterCandidatesForKind：code 任务筛掉已知非 code 工种，筛空回退全量", async () => {
+    const { filterCandidatesForKind } = await import("../../src/engine/squad/squadOrchestration");
+    const pool = [
+      { agentId: "writer", active: true, jobType: "text" as const },
+      { agentId: "coder", active: true, jobType: "code" as const },
+      { agentId: "unknown", active: true },
+    ];
+    expect(filterCandidatesForKind(pool, "code").map((c) => c.agentId)).toEqual(["coder", "unknown"]);
+    expect(filterCandidatesForKind(pool, "long").map((c) => c.agentId)).toEqual(["writer", "unknown"]);
+    expect(filterCandidatesForKind(pool, "short")).toHaveLength(3);
+    // 筛空回退：全是 text 成员时 code 任务也得有人做
+    const allText = [{ agentId: "writer", active: true, jobType: "text" as const }];
+    expect(filterCandidatesForKind(allText, "code")).toHaveLength(1);
+  });
+
+  it("路由兜底时 code 子任务优先派给 code 工种成员", async () => {
+    const chat = scriptedChat({
+      // 不指定 assigneeId → 走路由兜底；任务是 code 类，应选中 coder 而非 writer
+      decompose: JSON.stringify([{ title: "开发登录页面", instruction: "用 HTML 开发登录页面" }]),
+    });
+    const result = await runSquadOrchestration(
+      baseInput({
+        chat,
+        candidates: [
+          { agentId: "leader", active: true, userFit: 50 },
+          { agentId: "m1", active: true, userFit: 99, jobType: "text" }, // 分高但工种不符
+          { agentId: "m2", active: true, userFit: 60, jobType: "code" }, // 分低但工种对口
+        ],
+      }),
+    );
+    expect(result.subtasks[0].assigneeId).toBe("m2");
   });
 });
