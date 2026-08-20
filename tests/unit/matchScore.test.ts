@@ -165,6 +165,43 @@ describe('matchScore · computePerfBoost（S3 绩效回流）', () => {
     expect(computePerfBoost(150)).toBe(1);
     expect(computePerfBoost(-20)).toBe(0);
   });
+
+  // —— 经验胶囊次级回退（三级 perfBoost）——
+  it('★ S3 缺失 + 胶囊样本足够 → approvalRate 作 perfBoost', () => {
+    const digest = { sampleSize: 5, approvalRate: 0.8 };
+    expect(computePerfBoost(null, digest)).toBeCloseTo(0.8, 10);
+    expect(computePerfBoost(undefined, digest)).toBeCloseTo(0.8, 10);
+  });
+
+  it('★ S3 缺失 + 胶囊样本不足 → 降级中性（不编造）', () => {
+    expect(computePerfBoost(null, { sampleSize: 2, approvalRate: 0.9 })).toBe(
+      NEUTRAL_PERF_BOOST,
+    );
+    expect(computePerfBoost(null, { sampleSize: 0, approvalRate: 1 })).toBe(
+      NEUTRAL_PERF_BOOST,
+    );
+  });
+
+  it('★ S3 缺失 + 无胶囊摘要 → 中性', () => {
+    expect(computePerfBoost(null, null)).toBe(NEUTRAL_PERF_BOOST);
+    expect(computePerfBoost(null, undefined)).toBe(NEUTRAL_PERF_BOOST);
+  });
+
+  it('★ S3 优先于胶囊（两者都有时用 S3）', () => {
+    const digest = { sampleSize: 10, approvalRate: 0.9 };
+    expect(computePerfBoost(50, digest)).toBeCloseTo(0.5, 10); // S3=50 → 0.5，不用胶囊 0.9
+  });
+
+  it('★ 自定义 minSamples 门槛', () => {
+    // 默认门槛 3：sampleSize=2 降级中性
+    expect(computePerfBoost(null, { sampleSize: 2, approvalRate: 0.8 })).toBe(
+      NEUTRAL_PERF_BOOST,
+    );
+    // 自定义门槛 1：sampleSize=2 启用胶囊
+    expect(
+      computePerfBoost(null, { sampleSize: 2, approvalRate: 0.8 }, 1),
+    ).toBeCloseTo(0.8, 10);
+  });
 });
 
 describe('matchScore · budgetRefOf（报价参照）', () => {

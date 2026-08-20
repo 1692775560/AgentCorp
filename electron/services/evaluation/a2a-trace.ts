@@ -18,7 +18,7 @@
  * 统一迁移路径：两者均可经 `src/demo/observability/otelGenai.ts` 投影为
  * OTel GenAI span（gen_ai.agent.name / gen_ai.conversation.id / gen_ai.skill.id）。
  */
-import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getOpenClawConfigDir } from '../../utils/paths';
@@ -109,6 +109,58 @@ export async function readA2aTraces(
   } catch {
     return [];
   }
+}
+
+/** 列表项：单个 trace 文件的概览元信息（供渲染层浏览历史 trace）。 */
+export interface A2aTraceFileSummary {
+  rootSessionId: string;
+  fileName: string;
+  recordCount: number;
+  firstSentAt: string | null;
+  lastSentAt: string | null;
+  sizeBytes: number;
+}
+
+/**
+ * 列出落盘目录下所有 trace 文件的概览（按最近活动降序）。
+ * 用于渲染层「历史 trace 浏览器」：先列文件，再按需读单文件内容。
+ * 永不抛出；目录不存在/无 jsonl 返回 []。解析单行失败时该文件仍按已成功条数计入。
+ */
+export async function listA2aTraceFiles(
+  dirOverride?: string,
+): Promise<A2aTraceFileSummary[]> {
+  const dir = dirOverride ?? getA2aTracesDir();
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const summaries: A2aTraceFileSummary[] = [];
+  for (const fileName of files) {
+    if (!fileName.endsWith('.jsonl')) continue;
+    const rootSessionId = fileName.slice(0, -'.jsonl'.length);
+    const fullPath = join(dir, fileName);
+    try {
+      const statResult = await stat(fullPath);
+      const records = await readA2aTraces(rootSessionId, dirOverride);
+      summaries.push({
+        rootSessionId,
+        fileName,
+        recordCount: records.length,
+        firstSentAt: records.length > 0 ? records[0].sent_at : null,
+        lastSentAt: records.length > 0 ? records[records.length - 1].sent_at : null,
+        sizeBytes: statResult.size,
+      });
+    } catch {
+      // 单文件读失败不阻塞列表其他项
+    }
+  }
+  return summaries.sort((a, b) => {
+    const ta = b.lastSentAt ?? '';
+    const tb = a.lastSentAt ?? '';
+    return ta.localeCompare(tb);
+  });
 }
 
 /**
