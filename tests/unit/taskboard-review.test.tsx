@@ -19,6 +19,8 @@ const refs = vi.hoisted(() => ({
   setSearchParams: vi.fn(),
   searchParams: new URLSearchParams(),
   updateTask: vi.fn(async () => ({})),
+  deleteTask: vi.fn(async () => {}),
+  deleteSession: vi.fn(async () => {}),
   openDirectAgentSession: vi.fn(() => 'session-key-1'),
   approvalsState: {
     tasks: [] as KanbanTask[],
@@ -55,6 +57,7 @@ vi.mock('@/stores/approvals', () => ({
       approveItem: vi.fn(async () => {}),
       rejectItem: vi.fn(async () => {}),
       updateTask: refs.updateTask,
+      deleteTask: refs.deleteTask,
     }),
 }));
 
@@ -70,7 +73,10 @@ vi.mock('@/stores/agents', () => ({
 
 vi.mock('@/stores/chat', () => ({
   useChatStore: {
-    getState: () => ({ openDirectAgentSession: refs.openDirectAgentSession }),
+    getState: () => ({
+      openDirectAgentSession: refs.openDirectAgentSession,
+      deleteSession: refs.deleteSession,
+    }),
   },
 }));
 
@@ -107,6 +113,8 @@ beforeEach(() => {
   refs.approvalsState.tasks = [];
   refs.searchParams = new URLSearchParams();
   refs.updateTask.mockClear();
+  refs.deleteTask.mockClear();
+  refs.deleteSession.mockClear();
   refs.setSearchParams.mockClear();
   refs.navigate.mockClear();
   refs.openDirectAgentSession.mockClear();
@@ -197,5 +205,63 @@ describe('TaskBoard · A2A 协作过程展示与私聊', () => {
       teamName: '前端组',
       isLeaderChat: true,
     });
+  });
+});
+
+describe('TaskBoard · 删除任务', () => {
+  it('选中任务后详情头部出现删除按钮，需两步确认', async () => {
+    refs.approvalsState.tasks = [makeTask({})];
+    const { getByText, getByTitle, queryByText } = render(<TaskBoard />);
+    fireEvent.click(getByText('做一个计算器'));
+    // 第一步：点垃圾桶 → 出现确认/取消，尚未真正删除
+    fireEvent.click(getByTitle('删除任务'));
+    expect(getByText('确认删除')).toBeInTheDocument();
+    expect(refs.deleteTask).not.toHaveBeenCalled();
+    // 取消 → 回到单按钮态
+    fireEvent.click(getByText('取消'));
+    expect(queryByText('确认删除')).not.toBeInTheDocument();
+    expect(getByTitle('删除任务')).toBeInTheDocument();
+  });
+
+  it('确认删除 → deleteTask(id)，团队任务连带软删 team-task 会话', async () => {
+    refs.approvalsState.tasks = [makeTask({ teamId: 'team-1', isTeamTask: true })];
+    const { getByText, getByTitle } = render(<TaskBoard />);
+    fireEvent.click(getByText('做一个计算器'));
+    fireEvent.click(getByTitle('删除任务'));
+    fireEvent.click(getByText('确认删除'));
+    await vi.waitFor(() => expect(refs.deleteTask).toHaveBeenCalledWith('t1'));
+    expect(refs.deleteSession).toHaveBeenCalledWith('team-task:t1');
+  });
+
+  it('非团队任务删除不触碰会话列表', async () => {
+    refs.approvalsState.tasks = [makeTask({})];
+    const { getByText, getByTitle } = render(<TaskBoard />);
+    fireEvent.click(getByText('做一个计算器'));
+    fireEvent.click(getByTitle('删除任务'));
+    fireEvent.click(getByText('确认删除'));
+    await vi.waitFor(() => expect(refs.deleteTask).toHaveBeenCalledWith('t1'));
+    expect(refs.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('进行中任务确认文案明示会中断执行', () => {
+    refs.approvalsState.tasks = [makeTask({ status: 'in-progress', workState: 'working' })];
+    const { getByText, getByTitle } = render(<TaskBoard />);
+    fireEvent.click(getByText('做一个计算器'));
+    fireEvent.click(getByTitle('删除任务'));
+    expect(getByText('中断并删除')).toBeInTheDocument();
+  });
+
+  it('切换选中任务后删除确认态收起', () => {
+    refs.approvalsState.tasks = [
+      makeTask({}),
+      makeTask({ id: 't2', title: '写周报', status: 'done' }),
+    ];
+    const { getByText, getByTitle, queryByText } = render(<TaskBoard />);
+    fireEvent.click(getByText('做一个计算器'));
+    fireEvent.click(getByTitle('删除任务'));
+    expect(getByText('确认删除')).toBeInTheDocument();
+    fireEvent.click(getByText('写周报'));
+    expect(queryByText('确认删除')).not.toBeInTheDocument();
+    expect(getByTitle('删除任务')).toBeInTheDocument();
   });
 });

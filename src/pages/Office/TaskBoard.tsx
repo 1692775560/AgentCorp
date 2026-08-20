@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText, TriangleAlert, History } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ChevronRight, ClipboardList, ShieldAlert, Plus, X, Users, FolderOpen, Download, Globe, RotateCcw, MessageCircle, FileText, TriangleAlert, History, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useApprovalsStore } from '@/stores/approvals';
@@ -264,12 +264,14 @@ export function TaskBoard() {
   const approveItem = useApprovalsStore((s) => s.approveItem);
   const rejectItem = useApprovalsStore((s) => s.rejectItem);
   const updateTask = useApprovalsStore((s) => s.updateTask);
+  const deleteTask = useApprovalsStore((s) => s.deleteTask);
   const teams = useTeamsStore((s) => s.teams);
   const fetchTeams = useTeamsStore((s) => s.fetchTeams);
   const agents = useAgentsStore((s) => s.agents);
   const fetchAgents = useAgentsStore((s) => s.fetchAgents);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [teamModalOpen, setTeamModalOpen] = useState(false);
   const [zipping, setZipping] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
@@ -375,6 +377,33 @@ export function TaskBoard() {
 
   // 卡片回调保持稳定引用，配合 TaskCard memo 在任务高频更新时跳过重渲染
   const handleSelectTask = useCallback((taskId: string) => setSelectedId(taskId), []);
+
+  // 切换选中任务时收起删除确认态，避免把确认按钮带到另一个任务上误点
+  useEffect(() => {
+    setConfirmDeleteId(null);
+  }, [selectedId]);
+
+  // 删除任务：走 DELETE /api/tasks/:id；团队任务关联的任务会话一并软删，
+  // 避免会话列表留孤儿入口（deleteSession 内部已容错，失败不阻塞删除）。
+  // 进行中任务允许删——AutoWorker 后续写回会因任务不存在而安静终止（外层 catch 兜底）。
+  const handleDeleteTask = useCallback(
+    (task: KanbanTask) => {
+      void (async () => {
+        try {
+          await deleteTask(task.id);
+          if (task.teamId) {
+            void useChatStore.getState().deleteSession(`team-task:${task.id}`);
+          }
+          setConfirmDeleteId(null);
+          setSelectedId(null);
+          toast.success('任务已删除');
+        } catch (err) {
+          toast.error(`删除失败：${String(err)}`);
+        }
+      })();
+    },
+    [deleteTask],
+  );
   const handleRetryTask = useCallback(
     (taskId: string) => {
       // 与房间/任务会话失败条共用同一重试入口（teamChatWorkOrder.retryFailedTask）
@@ -558,6 +587,37 @@ export function TaskBoard() {
                     style={{ color: '#0ea5e9' }}
                   >
                     <History className="h-3 w-3" /> 协作轨迹
+                  </button>
+                )}
+                {/* 删除：两步确认，防误删；进行中任务确认文案明示会中断执行 */}
+                {confirmDeleteId === selected.id ? (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTask(selected)}
+                      className="neu-btn rounded-lg px-2 py-1 text-[10.5px] font-semibold"
+                      style={{ background: '#ef4444', color: '#fff' }}
+                    >
+                      {selected.status === 'in-progress' ? '中断并删除' : '确认删除'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="neu-btn rounded-lg px-2 py-1 text-[10.5px] font-semibold"
+                      style={{ color: 'var(--neu-ink-soft)' }}
+                    >
+                      取消
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    title="删除任务"
+                    onClick={() => setConfirmDeleteId(selected.id)}
+                    className="neu-btn flex shrink-0 items-center justify-center rounded-lg p-1.5"
+                    style={{ color: '#ef4444' }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
