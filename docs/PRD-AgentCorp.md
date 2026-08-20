@@ -96,7 +96,7 @@ flowchart LR
 | 国际化 | i18n（zh/en `common.json`） | 页面文案走 `useTranslation('common')` |
 | 状态管理 | zustand stores（`agents`/`approvals`/`evaluation`/`gateway`...） | 轻量、按域切分 |
 | 评分后端 | Python FastAPI（`model-service`） | 评分/ROI 计算独立于前端，便于治理调参 |
-| 测试 | vitest + jsdom，**独立 `vitest.config.ts`** | 剥离 electron 插件，规避 `vite-electron-renderer` 把 `node:` 别名成带 `require()` 的 shim 导致单测崩溃；当前 tsc 0 错误、单测 274/274 全过 |
+| 测试 | vitest + jsdom，**独立 `vitest.config.ts`** | 剥离 electron 插件，规避 `vite-electron-renderer` 把 `node:` 别名成带 `require()` 的 shim 导致单测崩溃；当前 tsc 0 错误、单测 1245/1245 全过（2026-08） |
 
 **两条反直觉但已落地的重要决策**：
 1. *字体必须本地自托管*，否则预览/弱网回退系统字，手写体品牌感尽失。
