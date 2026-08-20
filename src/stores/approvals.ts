@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
+import { reconcileTasks } from '@/lib/task-reconcile';
 import type {
   CreateTaskRequest,
   KanbanTask,
@@ -99,11 +100,20 @@ export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
   },
 
   fetchTasks: async () => {
-    set({ tasksLoading: true, tasksError: null });
+    // 该函数同时承担首次加载与 autoWorker 的 3s 后台轮询：
+    // 只在无数据（首次加载）时亮 loading，避免每轮 true→false 闪烁
+    // 让订阅 tasksLoading 的组件（看板）跟着多渲染两次。
+    if (get().tasks.length === 0) {
+      set({ tasksLoading: true, tasksError: null });
+    }
     try {
       const snapshot = await hostApiFetch<TasksSnapshot>('/api/tasks');
-      const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
-      set({ tasks, tasksLoading: false });
+      const incoming = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+      set((state) => ({
+        tasks: reconcileTasks(state.tasks, incoming),
+        tasksLoading: false,
+        tasksError: null,
+      }));
     } catch (err) {
       set({ tasksLoading: false, tasksError: String(err) });
     }
@@ -170,6 +180,20 @@ export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
   },
 
   appendTaskExecutionEvent: async (taskId, input) => {
+    // 未读角标：chat: 前缀事件是任务会话（team-task:<taskId>）里的对话消息，
+    // 区别于 a2a: 等 trace 噪音（编排期间高频写回，绝不能按条计未读）。
+    // 非当前会话时未读 +1；用户正在该任务会话里发消息时 currentSessionKey 命中，不自增。
+    if (typeof input?.type === 'string' && input.type.startsWith('chat:')) {
+      void import('./chat')
+        .then(({ useChatStore }) => {
+          const chat = useChatStore.getState();
+          const sessionKey = `team-task:${taskId}`;
+          if (chat.currentSessionKey !== sessionKey) {
+            chat.updateSessionUnreadCount(sessionKey, 1);
+          }
+        })
+        .catch(() => {});
+    }
     const snapshot = await hostApiFetch<TasksSnapshot>(`/api/tasks/${encodeURIComponent(taskId)}/execution/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
