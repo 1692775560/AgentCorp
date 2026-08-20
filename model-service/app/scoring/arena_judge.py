@@ -13,6 +13,19 @@ Arena 个性化对决的 LLM-as-judge 裁判。
     dims 均值（JOB_CRAFT_DIMS 子集，0–5）与 fit（0–5）加权，
     规则：objective_total = round(0.6 * mean(dims) + 0.4 * fit, 1)
     （权重偏客观维，fit 为需求贴合辅助维，体现「个性化但以能力为本」）。
+
+学术依据（现状缺口与升级方向）：
+- 本模块当前为「绝对打分 + 单次调用」，存在两类已被文献充分记录的偏差：
+  ① 位置偏差（position bias）—— 候选呈现顺序影响打分；
+  ② 自我偏好 / 冗长偏差（verbosity bias）—— 偏袒更长、更像模型的输出。
+- Chatbot Arena（arXiv:2403.04132）：用**配对比较**（pairwise）+ 随机交换 A/B
+  位置再判一次，用对称化消位置偏差，是更鲁棒的相对排序范式。当前绝对打分应升级
+  为 pairwise + 位置 swap，El Bradley-Terry 出相对序。
+- D3 / Debate-Deliberate-Decide（arXiv:2410.04663）：对抗式多 agent（平行辩手 +
+  裁判 + 可选陪审团），可证明地降低位置与冗长偏差。
+- MADRAG（arXiv:2606.06754）：Advocate-Skeptic-Judge 辩论 + rubric 对齐的 exemplar
+  检索做无训练校准；消融显示「检索驱动校准增益，辩论改善高层特质推理」。
+  以上为 arena 从「单次绝对分」迈向「鲁棒相对序」的落地路线。
 """
 from __future__ import annotations
 

@@ -14,6 +14,17 @@ model-service/app/scoring/craft_judge.py
    绝不用其他维度的分数外推。
 4. 温度 0 + 固定题面 —— 保证效果可验证、结论可复现。
 
+学术依据：
+- Rulers: From Rubrics to Reliable Scores（arXiv:2601.08654）提出把人类 rubric
+  转成稳定可审计评分的三阶段框架：① 锁定任务级 rubric（防执行漂移）② 清单式逐条
+  判定 + 证据类型标注 + 逐字引文校验（闭合「不可核验打分」）③ 事后校准对齐人类分。
+  本模块的「逐 checkpoint hit+quote」「无 quote 即降 miss」「参考答案锚定天花板」
+  分别对应其阶段 ② 的引文校验与阶段 ③ 的锚定校准。
+- LLM-Rubric（arXiv:2501.00274）：多维校准融合多评委分布，较未校准基线 RMS
+  误差减半。本模块目前为单评委温度 0；多评委校准时可接入其 per-judge 融合思路。
+- Craft 证据与机器验证解耦（stage_scorer Q6）：裁判引文 craft_evidence 不具备
+  解除降权资格，只有机器 verified_evidence 可解除——避免「被监管方自证合格」。
+
 零新增依赖。推理走 judge_backend，不可用时抛 JudgeUnavailable 由调用方降级。
 """
 from __future__ import annotations

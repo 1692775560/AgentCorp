@@ -13,6 +13,19 @@ model-service/app/sandbox/runner.py
    因此在只装了 requirements.txt 的评测机上也能跑。
 4. **失败必须可复现。** 退出码、stdout/stderr 截断片段、逐个用例结论全部回传。
 
+学术依据与现状对照：
+- SWE-bench（arXiv:2310.06770）：以**固定测试夹具（fixed fixtures）**做 pass/fail
+  判定——验证的是「仓库既有测试能否通过」，而非候选自写测试。这正是 craft_tasks_sandbox.py
+  预留的 code_csv_merge 夹具方向：应让 runner 消费 curated 固定夹具，而非仅跑候选
+  自带的 test_*（后者 `assert True` 即可骗过，使机器验证失去意义）。
+- Agent-Diff（arXiv:2602.11224）：用「状态差异合约（state-diff）」做确定性验证——
+  对执行前后环境状态做 diff 与期望变更比对，产出 crisp pass/fail，替代对轨迹的模糊匹配。
+  可作为沙箱从「跑候选测试」升级到「验证客观状态变更」的方向。
+- RedCode / CIBER（arXiv:2411.07781）：危险代码执行的安全评测——与 security_scan 的
+  静态扫描互补，构成「能不能跑」+ 「危不危险」两条独立证据链。
+- 当前缺口：`verifiable`（跑过用例）≠ 可抬权——只有 outcome=="passed" 才解除 Q6
+  降权（见 verified_evidence_for），失败为负面证据不抬权。
+
 安全边界（明确写出来，不假装是完整沙箱）：
   - 子进程 + `-I`（isolated：忽略用户 site-packages 与 PYTHON* 环境变量）；
   - cwd 为一次性临时目录，执行后整目录删除；
