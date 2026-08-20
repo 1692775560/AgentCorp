@@ -574,7 +574,7 @@ function ActionModal({ asset, mode, onClose, navigate, openDirectAgentSession }:
             {mode === 'memory' && (
               <div className="space-y-4">
                 <p className="rounded-2xl bg-[#FFD233]/10 px-4 py-3 text-sm text-gray-600">
-                  记忆编辑功能即将上线。您可以通过对话方式让「{asset.name}」自行更新其人设和工作范围。
+                  记忆编辑功能规划中。您可以通过对话方式让「{asset.name}」自行更新其人设和工作范围。
                 </p>
                 <button
                   type="button"

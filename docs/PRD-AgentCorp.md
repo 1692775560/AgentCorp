@@ -116,7 +116,7 @@ flowchart LR
 | `Marketplace` | Agent 市场 |
 | `TeamBuilder` / `TeamMap` / `TeamOverview` | 组队编排与团队全景 |
 | `Chat` | 对话式派单；创建任务深链 `/kanban?taskId=...` |
-| `Kanban` | **当前为优雅占位页**（「即将上线」），真实拖拽看板待实现 |
+| `Kanban` | **当前为优雅占位页**，真实拖拽看板待实现 |
 | `Evaluation` | 双榜单评分 |
 | `Interview` | 入职考评（考题写死任务规范+验收标准，逼语义对齐） |
 | `Gateway` / `Costs` / `Memory` / `Settings` / `Setup` | 工具策略 / 成本 / 记忆 / 设置 / 初始化 |

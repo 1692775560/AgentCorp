@@ -1,5 +1,5 @@
-# AgentCorp 模型服务镜像（昇腾 NPU 推理 / Mock 演示两用）
-# 构建：docker build -f model-service/Dockerfile -t agentcorp-minicpmo:ascend .
+# AgentCorp 模型服务镜像（异构加速卡推理 / Mock 演示两用）
+# 构建：docker build -f model-service/Dockerfile -t agentcorp-minicpmo:accelerated .
 FROM python:3.10-slim
 
 ENV PYTHONUNBUFFERED=1 \

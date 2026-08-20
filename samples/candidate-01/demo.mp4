@@ -1,1 +1,1 @@
-PLACEHOLDER: 真实短视频二进制（mp4）请于昇腾部署时置入本目录。演示环境由前端 MediaViewer 优雅降级为占位卡片。
+PLACEHOLDER: 真实短视频二进制（mp4）请于正式部署时置入本目录。演示环境由前端 MediaViewer 优雅降级为占位卡片。
