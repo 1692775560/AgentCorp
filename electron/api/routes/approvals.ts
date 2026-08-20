@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
 import { getOpenClawConfigDir } from '../../utils/paths';
+import { signDecision } from '../../utils/approval-signing';
+import { getApprovalSigningKey } from '../../utils/approval-signing-key';
 
 interface ApprovalItem {
   id?: string;
@@ -27,6 +29,9 @@ interface DecisionEntry {
   action: 'approve' | 'reject';
   reason?: string;
   decidedAt: string;
+  /** HMAC-SHA256 签名（主进程持有密钥，见 utils/approval-signing.ts）。
+   *  agent 可写目录里的伪造决策没有有效签名，可据此离线校验 decisions.json。 */
+  signature?: string;
 }
 
 async function readApprovals(): Promise<ApprovalItem[]> {
@@ -51,6 +56,12 @@ async function writeDecision(entry: DecisionEntry): Promise<void> {
   const configDir = getOpenClawConfigDir();
   const approvalsDir = join(configDir, 'approvals');
   const decisionsPath = join(approvalsDir, 'decisions.json');
+  // 决策落盘前签名：密钥在主进程（userData，agent 写不到），
+  // 拿不到密钥（safeStorage 不可用）时如实落未签名决策并日志留痕。
+  const key = getApprovalSigningKey();
+  const signed: DecisionEntry = key
+    ? { ...entry, signature: signDecision(entry, key) }
+    : entry;
   await mkdir(approvalsDir, { recursive: true });
   let existing: DecisionEntry[] = [];
   try {
@@ -60,7 +71,7 @@ async function writeDecision(entry: DecisionEntry): Promise<void> {
   } catch {
     // file doesn't exist yet
   }
-  existing.push(entry);
+  existing.push(signed);
   await writeFile(decisionsPath, JSON.stringify(existing, null, 2), 'utf8');
 }
 
