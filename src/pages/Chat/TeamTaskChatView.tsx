@@ -25,6 +25,7 @@ import {
   buildTeamChatRenderItems,
   createTaskFromChatIntake,
   isNearBottom,
+  isDirectReplyToUser,
   mapEventsToTeamChatBubbles,
   parseExecuteMarker,
   parseMentionTarget,
@@ -57,7 +58,9 @@ function AgentAvatar({ avatar, className }: { avatar?: string | null; className?
 
 export function TeamTaskChatView({ taskId }: { taskId: string }) {
   const navigate = useNavigate();
-  const tasks = useApprovalsStore((s) => s.tasks);
+  // 只订阅当前任务：配合 fetchTasks 的引用保持 reconcile，
+  // 其他任务被编排高频更新时（append 事件/状态翻转）本视图不重渲染。
+  const task = useApprovalsStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
   const fetchTasks = useApprovalsStore((s) => s.fetchTasks);
   const appendEvent = useApprovalsStore((s) => s.appendTaskExecutionEvent);
   const createTask = useApprovalsStore((s) => s.createTask);
@@ -79,7 +82,6 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
     void fetchTasks();
   }, [fetchTasks]);
 
-  const task = tasks.find((t) => t.id === taskId) ?? null;
   const team = task?.teamId ? teams.find((t) => t.id === task.teamId) ?? null : null;
   const leaderId = team?.leaderId ?? task?.assigneeId ?? null;
 
@@ -458,6 +460,8 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
             }
             const speaker = agentOf(b.actorId);
             const isLeader = b.actorId === leaderId;
+            // 被 @ 点名的非 leader 成员回话：加 @你 徽章 + 浅色高亮背景，和 leader 的正式接话区分开
+            const directReply = isDirectReplyToUser(b, leaderId);
             return (
               <div key={item.key} className="flex items-start gap-2.5">
                 <AgentAvatar
@@ -472,6 +476,11 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                         leader
                       </span>
                     )}
+                    {directReply && (
+                      <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#6366f122', color: '#6366f1' }}>
+                        @你
+                      </span>
+                    )}
                     {b.round !== null && <span className="text-muted-foreground">第{b.round}轮</span>}
                     {b.verdict === 'pass' && (
                       <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#22c55e22', color: '#22c55e' }}>PASS</span>
@@ -480,7 +489,14 @@ export function TeamTaskChatView({ taskId }: { taskId: string }) {
                       <span className="rounded px-1 py-px text-[9px] font-bold" style={{ background: '#f59e0b22', color: '#f59e0b' }}>REWORK</span>
                     )}
                   </div>
-                  <div className="rounded-2xl rounded-tl-md border border-black/[0.05] bg-black/[0.03] px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground">
+                  <div
+                    className={cn(
+                      'rounded-2xl rounded-tl-md border px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground',
+                      directReply
+                        ? 'border-l-2 border-[#6366f1]/25 border-l-[#6366f1] bg-[#6366f1]/[0.06]'
+                        : 'border-black/[0.05] bg-black/[0.03]',
+                    )}
+                  >
                     {b.peerId === 'user' ? (
                       <MarkdownContent content={b.text} className="text-[13px] leading-relaxed" />
                     ) : (
