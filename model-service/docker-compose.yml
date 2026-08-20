@@ -11,8 +11,10 @@ services:
       dockerfile: Dockerfile
     image: agentcorp-minicpmo:ascend
     container_name: agentcorp-model
+    # 只映射到本机回环：容器内仍需 API_HOST=0.0.0.0（端口映射才能进来），
+    # 但宿主侧不暴露到局域网。确需对外时改为 "8000:8000" 并自行加前置鉴权。
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - MOCK=${MOCK:-true}
       - MODEL_PATH=/models/MiniCPM-o-4.5

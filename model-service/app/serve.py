@@ -37,9 +37,21 @@ logger = logging.getLogger("serve")
 
 app = FastAPI(title="AgentCorp MiniCPM-o Evaluator", version="0.1.0")
 
+# CORS 收敛为本地 dev 白名单：正常调用方是 Electron 主进程的 Host API 代理
+# （server-to-server，不需要 CORS）；浏览器直连只发生在本地 web 预览。
+# 需要对外暴露时通过 CORS_ORIGINS 环境变量显式给出白名单（逗号分隔）。
+_cors_origins = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -27,7 +27,10 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       allowedHosts: ['.e2b.app'],
-      host: '0.0.0.0',
+      // 默认只监听本机回环：本 dev server 挂着无鉴权的 LLM 代理
+      // （vite-plugin-llm-proxy 直接用 LLM_API_KEY 转发），绑 0.0.0.0 会让
+      // 同网段任何人把本机 key 当免费代理。确需局域网演示时 WEB_HOST=0.0.0.0 显式放开。
+      host: process.env.WEB_HOST ?? '127.0.0.1',
       port: 3000,
     },
     optimizeDeps: {
