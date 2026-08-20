@@ -121,13 +121,24 @@ export interface A2aTraceFileSummary {
   sizeBytes: number;
 }
 
+/** 按 task_id 过滤 trace 记录（团队任务「查看协作轨迹」用；空 taskId 原样返回）。 */
+export function filterA2aTracesByTask(
+  records: A2aTraceRecord[],
+  taskId: string,
+): A2aTraceRecord[] {
+  if (!taskId) return records;
+  return records.filter((r) => r.task_id === taskId);
+}
+
 /**
  * 列出落盘目录下所有 trace 文件的概览（按最近活动降序）。
  * 用于渲染层「历史 trace 浏览器」：先列文件，再按需读单文件内容。
+ * 传入 taskId 时只保留含有该任务记录的文件（团队任务 trace 与委派 trace 同盘同源）。
  * 永不抛出；目录不存在/无 jsonl 返回 []。解析单行失败时该文件仍按已成功条数计入。
  */
 export async function listA2aTraceFiles(
   dirOverride?: string,
+  taskId?: string,
 ): Promise<A2aTraceFileSummary[]> {
   const dir = dirOverride ?? getA2aTracesDir();
   let files: string[];
@@ -144,6 +155,8 @@ export async function listA2aTraceFiles(
     try {
       const statResult = await stat(fullPath);
       const records = await readA2aTraces(rootSessionId, dirOverride);
+      // taskId 过滤：文件内无任何该任务的记录则不出现在列表里
+      if (taskId && filterA2aTracesByTask(records, taskId).length === 0) continue;
       summaries.push({
         rootSessionId,
         fileName,

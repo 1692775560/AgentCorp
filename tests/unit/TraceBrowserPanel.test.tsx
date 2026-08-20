@@ -8,6 +8,7 @@
  *   - 点击展开：调详情 API → 渲染 records 的 span 行；
  *   - 再点折叠：清空 records；
  *   - 主进程不可达（fetch failed）：显示「桌面端使用」提示。
+ *   - taskId prop（团队任务「协作轨迹」入口）：列表/详情请求带过滤参数 + 过滤徽标。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
@@ -137,5 +138,35 @@ describe('TraceBrowserPanel', () => {
     const refreshBtn = await findByRole('button', { name: /刷新/ });
     fireEvent.click(refreshBtn);
     expect(await findByText('root-after-refresh')).toBeInTheDocument();
+  });
+
+  it('taskId prop：列表/详情请求带 taskId 过滤参数，并显示过滤徽标', async () => {
+    mockListOnce([
+      {
+        rootSessionId: 'root-squad',
+        fileName: 'root-squad.jsonl',
+        recordCount: 2,
+        firstSentAt: '2025-01-01T00:00:00Z',
+        lastSentAt: '2025-01-01T01:00:00Z',
+        sizeBytes: 256,
+      },
+    ]);
+    mockDetailOnce('root-squad', []);
+    const { findByText } = render(<TraceBrowserPanel taskId="task-42" />);
+    // 过滤徽标可见
+    expect(await findByText('任务 task-42')).toBeInTheDocument();
+    // 列表请求带过滤参数
+    expect(refs.fetchMock).toHaveBeenCalledWith('/api/traces?taskId=task-42');
+    // 展开详情同样带过滤参数
+    fireEvent.click(await findByText('root-squad'));
+    await waitFor(() => {
+      expect(refs.fetchMock).toHaveBeenCalledWith('/api/traces/root-squad?taskId=task-42');
+    });
+  });
+
+  it('taskId prop：无记录时提示按任务过滤的空态文案', async () => {
+    mockListOnce([]);
+    const { findByText } = render(<TraceBrowserPanel taskId="task-42" />);
+    expect(await findByText(/该任务尚无协作 trace 记录/)).toBeInTheDocument();
   });
 });

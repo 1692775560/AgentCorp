@@ -26,6 +26,7 @@ import { buildDeliverableFiles } from '@/engine/squad/deliverableFiles';
 import { runRealChat, runRealChatRich } from '@/engine/llm/realExecutor';
 import { invokeIpc } from '@/lib/api-client';
 import { notifyTaskTerminal } from '@/lib/task-notify';
+import { persistA2aTrace } from '@/lib/a2a-trace-persist';
 
 /**
  * 互斥说明：会话派活与 autoWorker 自动领取共用同一份 claimed 集合
@@ -122,7 +123,8 @@ export async function runTeamChatWorkOrder(taskId: string, instruction: string):
         chat: (agentId, messages, hints) => runRealChat(messages, hints?.maxTokens ?? 8192, { taskId, teamId: team.id, agentId }),
         // SUMMARIZE 续写拼接依赖 finishReason 识别腰斩（见 squadOrchestration.chatRich）
         chatRich: (agentId, messages) => runRealChatRich(messages, 8192, { taskId, teamId: team.id, agentId }),
-        onTrace: (t) => { sink.push(t); forwardRoom(t); },
+        // 每条 A2A trace：写回事件流 + 广播房间 + 落盘主进程 a2a-traces（Trace 面板可回放）
+        onTrace: (t) => { sink.push(t); forwardRoom(t); persistA2aTrace(t); },
       });
     } finally {
       await sink.flush();
