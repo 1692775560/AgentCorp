@@ -842,5 +842,38 @@
     "openSettings": "打开技能设置",
     "assignFailed": "分配技能失败",
     "removeFailed": "移除技能失败"
+  },
+  "guide": {
+    "title": "四步上手 AgentCorp",
+    "subtitle": "从雇人到交付验收，跟着清单做一遍就会了。",
+    "progress": "已完成 {{done}}/{{total}}",
+    "stepLabel": "第 {{index}} 步：{{title}}",
+    "close": "关闭引导",
+    "skip": "跳过引导",
+    "start": "开始使用",
+    "completeTitle": "全部完成，开张大吉",
+    "completeDesc": "你已经走完「雇人 → 组队 → 派活 → 验收」整条闭环，这个窗口稍后自动收起。",
+    "steps": {
+      "meetAgents": {
+        "title": "认识你的员工",
+        "desc": "去人才市场逛逛，挑一位 Agent 雇佣；雇好后他会出现在人力资产页。",
+        "cta": "去人才市场"
+      },
+      "buildTeam": {
+        "title": "组建第一个团队",
+        "desc": "1 个 leader + 至少 1 名成员；leader 负责拆解任务、分派和验收。",
+        "cta": "去组建团队"
+      },
+      "dispatchTask": {
+        "title": "派第一个团队任务",
+        "desc": "看板右上角「新建团队任务」，选团队、写需求，编排器自动跑完整条流水线。",
+        "cta": "去看板派任务"
+      },
+      "acceptDelivery": {
+        "title": "验收第一份交付",
+        "desc": "团队任务完成后，在交付卡片里直接看内容，也可「打开交付目录」或「下载 ZIP」。",
+        "cta": "去验收交付"
+      }
+    }
   }
 }

@@ -842,5 +842,38 @@
     "openSettings": "Open Skills Settings",
     "assignFailed": "Failed to assign skill",
     "removeFailed": "Failed to remove skill"
+  },
+  "guide": {
+    "title": "Get started with AgentCorp in 4 steps",
+    "subtitle": "From hiring to accepting deliveries — follow the checklist once and you'll know the loop.",
+    "progress": "{{done}}/{{total}} done",
+    "stepLabel": "Step {{index}}: {{title}}",
+    "close": "Close guide",
+    "skip": "Skip the guide",
+    "start": "Start using AgentCorp",
+    "completeTitle": "All done — you're in business",
+    "completeDesc": "You've walked the full loop: hire → build a team → dispatch a task → accept the delivery. This window will close itself shortly.",
+    "steps": {
+      "meetAgents": {
+        "title": "Meet your employees",
+        "desc": "Browse the marketplace and hire an Agent; hired agents show up on the HR assets page.",
+        "cta": "Go to Marketplace"
+      },
+      "buildTeam": {
+        "title": "Build your first team",
+        "desc": "1 leader + at least 1 member; the leader breaks down tasks, dispatches them, and accepts results.",
+        "cta": "Build a team"
+      },
+      "dispatchTask": {
+        "title": "Dispatch your first team task",
+        "desc": "Hit \"New team task\" on the kanban, pick a team, describe the need — the orchestrator runs the whole pipeline.",
+        "cta": "Dispatch on the board"
+      },
+      "acceptDelivery": {
+        "title": "Accept your first delivery",
+        "desc": "When the team task finishes, review the delivery card in place, or \"Open delivery folder\" / \"Download ZIP\".",
+        "cta": "Review deliveries"
+      }
+    }
   }
 }
