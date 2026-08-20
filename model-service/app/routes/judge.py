@@ -115,7 +115,7 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
 
         # 两条独立的机器证据链：执行验「能不能跑」，扫描验「有没有危险构造」。
         # 测试全绿的代码照样可以是 eval(user_input)，所以二者不可互相替代。
-        sandbox_result = run_python_answer(answer)
+        sandbox_result = run_python_answer(answer, task_id=task.id)
         sandbox_payload = sandbox_result.to_dict()
         verified_evidence = verified_evidence_for(task.id, sandbox_result)
 
@@ -172,7 +172,7 @@ async def api_craft_verify(req: CraftVerifyRequest) -> dict:
     )
 
     task_id = req.task_id or "adhoc"
-    result = run_python_answer(req.answer)
+    result = run_python_answer(req.answer, task_id=req.task_id)
     scan = scan_python_answer(req.answer)
     evidence = verified_evidence_for(task_id, result)
     evidence.update(security_evidence_for(task_id, scan))

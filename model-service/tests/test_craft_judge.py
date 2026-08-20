@@ -262,7 +262,8 @@ def test_craft_verify_endpoint_runs_real_code(monkeypatch):
     res = client.post(
         "/api/craft-verify",
         json={
-            "task_id": "code_csv_merge",
+            # 用无夹具的 task_id 走自测回退路径（code_csv_merge 现已接固定夹具）
+            "task_id": "adhoc_selftest",
             "answer": "```python\ndef add(a, b):\n    return a + b\n\n\ndef test_add():\n    assert add(1, 2) == 3\n```",
         },
     )
@@ -290,7 +291,8 @@ def test_craft_verify_no_tests_yields_no_runnability_evidence(monkeypatch):
     client = TestClient(app)
     res = client.post(
         "/api/craft-verify",
-        json={"task_id": "code_csv_merge", "answer": "```python\ndef add(a, b):\n    return a + b\n```"},
+        # 用无夹具的 task_id 走自测回退路径（code_csv_merge 现已接固定夹具）
+        json={"task_id": "adhoc_selftest", "answer": "```python\ndef add(a, b):\n    return a + b\n```"},
     )
     assert res.status_code == 200
     body = res.json()

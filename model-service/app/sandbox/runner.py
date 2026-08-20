@@ -25,6 +25,12 @@ model-service/app/sandbox/runner.py
   静态扫描互补，构成「能不能跑」+ 「危不危险」两条独立证据链。
 - 当前缺口：`verifiable`（跑过用例）≠ 可抬权——只有 outcome=="passed" 才解除 Q6
   降权（见 verified_evidence_for），失败为负面证据不抬权。
+- 夹具覆盖面（现状，2026-08 实测）：4 道 code 题里仅 `code_csv_merge` 适合固定夹具，
+  因其是纯「输入→输出」的数据变换，可确定性断言。其余三道（code_debug_race
+  竞态根因、code_api_hardening 加固清单、code_boss_system 崩溃恢复队列）都是
+  设计/推理题，本应由 LLM 裁判按 rubric 打分——把它们硬塞进 pass/fail 夹具是用错工具。
+  结论：机器可验覆盖面由「题型是否确定性」决定，不由工程接线决定；扩大覆盖面要靠
+  「新增确定性题型」而非「给推理题加夹具」。
 
 安全边界（明确写出来，不假装是完整沙箱）：
   - 子进程 + `-I`（isolated：忽略用户 site-packages 与 PYTHON* 环境变量）；
@@ -37,6 +43,7 @@ model-service/app/sandbox/runner.py
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -48,6 +55,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from ..config import settings
+from .craft_tasks_sandbox import get_sandbox_spec
 
 logger = logging.getLogger("sandbox")
 
@@ -208,6 +216,18 @@ def _preexec_limits(cpu_seconds: int, mem_mb: int):
     return _apply
 
 
+def _decode(data: Optional[bytes]) -> str:
+    """把子进程输出解码为文本。utf-8 优先、errors=replace 兜底。
+
+    为什么不用 text=True：Windows 上子进程可能吐出 GBK 字节（如 0xb1），
+    以 locale 编码解码会抛 UnicodeDecodeError → proc.stdout 变 None →
+    下游 splitlines() 崩溃。字节模式 + replace 保证任何脏输出都收敛为可解析文本。
+    """
+    if not data:
+        return ""
+    return data.decode("utf-8", errors="replace")
+
+
 def _parse_harness_output(stdout: str) -> tuple:
     """解析 harness 输出 → (cases, total, failed, marker)。"""
     cases: List[tuple] = []
@@ -240,6 +260,7 @@ def _parse_harness_output(stdout: str) -> tuple:
 def run_python_answer(
     answer: str,
     *,
+    task_id: Optional[str] = None,
     timeout_s: Optional[float] = None,
     mem_mb: Optional[int] = None,
 ) -> SandboxResult:
@@ -268,6 +289,84 @@ def run_python_answer(
     try:
         import time
 
+        # ── 固定夹具路径（SWE-bench 范式）：有 curated fixture 就跑固定断言，
+        #    不跑候选自写测试——后者 `assert True` 即可骗过，机器验证失去意义。
+        #    候选代码必须以 solution.py 呈现（夹具 `from solution import ...`）。
+        spec = get_sandbox_spec(task_id) if task_id else None
+        if spec is not None and spec.test_harness:
+            with open(os.path.join(workdir, "solution.py"), "w", encoding="utf-8") as fh:
+                fh.write(source)
+            for fname, content in spec.fixture_files.items():
+                with open(os.path.join(workdir, fname), "w", encoding="utf-8") as fh:
+                    fh.write(content)
+            with open(os.path.join(workdir, "_fixture_harness.py"), "w", encoding="utf-8") as fh:
+                fh.write(spec.test_harness)
+
+            started = time.perf_counter()
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-I", "-B", "_fixture_harness.py"],
+                    cwd=workdir,
+                    env=_sandbox_env(),
+                    capture_output=True,
+                    timeout=timeout,
+                    preexec_fn=_preexec_limits(int(timeout) + 1, memory),  # noqa: PLW1509
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return SandboxResult(
+                    outcome="failed",
+                    total=1,
+                    passed=0,
+                    failed=1,
+                    duration_ms=timeout * 1000.0,
+                    cases=[("<timeout>", False, f"夹具执行超过 {timeout:.0f}s 未结束")],
+                    reason="timeout",
+                    code_bytes=len(source.encode("utf-8")),
+                )
+            duration_ms = (time.perf_counter() - started) * 1000.0
+            combined = _decode(proc.stdout) + "\n" + _decode(proc.stderr)
+            # 夹具 harness 只在全部断言跑完后打印一行 JSON；若它崩溃（典型是候选
+            # 未定义入口函数导致 `from solution import ...` 失败），则无 JSON 输出。
+            # 这种「候选未满足夹具契约」是候选的失败，不是沙盒故障 → 记为 failed。
+            tail = combined.strip()[-1200:]
+            last_line = _decode(proc.stdout).strip().splitlines()[-1] if _decode(proc.stdout).strip() else ""
+            try:
+                report = json.loads(last_line)
+                ftotal = int(report.get("total", 0))
+                fpassed = int(report.get("passed", 0))
+                ferrors = [str(e) for e in report.get("errors", [])]
+            except (json.JSONDecodeError, ValueError, IndexError):
+                return SandboxResult(
+                    outcome="failed",
+                    total=1,
+                    passed=0,
+                    failed=1,
+                    duration_ms=duration_ms,
+                    cases=[("<import>", False, "夹具无法导入 solution（缺入口函数或导入期异常）")],
+                    output_tail=tail,
+                    reason="夹具契约未满足：候选未定义入口函数或导入期异常",
+                    code_bytes=len(source.encode("utf-8")),
+                )
+            cases = []
+            for err in ferrors:
+                name = err.split(":", 1)[0].strip() or "<assert>"
+                cases.append((name, False, err[:200]))
+            for i in range(fpassed):
+                cases.append((f"fixture_pass_{i}", True, ""))
+            ffailed = ftotal - fpassed
+            return SandboxResult(
+                outcome="passed" if ffailed == 0 else "failed",
+                total=ftotal,
+                passed=fpassed,
+                failed=ffailed,
+                duration_ms=duration_ms,
+                cases=cases,
+                output_tail=tail,
+                code_bytes=len(source.encode("utf-8")),
+            )
+
+        # ── 自测路径（无夹具）：跑候选自带的 test_*（保留向后兼容）──
         with open(os.path.join(workdir, "answer.py"), "w", encoding="utf-8") as fh:
             fh.write(source)
         with open(os.path.join(workdir, "_harness.py"), "w", encoding="utf-8") as fh:
@@ -280,7 +379,6 @@ def run_python_answer(
                 cwd=workdir,
                 env=_sandbox_env(),
                 capture_output=True,
-                text=True,
                 timeout=timeout,
                 preexec_fn=_preexec_limits(int(timeout) + 1, memory),  # noqa: PLW1509
                 check=False,
@@ -298,8 +396,10 @@ def run_python_answer(
             )
 
         duration_ms = (time.perf_counter() - started) * 1000.0
-        combined = f"{proc.stdout}\n{proc.stderr}".strip()
-        cases, total, failed, marker = _parse_harness_output(proc.stdout)
+        out_text = _decode(proc.stdout)
+        err_text = _decode(proc.stderr)
+        combined = f"{out_text}\n{err_text}".strip()
+        cases, total, failed, marker = _parse_harness_output(out_text)
 
         if marker == "no_tests":
             return SandboxResult(
