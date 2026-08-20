@@ -12,18 +12,11 @@ const HOST_API_BASE = `http://127.0.0.1:${HOST_API_PORT}`;
 const LOCALHOST_FALLBACK_FLAG = 'agentcorp:allow-localhost-fallback';
 const LEGACY_LOCALHOST_FALLBACK_FLAG = 'clawx:allow-localhost-fallback';
 
-/** Cached Host API auth token, fetched once from the main process via IPC. */
-let cachedHostApiToken: string | null = null;
-
-async function getHostApiToken(): Promise<string> {
-  if (cachedHostApiToken) return cachedHostApiToken;
-  try {
-    cachedHostApiToken = await invokeIpc<string>('hostapi:token');
-  } catch {
-    cachedHostApiToken = '';
-  }
-  return cachedHostApiToken ?? '';
-}
+// NOTE: Host API 会话 token 不再进入渲染进程（原 ipc 'hostapi:token' 已移除）——
+// 渲染进程一旦 XSS，持有 token 即获 Host API 全权限。
+// 普通请求走 hostApiFetch（ipc 代理），SSE 流走 hostApiStream（主进程拉流转发）。
+// 浏览器直连回退路径（dev flag 开启的非 Electron 场景）改为无 token 访问，
+// 只能命中无需鉴权的端点；这是有意的能力收缩。
 
 type HostApiProxyResponse = {
   ok?: boolean;
@@ -162,7 +155,6 @@ function isBrowserPreviewShimEnabled(): boolean {
 
 type BrowserFetchMode = {
   source: 'browser-preview-shim' | 'browser-fallback';
-  includeAuthToken: boolean;
 };
 
 function shouldAttachJsonContentType(method: string, body: BodyInit | null | undefined): boolean {
@@ -180,12 +172,6 @@ async function runBrowserFetch<T>(
   const headers = new Headers(init?.headers);
   if (shouldAttachJsonContentType(method, init?.body) && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
-  }
-  if (mode.includeAuthToken) {
-    const token = await getHostApiToken();
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
   }
 
   const response = await fetch(`${HOST_API_BASE}${path}`, {
@@ -233,7 +219,6 @@ export async function hostApiFetch<T>(path: string, init?: RequestInit): Promise
   if (isBrowserPreviewShimEnabled()) {
     return runBrowserFetch<T>(path, init, method, startedAt, {
       source: 'browser-preview-shim',
-      includeAuthToken: false,
     });
   }
   // In Electron renderer, always proxy through main process to avoid CORS.
@@ -277,19 +262,82 @@ export async function hostApiFetch<T>(path: string, init?: RequestInit): Promise
     }
   }
 
-  // Browser-only fallback (non-Electron environments).
+  // Browser-only fallback (non-Electron environments)。
+  // token 不下发渲染进程后，此回退只能命中无需鉴权的端点（有意收缩）。
   return runBrowserFetch<T>(path, init, method, startedAt, {
     source: 'browser-fallback',
-    includeAuthToken: true,
   });
 }
 
 export function createHostEventSource(path = '/api/events'): EventSource {
-  // EventSource does not support custom headers, so pass the auth token
-  // as a query parameter. The server accepts both mechanisms.
-  const separator = path.includes('?') ? '&' : '?';
-  const tokenParam = `token=${encodeURIComponent(cachedHostApiToken ?? '')}`;
-  return new EventSource(`${HOST_API_BASE}${path}${separator}${tokenParam}`);
+  // 仅浏览器预览模式使用（Electron 内 host 事件走 IPC 映射，见 host-events.ts）。
+  // token 不再下发渲染进程，故不再附带 token 参数；预览模式本无 Host API 可连。
+  return new EventSource(`${HOST_API_BASE}${path}`);
+}
+
+/**
+ * SSE/流式端点的主进程代理：invoke 'hostapi:stream' 拿 streamId，
+ * 订阅静态事件通道按 streamId 分流，把数据块重组为 ReadableStream。
+ * token 由主进程代持，全程不进入渲染进程。
+ */
+export async function hostApiStream(
+  path: string,
+  init?: { method?: string; body?: string },
+): Promise<{ status: number; ok: boolean; body: ReadableStream<Uint8Array> }> {
+  const ipc = window.electron?.ipcRenderer;
+  if (!ipc) throw new Error('hostApiStream requires Electron IPC');
+
+  const { streamId } = (await ipc.invoke('hostapi:stream', {
+    path,
+    method: init?.method ?? 'GET',
+    body: init?.body ?? null,
+  })) as { streamId: string };
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
+    let unsubscribe: (() => void) | undefined;
+    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+    const cleanup = () => {
+      settled = true;
+      unsubscribe?.();
+    };
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+      cancel() {
+        cleanup();
+      },
+    });
+    const off = ipc.on('hostapi:stream-event', (raw: unknown) => {
+      const ev = raw as
+        | { streamId: string; kind: 'meta'; status: number; ok: boolean }
+        | { streamId: string; kind: 'data'; chunk: Uint8Array }
+        | { streamId: string; kind: 'end' }
+        | { streamId: string; kind: 'error'; message: string };
+      if (!ev || ev.streamId !== streamId) return;
+      if (ev.kind === 'meta') {
+        if (settled) return;
+        settled = true;
+        resolvePromise({ status: ev.status, ok: ev.ok, body });
+      } else if (ev.kind === 'data') {
+        controller?.enqueue(ev.chunk instanceof Uint8Array ? ev.chunk : new Uint8Array(ev.chunk));
+      } else if (ev.kind === 'end') {
+        controller?.close();
+        cleanup();
+      } else if (ev.kind === 'error') {
+        if (!settled) {
+          cleanup();
+          rejectPromise(new Error(ev.message));
+        } else {
+          controller?.error(new Error(ev.message));
+          cleanup();
+        }
+      }
+    });
+    // preload 的 on 成功时返回退订函数；类型上也可能是 void（声明兼容），收一下
+    unsubscribe = typeof off === 'function' ? off : undefined;
+  });
 }
 
 export function getHostApiBase(): string {

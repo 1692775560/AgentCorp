@@ -9,13 +9,17 @@
  *  - selectQuestions 接线：persona 改变 P1 考查维度增强与 P3 选题排序
  *  - judgeChat 接线：persona 非空时把前缀注入 transcript 再发 /api/chat-judge
  *
- * 不触达网络：judgeChat 用全局 fetch mock；api-client 仅用于取 token（失败回空）。
+ * 不触达网络：judgeChat 走 '@/lib/host-api' 的 hostApiFetch（主进程代理），
+ * 测试直接 mock 该模块，断言转发路径与请求体。
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// judgeChat 内部 getHostApiToken → invokeIpc('hostapi:token')，失败应回空 token，不影响主路径
-vi.mock('@/lib/api-client', () => ({
-  invokeIpc: vi.fn(async () => ''),
+const refs = vi.hoisted(() => ({ hostApiFetch: vi.fn() }));
+
+// judgeChat 经 hostApiFetch（主进程代持 token 转发）调 /api/chat-judge
+vi.mock('@/lib/host-api', () => ({
+  hostApiFetch: refs.hostApiFetch,
+  hostApiStream: vi.fn(async () => { throw new Error('no stream in test'); }),
 }));
 
 import {
@@ -170,47 +174,37 @@ describe('judgeChat 接线（persona 注入裁判前缀）', () => {
     cost: 4,
   };
 
+  beforeEach(() => {
+    refs.hostApiFetch.mockReset();
+  });
+
   it('persona 非空 → 前缀注入 transcript 后再发 /api/chat-judge', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ source: 'judge', radar: REAL_RADAR, confidence: 0.9 }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    ) as unknown as typeof fetch;
-    const original = global.fetch;
-    global.fetch = fetchMock;
-    try {
-      const res = await judgeChat('agent-x', '原始对话文本', BOSS_RISK);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const body = JSON.parse((fetchMock as any).mock.calls[0][1].body);
-      expect(body.transcript).toContain('[评估上下文 · 老板原型]');
-      expect(body.transcript).toContain('风险偏好：high');
-      expect(body.transcript).toContain('原始对话文本');
-      expect(res?.source).toBe('judge');
-      expect(res?.radar).toEqual(REAL_RADAR);
-    } finally {
-      global.fetch = original;
-    }
+    refs.hostApiFetch.mockResolvedValue({ source: 'judge', radar: REAL_RADAR, confidence: 0.9 });
+    const res = await judgeChat('agent-x', '原始对话文本', BOSS_RISK);
+    expect(refs.hostApiFetch).toHaveBeenCalledTimes(1);
+    const [path, init] = refs.hostApiFetch.mock.calls[0] as [string, { method: string; body: string }];
+    expect(path).toBe('/api/chat-judge');
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(init.body);
+    expect(body.transcript).toContain('[评估上下文 · 老板原型]');
+    expect(body.transcript).toContain('风险偏好：high');
+    expect(body.transcript).toContain('原始对话文本');
+    expect(res?.source).toBe('judge');
+    expect(res?.radar).toEqual(REAL_RADAR);
   });
 
   it('persona 为空 → transcript 不加 persona/history 前缀（但抗偏差 rubric 锚定始终注入）', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ source: 'degraded', radar: REAL_RADAR, confidence: 0.5 }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    ) as unknown as typeof fetch;
-    const original = global.fetch;
-    global.fetch = fetchMock;
-    try {
-      await judgeChat('agent-x', '原始对话文本', null);
-      const body = JSON.parse((fetchMock as any).mock.calls[0][1].body);
-      expect(body.transcript).toContain('原始对话文本');
-      expect(body.transcript).toContain('[评分准则 · 抗偏差锚定]');
-      expect(body.transcript).not.toContain('[评估上下文 · 老板原型]');
-      expect(body.transcript).not.toContain('[评估上下文 · 历史协作]');
-    } finally {
-      global.fetch = original;
-    }
+    refs.hostApiFetch.mockResolvedValue({ source: 'degraded', radar: REAL_RADAR, confidence: 0.5 });
+    await judgeChat('agent-x', '原始对话文本', null);
+    const body = JSON.parse((refs.hostApiFetch.mock.calls[0] as [string, { body: string }])[1].body);
+    expect(body.transcript).toContain('原始对话文本');
+    expect(body.transcript).toContain('[评分准则 · 抗偏差锚定]');
+    expect(body.transcript).not.toContain('[评估上下文 · 老板原型]');
+    expect(body.transcript).not.toContain('[评估上下文 · 历史协作]');
+  });
+
+  it('代理失败 → 返回 null 而不是抛出（调用方据此走降级展示）', async () => {
+    refs.hostApiFetch.mockRejectedValue(new Error('host api down'));
+    await expect(judgeChat('agent-x', '文本', null)).resolves.toBeNull();
   });
 });

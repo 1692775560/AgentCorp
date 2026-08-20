@@ -23,7 +23,7 @@ const electronAPI = {
         'gateway:rpc',
         'gateway:httpProxy',
         'hostapi:fetch',
-        'hostapi:token',
+        'hostapi:stream',
         'gateway:health',
         'gateway:getControlUiUrl',
         // OpenClaw
@@ -171,6 +171,7 @@ const electronAPI = {
      */
     on: (channel: string, callback: (...args: unknown[]) => void) => {
       const validChannels = [
+        'hostapi:stream-event',
         'gateway:status-changed',
         'gateway:message',
         'gateway:notification',

@@ -7,7 +7,8 @@
 - **两条服务**：
   - **model-service**（FastAPI，端口 `API_PORT` 默认 8000）：评测/评分/裁判逻辑，`model-service/app/serve.py` 装配路由。
   - **Host API**（Electron 主进程，`http://127.0.0.1:3210`）：渲染层唯一访问入口；负责本地持久化（electron-store）与向 model-service 转发。
-- **鉴权**：所有 Host API 请求需带 `x-clawx-host-session: <token>`（renderer 经 `ipc 'hostapi:token'` 获取，见 `src/lib/api-client.ts` / `judgeClient.ts`）。CORS 白名单 `app://.` / `null`。model-service 直连（无 Host API 时）无鉴权，仅本机回环。
+- **鉴权**：所有 Host API 请求需带 `x-clawx-host-session: <token>`。**token 由主进程代持，不下发渲染进程**——普通请求走 `ipc 'hostapi:fetch'` 代理，SSE 流走 `ipc 'hostapi:stream'`（主进程拉流、按块转发，见 `src/lib/host-api.ts` 的 `hostApiStream`）。CORS 白名单 `app://.` / `null`。model-service 直连（无 Host API 时）无鉴权，仅本机回环。
+- **审批决策完整性**：`~/.openclaw/approvals/decisions.json` 的每条决策带 HMAC-SHA256 `signature`（密钥由主进程持有，safeStorage 加密存 userData，在 agent 可写目录之外）。信任边界：决策文件的消费方是外部 OpenClaw gateway，验签需 gateway 侧配合；仓库内签名提供可审计的完整性证据，可用 `electron/utils/approval-signing.ts` 的 `verifyDecisionSignature` 离线校验。
 - **命名**：前端 JSON 用 camelCase（Host API 转发时保持），后端 pydantic 用 AliasGenerator 兼容 snake_case/camelCase（见 `schemas.py` 的 `JudgeRunRequest` 先例）。
 - **错误码语义（统一）**：
   - `400` 参数格式错误 / 业务校验失败（Host API 本地实现常用）

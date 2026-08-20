@@ -2,16 +2,16 @@
  * src/services/judgeClient.ts
  * MiniCPM-o 外部裁判客户端。
  *
- * - evaluate(input)：经由 Host API 代理 POST http://127.0.0.1:3210/api/evaluate/run，
+ * - evaluate(input)：经主进程流代理（ipc 'hostapi:stream'）POST /api/evaluate/run，
  *   解析 SSE 流为 EvaluationEvent（radar_update ×6 + verdict + done）。
  * - 非 200 / 503 / 网络错误时回退 fallbackMock：cost 维由真实 usage 折算，
  *   其余维有真实遥测走 metricsEngine 客观 KPI、无遥测走 transcript 弱信号、
  *   零证据给中性基线并标注「不可评」，离线可用且绝不造分。
  *
- * 鉴权：Host API 需要 x-clawx-host-session 头（每会话随机 token），
- * 通过 renderer→main 的 ipc 'hostapi:token' 获取。
+ * 鉴权：Host API 会话 token 由主进程代持（不下发渲染进程）——
+ * 普通 JSON 请求走 hostApiFetch，SSE 流走 hostApiStream。
  */
-import { invokeIpc } from '@/lib/api-client';
+import { hostApiFetch, hostApiStream } from '@/lib/host-api';
 import type {
   EvaluationEvent,
   TelemetryEvent,
@@ -32,10 +32,7 @@ import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
 import { traceEmitter } from '@/engine/trace/traceEmitter';
 
-// 与 src/lib/host-api.ts 保持一致
-const HOST_API_PORT = 3210;
-const HOST_API_BASE = `http://127.0.0.1:${HOST_API_PORT}`;
-const SESSION_HEADER = 'x-clawx-host-session';
+// Host API 端点与鉴权统一起点在 src/lib/host-api.ts（token 由主进程代持）
 
 /** 一次裁判运行的入参（与后端 model-service /api/evaluate-run 契约严格对齐） */
 export interface JudgeTask {
@@ -249,14 +246,7 @@ export async function withTrace<T>(
   }
 }
 
-/** 获取 Host API 会话 token（renderer → main ipc） */
-async function getHostApiToken(): Promise<string> {
-  try {
-    return (await invokeIpc<string>('hostapi:token')) ?? '';
-  } catch {
-    return '';
-  }
-}
+/** token 由主进程代持（见 host-api.ts），渲染进程不再经手。 */
 
 /**
  * transcript 弱信号（0–1），与 model-service `evaluator._transcript_signals` **严格镜像**。
@@ -393,16 +383,11 @@ async function* parseSseStream(
  */
 export async function* evaluate(input: JudgeRunInput): AsyncIterable<EvaluationEvent> {
   try {
-    const token = await getHostApiToken();
-    const res = await fetch(`${HOST_API_BASE}/api/evaluate/run`, {
+    const res = await hostApiStream('/api/evaluate/run', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [SESSION_HEADER]: token,
-      },
       body: JSON.stringify(input),
     });
-    if (!res.ok || !res.body) {
+    if (!res.ok) {
       throw new Error(`judge responded ${res.status}`);
     }
     yield* parseSseStream(res.body);
@@ -752,23 +737,16 @@ export async function judgeChat(
     return await withTrace(
       { runId, correlationId, agentId, kind: 'judge', name: 'chat-judge' },
       async () => {
-        const token = await getHostApiToken();
-        const res = await fetch(`${HOST_API_BASE}/api/chat-judge`, {
+        // variant 决定后端用哪个模型与温度：0 = 可复现基准，>0 = 真实扰动采样。
+        // 模型池与凭据留在后端，渲染层只递一个序号 —— 换裁判不必改前端。
+        const json = await hostApiFetch<Record<string, unknown>>('/api/chat-judge', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [SESSION_HEADER]: token,
-          },
-          // variant 决定后端用哪个模型与温度：0 = 可复现基准，>0 = 真实扰动采样。
-          // 模型池与凭据留在后端，渲染层只递一个序号 —— 换裁判不必改前端。
           body: JSON.stringify({
             agent_id: agentId,
             transcript: fullTranscript,
             variant: rubricVariant,
           }),
         });
-        if (!res.ok) return null;
-        const json = (await res.json()) as Record<string, unknown>;
         const radar = json.radar;
         return {
           source: json.source === 'judge' ? 'judge' : 'degraded',
@@ -795,17 +773,10 @@ export async function judgeChat(
  */
 export async function arenaCompare(input: ArenaCompareInput): Promise<ArenaMatch | null> {
   try {
-    const token = await getHostApiToken();
-    const res = await fetch(`${HOST_API_BASE}/api/arena/compare`, {
+    return await hostApiFetch<ArenaMatch>('/api/arena/compare', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [SESSION_HEADER]: token,
-      },
       body: JSON.stringify(input),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as ArenaMatch;
   } catch {
     return null;
   }
@@ -817,17 +788,10 @@ export async function arenaCompare(input: ArenaCompareInput): Promise<ArenaMatch
  */
 export async function arenaUserPick(input: ArenaUserPickInput): Promise<ArenaPickResult | null> {
   try {
-    const token = await getHostApiToken();
-    const res = await fetch(`${HOST_API_BASE}/api/arena/user-pick`, {
+    return await hostApiFetch<ArenaPickResult>('/api/arena/user-pick', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [SESSION_HEADER]: token,
-      },
       body: JSON.stringify(input),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as ArenaPickResult;
   } catch {
     return null;
   }

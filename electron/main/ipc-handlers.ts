@@ -13,6 +13,7 @@ import {
   type ProviderConfig,
 } from '../utils/secure-storage';
 import { getOpenClawStatus, getOpenClawDir, getOpenClawConfigDir, getOpenClawSkillsDir, ensureDir } from '../utils/paths';
+import { allowedOpenRoots, isPathAllowed, OPEN_PATH_DENIED } from '../utils/path-whitelist';
 import { getOpenClawCliCommand } from '../utils/openclaw-cli';
 import { getAllSettings, getSetting, resetSettings, setSetting, type AppSettings } from '../utils/store';
 import {
@@ -2002,13 +2003,25 @@ function registerShellHandlers(): void {
     await shell.openExternal(url);
   });
 
+  // 路径白名单：只允许打开应用自有目录（~/.openclaw 交付/附件、userData 日志）。
+  // 防「agent 输出的链接诱导用户点开 .command/.app → 本地命令执行」。
+  const openRoots = () => allowedOpenRoots(getOpenClawConfigDir(), app.getPath('userData'));
+
   // Open path in file explorer
   ipcMain.handle('shell:showItemInFolder', async (_, path: string) => {
+    if (!isPathAllowed(path, openRoots())) {
+      logger.warn('Blocked shell.showItemInFolder for path outside allowed roots', { scope: 'shell.showItemInFolder', path });
+      return;
+    }
     shell.showItemInFolder(path);
   });
 
   // Open path
   ipcMain.handle('shell:openPath', async (_, path: string) => {
+    if (!isPathAllowed(path, openRoots())) {
+      logger.warn('Blocked shell.openPath for path outside allowed roots', { scope: 'shell.openPath', path });
+      return OPEN_PATH_DENIED;
+    }
     return await shell.openPath(path);
   });
 }
