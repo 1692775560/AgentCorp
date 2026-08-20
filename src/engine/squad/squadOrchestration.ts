@@ -197,6 +197,22 @@ export function decompositionCoverage(
   return { covered: terms.length - missing.length, total: terms.length, missing };
 }
 
+// ── P0-5：leader 自留比例机检 ——
+// leader 拆解时把过多子任务派给自己（assigneeId === leaderId），成员的动态选择
+// （filterCandidatesForKind / 路由）形同虚设。占比超过一半即视为分工不合格，
+// 与覆盖机检同路径回喂 leader 修订一次；修订后仍超比例不再强求（留 trace 说明）。
+
+/** 拆解结果中 leader 自留的子任务数与总数（assigneeId 缺失不计入自留）。 */
+export function leaderSelfAssignStats(
+  subtasks: Pick<OrchestrationSubTask, 'assigneeId'>[],
+  leaderId: string,
+): { self: number; total: number } {
+  return {
+    self: subtasks.filter((s) => s.assigneeId === leaderId).length,
+    total: subtasks.length,
+  };
+}
+
 // ── P0-3：举证审阅（G-Eval 思想，arXiv:2303.16634）——
 // 有验收标准时要求 leader 输出结构化 verdict：逐条 ✓/✗ + 产出原文引用作证据，
 // 返工意见因此具体可执行（不再「感觉不对」整体打回）。
@@ -448,6 +464,7 @@ export async function runSquadOrchestration(
           '只输出一个 JSON 数组，不要输出任何其它文字：[{"title":"子任务标题","instruction":"给成员的具体指令","assigneeId":"成员agentId（可选）","acceptance":["可勾选验收标准1","验收标准2"],"requiredSections":["交付必备部分标题"]}]。' +
           `团队成员如下：\n${roster}\n` +
           '拆解为 1~5 条；每条 instruction 控制在 120 字内，写清要做什么；' +
+          '分工要求：执行类子任务应主要指派给成员（assigneeId 填成员 agentId），leader 只自留协调/终审类子任务，不要把大部分活留给自己；' +
           '每条子任务必须给出 acceptance：2~5 条可逐一勾选核对的验收标准（审阅与独立盲审逐条核对用）；' +
           'requiredSections 可选：交付物必须包含的部分标题（将由程序机检核对，不写则跳过机检）；' +
           '不要在 instruction 里限制成员的产出字数（长度由系统按工种自动控制，人为压短会导致交付残缺）。' +
@@ -498,6 +515,61 @@ export async function runSquadOrchestration(
             round: 1,
             state: 'working',
             summary: `拆解覆盖机检未过（遗漏：${coverage.missing.join('、').slice(0, 40)}），leader 已修订拆解`,
+          }),
+        );
+        subtasks = revised;
+      }
+    } catch {
+      /* 修订失败降级：沿用首次拆解 */
+    }
+  }
+
+  // P0-5 自留比例机检：leader 把超过一半的子任务派给自己（≥2 条且有其他在职
+  // 成员可派）时视为分工不合格，与覆盖机检同路径回喂修订一次，明确要求把活
+  // 分给成员；修订后仍超比例不再强求（留 trace 说明）。单成员团队不触发。
+  // （真实事故：「皮肤病调研」全部子任务 psychologist → psychologist 自留。）
+  const delegableMembers = (team.memberIds ?? []).filter(
+    (mid) => mid !== team.leaderId && candidates.some((c) => c.agentId === mid && c.active !== false),
+  );
+  const selfStats = leaderSelfAssignStats(subtasks, team.leaderId);
+  if (subtasks.length >= 2 && delegableMembers.length > 0 && selfStats.self / selfStats.total > 0.5 && hasBudget()) {
+    try {
+      const revisedRaw = await call(team.leaderId, [
+        {
+          role: 'system',
+          content: personaSystem(
+            personas,
+            team.leaderId,
+            '你是团队 leader。你之前的任务拆解把过多子任务留给了自己，请修订分工：' +
+              '把执行类子任务指派给团队成员（assigneeId 填成员 agentId），leader 只自留协调/终审类子任务。' +
+              '输出修订后的完整 JSON 数组（格式与之前相同，1~5 条），子任务内容本身可保持不变。' +
+              '只输出 JSON 数组，不要输出任何其它文字。',
+          ),
+        },
+        {
+          role: 'user',
+          content:
+            `任务：\n${taskText}\n\n你之前的拆解：\n${JSON.stringify(subtasks)}\n\n` +
+            `可指派的成员：\n${delegableMembers.join('、')}\n\n` +
+            `你自留了 ${selfStats.self}/${selfStats.total} 条子任务，请把主要执行工作分给成员。`,
+        },
+      ], { maxTokens: 2500 });
+      const revised = parseSubTasks(revisedRaw);
+      if (revised) {
+        const revisedStats = leaderSelfAssignStats(revised, team.leaderId);
+        const stillOver =
+          revised.length >= 2 && revisedStats.self / revisedStats.total > 0.5;
+        emit(
+          makeTrace({
+            taskId,
+            rootId,
+            delegator: `agent:${team.leaderId}`,
+            delegatee: `team:${team.id}`,
+            round: 1,
+            state: 'working',
+            summary: stillOver
+              ? `自留比例机检未过（leader 自留 ${selfStats.self}/${selfStats.total}），修订后仍自留 ${revisedStats.self}/${revisedStats.total}，不再强求，按当前拆解继续`
+              : `自留比例机检未过（leader 自留 ${selfStats.self}/${selfStats.total}），leader 已修订分工`,
           }),
         );
         subtasks = revised;
