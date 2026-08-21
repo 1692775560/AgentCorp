@@ -786,32 +786,47 @@ export async function syncGatewayTokenToConfig(token: string): Promise<void> {
 /**
  * Security hardening: lock down Gateway tool execution policy.
  *
- * Writes a conservative `toolPolicy` into the `gateway` section of
- * ~/.openclaw/openclaw.json so the OpenClaw Gateway only runs allowed /
- * sandboxed tools. Default is read-only + sandbox; tighten further via a
- * whitelist ({ mode: 'whitelist', allowed: [...], sandbox: true }) if needed.
- * See docs/architecture-pivot.md §1.4.
+ * 注意 config 路径：OpenClaw 2026.3.22 的 Zod schema **不认识**
+ * `gateway.toolPolicy`（带上该键 Gateway 直接 exit 1，sanitize 会剥离它），
+ * 也不认识 `agents.defaults.tools`。已用 `openclaw config validate` 探针
+ * 验证当前可用的收敛点是**顶层 `tools` 段**：
+ *   - tools.fs.workspaceOnly: true  —— fs 工具（read/write/edit/apply_patch）
+ *     限制在 agent workspace 内，杜绝「agent 读写任意本地路径」；
+ *     交付物流程不受影响（交付由主进程 saveTaskDeliverables 落盘，
+ *     不经 agent 的 fs 工具）。
+ *   - tools.elevated.enabled: false —— 关闭 elevated exec 提权通道。
+ * 刻意不设 profile/deny 白名单：profile 会裁剪 agent 完成交付所需的
+ * 工具面（exec/write），白名单同理——收敛到「不破坏第一方 agent 工作」
+ * 的最小硬约束。
+ *
+ * 合并而非覆盖：用户/旧版本已有的其他 tools.* 键保留。
  */
 export async function syncToolPolicyToConfig(): Promise<void> {
   return withConfigLock(async () => {
     const config = await readOpenClawJson();
 
-    const gateway = (
-      config.gateway && typeof config.gateway === 'object'
-        ? { ...(config.gateway as Record<string, unknown>) }
+    const tools = (
+      config.tools && typeof config.tools === 'object'
+        ? { ...(config.tools as Record<string, unknown>) }
         : {}
     ) as Record<string, unknown>;
 
-    gateway.toolPolicy = {
-      mode: 'read-only',
-      sandbox: true,
+    tools.fs = {
+      ...(tools.fs && typeof tools.fs === 'object'
+        ? (tools.fs as Record<string, unknown>)
+        : {}),
+      workspaceOnly: true,
     };
-
-    if (!gateway.mode) gateway.mode = 'local';
-    config.gateway = gateway;
+    tools.elevated = {
+      ...(tools.elevated && typeof tools.elevated === 'object'
+        ? (tools.elevated as Record<string, unknown>)
+        : {}),
+      enabled: false,
+    };
+    config.tools = tools;
 
     await writeOpenClawJson(config);
-    logger.info('Synced gateway toolPolicy (read-only + sandbox) to openclaw.json');
+    logger.info('Synced tool policy (fs.workspaceOnly + elevated off) to openclaw.json');
   });
 }
 
