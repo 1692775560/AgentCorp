@@ -226,8 +226,8 @@ A 卖家 Agent 做一半交给 B 卖家 Agent：顺着 A2A 的设计——Agent 
 ### 9.1 已实现 / 待做
 | 状态 | 项 |
 |------|----|
-| ✅ 已落地 | 三进程架构、双轨 λ 融合评分、5 态生命周期机、runLinkStore 归因、评分层、17 个页面（含 Agent 供给/协作）、Neumorphism 设计系统、自托管字体、tsc 0 错误 + 单测全量通过（CI 门禁） |
-| 🚧 待做 | `Kanban` 卡片拖拽改列；身份层 ANP/DID 落地；`task_sets` 埋 `difficulty_calibrated_at` 时间戳 |
+| ✅ 已落地 | 三进程架构、双轨 λ 融合评分、5 态生命周期机、runLinkStore 归因、评分层、17 个页面（含 Agent 供给/协作）、Neumorphism 设计系统、自托管字体、`task_sets` 难度校准时间戳字段（未校准诚实为 null）、tsc 0 错误 + 单测全量通过（CI 门禁） |
+| 🚧 待做 | `Kanban` 卡片拖拽改列；身份层 ANP/DID 落地 |
 | 🔒 真 P0 | Gateway 工具执行收敛——已落地为顶层 `tools.fs.workspaceOnly` + `tools.elevated.enabled=false`（经 bundled CLI `config validate` 探针验证；`gateway.toolPolicy` 系 schema 不支持的旧写法，已废弃） |
 
 ### 9.2 已知技术债 / 边界（诚实列出）

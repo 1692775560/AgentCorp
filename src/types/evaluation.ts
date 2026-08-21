@@ -698,6 +698,8 @@ export interface TaskRunResult {
   usage: unknown[];
   craftEvidence: Record<string, string>;
   meta: Record<string, number>;
+  /** 难度校准时间戳（ISO 8601）；undefined/null = 未校准，不得当校准过展示 */
+  difficultyCalibratedAt?: string | null;
 }
 
 /** TaskSet 元数据（前端注册表镜像用）。镜像后端 schemas.TaskSetMeta */
@@ -706,4 +708,6 @@ export interface TaskSetMeta {
   title: string;
   description: string;
   applicableJobs: JobType[];
+  /** 难度校准时间戳（与 TaskRunResult.difficultyCalibratedAt 同源） */
+  difficultyCalibratedAt?: string | null;
 }

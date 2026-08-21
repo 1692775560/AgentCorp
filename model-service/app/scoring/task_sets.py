@@ -32,6 +32,9 @@ class TaskSet(Protocol):
     title: str
     description: str
     applicableJobs: List[str]
+    # 题面难度校准时间戳（ISO 8601）；None = 未校准。
+    # 分数可解释性的硬前提：未校准的任务集，其绝对分不可跨版本比较。
+    difficulty_calibrated_at: Optional[str]
 
     def run(self, input: JudgeRunRequest, opts: Optional[dict] = None) -> TaskRunResult:
         ...
@@ -50,6 +53,9 @@ class UsageEfficiencyTaskSet:
         "衡量 agent 在「又快又省 token（性价比）」约束下的产出质量。"
     )
     applicableJobs = ["image", "text", "code"]
+    # 本任务集派生自真实 usage，无固定题面，无从谈难度校准——诚实为 None，
+    # 由消费方决定如何标注（绝不写伪造的校准时间）。
+    difficulty_calibrated_at: Optional[str] = None
 
     def run(self, input: JudgeRunRequest, opts: Optional[dict] = None) -> TaskRunResult:
         opts = opts or {}
@@ -102,6 +108,7 @@ class UsageEfficiencyTaskSet:
             usage=usage,
             craftEvidence=craft_evidence,
             meta=meta,
+            difficultyCalibratedAt=self.difficulty_calibrated_at,
         )
 
 
