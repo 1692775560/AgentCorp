@@ -34,7 +34,7 @@
 | 角色 | 诉求 | 对应功能入口 |
 |------|------|------|
 | **Agent 卖家（供给方）** | 把调好的 Agent 上架、积累信誉、接单变现 | `EmployeeBuilder`（员工搭建）、`Marketplace`（市场）、`Models`（模型） |
-| **任务买家（需求方）** | 发任务、雇佣合适 Agent、看客观信誉再下单 | `Agents`/`TeamOverview`（人力资源）、`Chat`（对话式派单）、`Kanban`（任务看板*占位*） |
+| **任务买家（需求方）** | 发任务、雇佣合适 Agent、看客观信誉再下单 | `Agents`/`TeamOverview`（人力资源）、`Chat`（对话式派单）、`Kanban`（任务看板） |
 | **团队编排者** | 把多个 Agent 组队协同完成复杂任务 | `TeamBuilder`、`TeamMap`、`TeamOverview` |
 | **治理/审计方** | 用可调权重审视客观 vs 主观评分，防注水 | `Evaluation`（双榜单）、`Gateway`（工具策略）、`Costs`、`Interview`（入职考评） |
 
@@ -96,7 +96,7 @@ flowchart LR
 | 国际化 | i18n（zh/en `common.json`） | 页面文案走 `useTranslation('common')` |
 | 状态管理 | zustand stores（`agents`/`approvals`/`evaluation`/`gateway`...） | 轻量、按域切分 |
 | 评分后端 | Python FastAPI（`model-service`） | 评分/ROI 计算独立于前端，便于治理调参 |
-| 测试 | vitest + jsdom，**独立 `vitest.config.ts`** | 剥离 electron 插件，规避 `vite-electron-renderer` 把 `node:` 别名成带 `require()` 的 shim 导致单测崩溃；当前 tsc 0 错误、单测 1245/1245 全过（2026-08） |
+| 测试 | vitest + jsdom，**独立 `vitest.config.ts`** | 剥离 electron 插件，规避 `vite-electron-renderer` 把 `node:` 别名成带 `require()` 的 shim 导致单测崩溃；当前 tsc 0 错误、单测全量通过（CI 门禁守护，1300+ 例，2026-08） |
 
 **两条反直觉但已落地的重要决策**：
 1. *字体必须本地自托管*，否则预览/弱网回退系统字，手写体品牌感尽失。
@@ -116,7 +116,7 @@ flowchart LR
 | `Marketplace` | Agent 市场 |
 | `TeamBuilder` / `TeamMap` / `TeamOverview` | 组队编排与团队全景 |
 | `Chat` | 对话式派单；创建任务深链 `/kanban?taskId=...` |
-| `Kanban` | **当前为优雅占位页**，真实拖拽看板待实现 |
+| `Kanban` | 任务看板（删除/重试/审批/协作轨迹已落地；拖拽改列待做） |
 | `Evaluation` | 双榜单评分 |
 | `Interview` | 入职考评（考题写死任务规范+验收标准，逼语义对齐） |
 | `Gateway` / `Costs` / `Memory` / `Settings` / `Setup` | 工具策略 / 成本 / 记忆 / 设置 / 初始化 |
@@ -226,13 +226,13 @@ A 卖家 Agent 做一半交给 B 卖家 Agent：顺着 A2A 的设计——Agent 
 ### 9.1 已实现 / 待做
 | 状态 | 项 |
 |------|----|
-| ✅ 已落地 | 三进程架构、双轨 λ 融合评分、5 态生命周期机、runLinkStore 归因、评分层、17 个页面（含 Agent 供给/协作）、Neumorphism 设计系统、自托管字体、tsc 0 错误 + 单测 274/274 |
-| 🚧 占位/待做 | **`Kanban` 真实拖拽看板**（当前仅占位页）；身份层 ANP/DID 落地；`task_sets` 埋 `difficulty_calibrated_at` 时间戳 |
-| 🔒 真 P0 | Gateway 工具执行「只读/白名单/沙箱」收敛——文档写了要做，需实测验证到确实完成（评委面前爆雷的正是这种） |
+| ✅ 已落地 | 三进程架构、双轨 λ 融合评分、5 态生命周期机、runLinkStore 归因、评分层、17 个页面（含 Agent 供给/协作）、Neumorphism 设计系统、自托管字体、tsc 0 错误 + 单测全量通过（CI 门禁） |
+| 🚧 待做 | `Kanban` 卡片拖拽改列；身份层 ANP/DID 落地；`task_sets` 埋 `difficulty_calibrated_at` 时间戳 |
+| 🔒 真 P0 | Gateway 工具执行收敛——已落地为顶层 `tools.fs.workspaceOnly` + `tools.elevated.enabled=false`（经 bundled CLI `config validate` 探针验证；`gateway.toolPolicy` 系 schema 不支持的旧写法，已废弃） |
 
 ### 9.2 已知技术债 / 边界（诚实列出）
 - 浏览器预览拉不到真实 Agent 数据（需 `npm run dev` 跑真实桌面端）。
-- `Kanban` 为占位页，真实看板未实现。
+- `Kanban` 看板已真实可用（删除/重试/审批/协作轨迹），仅卡片拖拽改列未做。
 - 历史已修复：`collectors`/`eval-engines` 单测曾红（collectors 断言滞后于成本模型、`computeRoi` 漏返回 `cps`），已通过独立 `vitest.config.ts` + `RoiSnapshot.cps` 补齐解决；侧边栏竖线割裂（`<aside>` 的 `overflow-hidden` 裁掉新拟物阴影）已修（`relative z-30`）。
 
 ### 9.3 与上游状态文档的偏差（已核对，重要）
