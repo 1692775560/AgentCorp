@@ -16,11 +16,12 @@ import {
   listApprovals,
   getApproval,
   exportAuditJsonl,
+  recordHostApproval,
   resetApprovals,
   setApprovalPersister,
   createMemoryApprovalPersister,
   type GovernedAction,
-} from '@/demo/governance/approvalGate';
+} from '@/engine/governance/approvalGate';
 import { createTeam, createTask, runTask, getHireLedger, resetHireLedger } from '@/demo/agentteams-adapter';
 import { mockJudge } from '@/demo/mockJudge';
 import {
@@ -266,6 +267,68 @@ describe('审计流水（执行证据沉淀）', () => {
     expect(parsed[1].state).toBe('approved');
     expect(parsed[1].actor).toBe('human:alice');
     expect(parsed[1].riskLevel).toBe('high');
+  });
+});
+
+describe('生产接线：宿主运行时审批决策登记（recordHostApproval）', () => {
+  it('生产 approve 决策被登记为 approved 终态，且可导出审计流水', () => {
+    const req = recordHostApproval({
+      approvalId: 'host-appr-1',
+      runId: 'session-x',
+      action: 'delete_file',
+      targetId: 'agent-7',
+      requestedBy: 'agent-7',
+      decision: 'approve',
+      actor: 'user',
+      reason: '确认删除',
+    });
+    expect(req.state).toBe('approved');
+    expect(req.audit.at(-1)?.actor).toBe('user');
+    expect(req.audit.at(-1)?.reason).toBe('确认删除');
+
+    const lines = exportAuditJsonl();
+    expect(lines.some((l) => JSON.parse(l).approvalId === 'host-appr-1')).toBe(true);
+  });
+
+  it('生产 reject 决策被登记为 rejected 终态', () => {
+    const req = recordHostApproval({
+      approvalId: 'host-appr-2',
+      action: 'send_email',
+      targetId: 'host',
+      requestedBy: 'host',
+      decision: 'reject',
+      actor: 'user',
+      reason: '风险过高',
+    });
+    expect(req.state).toBe('rejected');
+  });
+
+  it('同一 approvalId 已存在（引擎先 submit）时，在生产确认后追加终态审计而不重复建单', () => {
+    const out = submitForApproval({
+      runId: 'run-host',
+      requestedBy: 'boss',
+      action: 'hire',
+      targetId: 'c1',
+      summary: '录用',
+      riskLevel: 'high',
+      requiresApproval: true,
+      governed: { apply: () => 'ok', compensate: () => {} },
+    });
+    const req = recordHostApproval({
+      approvalId: out.approvalId,
+      runId: 'run-host',
+      action: 'hire',
+      targetId: 'c1',
+      requestedBy: 'boss',
+      decision: 'approve',
+      actor: 'user',
+      reason: '生产侧复核通过',
+    });
+    // 终态覆盖为 approved，且审计链连续（pending → approved）
+    expect(req.state).toBe('approved');
+    expect(req.audit.at(0)?.state).toBe('pending');
+    expect(req.audit.at(-1)?.state).toBe('approved');
+    expect(req.audit.at(-1)?.reason).toBe('生产侧复核通过');
   });
 });
 
