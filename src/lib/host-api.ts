@@ -153,6 +153,22 @@ function isBrowserPreviewShimEnabled(): boolean {
   }
 }
 
+/**
+ * 解析 Host API 基址：
+ * - 浏览器预览 shim（同源 Web 部署，如昇腾统一环境 Web 形态）→ 当前源；
+ * - 其余场景（Electron 回退 / 本地 dev）→ 本地 Host API（127.0.0.1:3210）。
+ */
+export function resolveHostApiBase(): string {
+  if (isBrowserPreviewShimEnabled()) {
+    try {
+      return window.location.origin;
+    } catch {
+      // fall through：极端环境下退回本地 Host API
+    }
+  }
+  return HOST_API_BASE;
+}
+
 type BrowserFetchMode = {
   source: 'browser-preview-shim' | 'browser-fallback';
 };
@@ -174,7 +190,7 @@ async function runBrowserFetch<T>(
     headers.set('content-type', 'application/json');
   }
 
-  const response = await fetch(`${HOST_API_BASE}${path}`, {
+  const response = await fetch(`${resolveHostApiBase()}${path}`, {
     ...init,
     method,
     headers,
@@ -272,7 +288,8 @@ export async function hostApiFetch<T>(path: string, init?: RequestInit): Promise
 export function createHostEventSource(path = '/api/events'): EventSource {
   // 仅浏览器预览模式使用（Electron 内 host 事件走 IPC 映射，见 host-events.ts）。
   // token 不再下发渲染进程，故不再附带 token 参数；预览模式本无 Host API 可连。
-  return new EventSource(`${HOST_API_BASE}${path}`);
+  // 同源 Web 部署（预览 shim）下指向当前源，其余指向本地 Host API。
+  return new EventSource(`${resolveHostApiBase()}${path}`);
 }
 
 /**
@@ -285,7 +302,20 @@ export async function hostApiStream(
   init?: { method?: string; body?: string },
 ): Promise<{ status: number; ok: boolean; body: ReadableStream<Uint8Array> }> {
   const ipc = window.electron?.ipcRenderer;
-  if (!ipc) throw new Error('hostApiStream requires Electron IPC');
+
+  // 同源 Web 形态（昇腾统一环境：渲染进程与 model-service 同源，无 Electron
+  // 主进程）或纯浏览器环境：流式端点直接 fetch，不再要求 IPC。
+  if (!ipc || isBrowserPreviewShimEnabled()) {
+    const response = await fetch(`${resolveHostApiBase()}${path}`, {
+      method: init?.method ?? 'GET',
+      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: init?.body ?? null,
+    });
+    if (!response.body) {
+      throw new Error('hostApiStream: response body is unavailable');
+    }
+    return { status: response.status, ok: response.ok, body: response.body };
+  }
 
   const { streamId } = (await ipc.invoke('hostapi:stream', {
     path,

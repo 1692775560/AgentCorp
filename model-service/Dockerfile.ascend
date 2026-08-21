@@ -1,0 +1,70 @@
+# AgentCorp 昇腾统一环境镜像（Web 形态）
+#
+# 与 model-service/Dockerfile 的区别：多阶段构建，先把前端 Web 预览产物
+# （dist-web）打进来，运行时由 model-service 同源托管（WEB_ROOT=/app/web），
+# 浏览器开箱即用，无需 Electron。
+#
+# 构建（在仓库根目录执行，build context 必须是仓库根）：
+#   docker build -f model-service/Dockerfile.ascend -t agentcorp-minicpmo:ascend .
+# 运行编排见 model-service/docker-compose.ascend.yml，
+# 完整部署 runbook 见 docs/ascend-adaptation-plan.md §7。
+
+# ---------- 阶段 1：前端构建（Web 预览产物 dist-web） ----------
+FROM node:20 AS web
+RUN corepack enable
+WORKDIR /build
+
+# 先装依赖（利用层缓存）
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# 拷贝 Web 构建所需源码（vite.web.config.ts 双入口：index.html + demo.html；
+# @electron 别名指向 electron/，渲染进程 imports 依赖它）
+COPY index.html demo.html vite.web.config.ts tsconfig.json tsconfig.node.json ./
+COPY src ./src
+COPY electron ./electron
+COPY public ./public
+RUN pnpm build:web
+
+# ---------- 阶段 2：模型服务运行时（昇腾 CANN 基座） ----------
+# 基座镜像按运行环境覆盖：--build-arg ASCEND_BASE_IMAGE=<image>
+# 默认取 CANN 9.1 社区镜像；FlagOS 运行时镜像（FlagScale/FlagOS starter kit）
+# 正式发布后可直接以同名 ARG 切换基座（登记见 docs/ascend-adaptation-plan.md R9）。
+# CANN 基座自带 torch 运行环境时，torch_npu / flag_gems 仍为可选增强
+# （见 requirements.txt 末尾「异构加速卡」说明，均为惰性 import 降级）。
+ARG ASCEND_BASE_IMAGE=quay.io/ascend/cann:9.1.0-beta.1
+FROM ${ASCEND_BASE_IMAGE}
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# 隔离 venv 安装服务依赖（避免污染基座镜像自带的 CANN torch 环境）
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY model-service/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 服务代码 + 前端构建产物
+COPY model-service/app ./app
+COPY model-service/tests ./tests
+COPY --from=web /build/dist-web /app/web
+
+# 样本与上传目录（运行时挂载真实媒体）
+VOLUME ["/app/samples", "/app/uploads"]
+
+EXPOSE 8000
+
+# 统一环境默认值：真实模式 + 同源托管 Web 产物；
+# 容器内必须监听 0.0.0.0 端口映射才可达，宿主机侧回环绑定由 compose 控制。
+ENV MOCK=false \
+    WEB_ROOT=/app/web \
+    API_HOST=0.0.0.0 \
+    API_PORT=8000 \
+    MODEL_PATH=/models/MiniCPM-o-4.5 \
+    SAMPLES_DIR=/app/samples \
+    UPLOAD_DIR=/app/uploads
+
+CMD ["python", "-m", "app.serve"]

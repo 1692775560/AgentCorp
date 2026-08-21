@@ -292,6 +292,27 @@ MOCK=false JUDGE_BACKEND=local DEVICE=cuda MODEL_PATH=/models/<your-omni-model> 
 `DEVICE=npu` 启用（`model_loader.py` 惰性 import，缺依赖自动降级，不崩）。
 容器部署见 `model-service/docker-compose.yml`。
 
+### 昇腾统一环境 · Web Demo（无 Electron，一条命令起全栈）
+
+产品有两种形态：本地桌面端（Electron，请求经主进程 Host API 转发）与
+统一环境 Web 形态（前端构建产物由 model-service 同源托管，浏览器直接使用）。
+后者面向昇腾评审机场景：
+
+```bash
+# 在仓库根目录执行（build context 需要前端源码）
+docker compose -f model-service/docker-compose.ascend.yml up --build
+# 浏览器访问 http://127.0.0.1:8000
+```
+
+- `model-service/Dockerfile.ascend`：多阶段构建——Node 阶段产出 `dist-web`
+  （`pnpm build:web`），CANN 基座阶段以 `WEB_ROOT=/app/web` 同源托管
+  （含 SPA 路由回退与 `/api/evaluate/run` 别名）；基座镜像可经
+  `ASCEND_BASE_IMAGE` 覆盖（FlagOS 运行时镜像就绪后同参切换）。
+- 默认 `MOCK=false` + NPU 设备透传（`/dev/davinci0`、`/dev/davinci_manager`）；
+  端口只绑宿主回环，评审机之外访问改为 `"8000:8000"` 并自行加前置鉴权。
+- 部署后验证：`./scripts/e2e_ascend.sh`（/health 断言 → SSE 冒烟 → 测试套件）。
+- 完整部署 runbook、任务拆解与风险登记见 `docs/ascend-adaptation-plan.md`。
+
 前端无需额外开关：渲染层不直连模型服务，请求统一经主进程 Host API
 （`127.0.0.1:3210`）转发到 model-service。裁判是否为真，由 model-service 侧的
 `JUDGE_BACKEND` 决定，并通过事件里的 `source`（judge / mixed / degraded）如实回传给界面。

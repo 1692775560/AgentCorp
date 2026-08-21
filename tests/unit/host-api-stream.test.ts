@@ -106,8 +106,61 @@ describe('hostApiStream', () => {
     await expect(readAll(res.body)).rejects.toThrow('mid-stream boom');
   });
 
-  it('无 Electron IPC 环境 → 直接抛错（调用方走降级）', async () => {
+  it('无 Electron IPC 环境 → 直连 fetch 本地 Host API（浏览器回退）', async () => {
     (window as unknown as { electron: unknown }).electron = undefined;
-    await expect(hostApiStream('/api/evaluate/run')).rejects.toThrow('requires Electron IPC');
+    const fetchMock = vi.fn(async () => new Response('event: done\n\n', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const res = await hostApiStream('/api/evaluate/run', { method: 'POST', body: '{}' });
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:3210/api/evaluate/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      expect(await readAll(res.body)).toBe('event: done\n\n');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('响应无 body（如 HEAD 类实现）→ 直接抛错', async () => {
+    (window as unknown as { electron: unknown }).electron = undefined;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 200, ok: true, body: null })));
+    try {
+      await expect(hostApiStream('/api/evaluate/run')).rejects.toThrow('body is unavailable');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('resolveHostApiBase / 预览 shim 同源', () => {
+  it('shim 开启 → 基址解析为当前源，hostApiStream 直连同源', async () => {
+    (window as unknown as { electron: unknown }).electron = {
+      __agentcorpBrowserPreviewShim: true,
+      // 即使存在 ipcRenderer，shim 模式下也直连同源 fetch
+      ipcRenderer: { invoke: refs.invoke, on: vi.fn() },
+    };
+    const fetchMock = vi.fn(async () => new Response('event: done\n\n', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const res = await hostApiStream('/api/evaluate/run', { method: 'POST', body: '{}' });
+      expect(res.ok).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(`${window.location.origin}/api/evaluate/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      expect(refs.invoke).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('shim 关闭 → 基址为本地 Host API（127.0.0.1:3210）', async () => {
+    const { resolveHostApiBase } = await import('@/lib/host-api');
+    (window as unknown as { electron: unknown }).electron = {};
+    expect(resolveHostApiBase()).toBe('http://127.0.0.1:3210');
   });
 });

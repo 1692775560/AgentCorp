@@ -24,7 +24,9 @@ import os
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import settings
 from .routes import arena, convergence, evaluate, health, judge, leaderboard, samples, upload
@@ -72,6 +74,42 @@ app.include_router(leaderboard.router)
 app.include_router(judge.router)
 app.include_router(health.router)
 app.include_router(arena.router)
+
+
+class SPAStaticFiles(StaticFiles):
+    """SPA 静态托管：未命中的前端路由回退到 index.html。
+
+    用于昇腾统一环境 Web 形态（服务端同源托管 dist-web 构建产物）。
+    /api 与 /uploads 前缀不回退——它们的 404 应如实返回，避免把 API 错误
+    静默吞成 HTML 页面。
+    """
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            full_path = scope.get("path", "")
+            if exc.status_code == 404 and not full_path.startswith(("/api", "/uploads")):
+                index = os.path.join(self.directory, "index.html")
+                if os.path.isfile(index):
+                    return FileResponse(index)
+            raise
+
+
+def mount_web_root(fastapi_app: FastAPI, web_root: str) -> bool:
+    """web_root 指向有效目录时在 / 上挂载 SPA 静态站点；返回是否已挂载。"""
+    if web_root and os.path.isdir(web_root):
+        fastapi_app.mount(
+            "/",
+            SPAStaticFiles(directory=web_root, html=True),
+            name="web",
+        )
+        return True
+    return False
+
+
+# Web 静态托管挂载放在所有路由之后：API 路由优先匹配，仅兜底前端资源。
+mount_web_root(app, settings.web_root)
 
 
 if __name__ == "__main__":
