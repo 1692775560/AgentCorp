@@ -123,6 +123,18 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
         scan_payload = scan_result.to_dict()
         verified_evidence.update(security_evidence_for(task.id, scan_result))
 
+    elif req.verify and task.job_type in ("text", "image") and task.text_spec:
+        # 文本/多模态工种：无沙箱可跑，用确定性结构校验提供机器证据。
+        # 与 LLM 裁判互补——text_checks 只验「结构是否合规」（章节是否齐全、
+        # 长度是否越界、JSON 是否可解析、有无占位符），不判断「写得好不好」。
+        from ..sandbox.text_checks import (
+            check_text_answer,
+            text_evidence_for,
+        )
+
+        text_result = check_text_answer(answer, task.text_spec)
+        verified_evidence.update(text_evidence_for(task.id, text_result))
+
     try:
         judgement = judge_craft_task(req.task_id, answer)
     except JudgeUnavailable as exc:
