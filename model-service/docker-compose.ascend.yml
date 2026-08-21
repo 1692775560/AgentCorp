@@ -1,0 +1,43 @@
+# AgentCorp 昇腾统一环境编排（Web 形态，一条命令起全栈）
+# 用法（在仓库根目录执行）：
+#   docker compose -f model-service/docker-compose.ascend.yml up --build
+# 浏览器访问 http://127.0.0.1:8000 即可使用（前端由 model-service 同源托管）。
+# 部署 runbook 与验收步骤见 docs/ascend-adaptation-plan.md §7。
+services:
+  agentcorp-model:
+    build:
+      # build context 必须是仓库根：Dockerfile.ascend 的 builder 阶段需要前端源码
+      context: ..
+      dockerfile: model-service/Dockerfile.ascend
+      args:
+        # FlagOS 运行时镜像就绪后在此切换基座
+        ASCEND_BASE_IMAGE: ${ASCEND_BASE_IMAGE:-quay.io/ascend/cann:9.1.0-beta.1}
+    image: agentcorp-minicpmo:ascend
+    container_name: agentcorp-ascend
+    # 只映射到本机回环：容器内需 API_HOST=0.0.0.0（端口映射才能进来），
+    # 但宿主侧不暴露到局域网。评审机之外确需访问时改为 "8000:8000"
+    # 并自行加前置鉴权（本服务无内置鉴权）。
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - MOCK=${MOCK:-false}
+      - WEB_ROOT=/app/web
+      - MODEL_PATH=${MODEL_PATH:-/models/MiniCPM-o-4.5}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - SAMPLES_DIR=/app/samples
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      # 固定候选样本集（含真实媒体，部署时置入）
+      - ../samples:/app/samples
+      - ./uploads:/app/uploads
+      # 模型权重目录（部署时置入，默认 /models/MiniCPM-o-4.5）
+      - /models:/models
+    # NPU 设备透传：统一环境默认启用；设备节点名以所用固件版本为准
+    devices:
+      - /dev/davinci0:/dev/davinci0
+      - /dev/davinci_manager:/dev/davinci_manager
+      # 多卡或部分驱动版本还需（按需取消注释）：
+      # - /dev/devmm_svm:/dev/devmm_svm
+      # - /dev/hisi_hdc:/dev/hisi_hdc
+    restart: unless-stopped
