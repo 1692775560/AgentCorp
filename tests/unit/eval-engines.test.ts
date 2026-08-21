@@ -4,8 +4,7 @@
  * 评估层纯函数引擎单测：
  *  - metricsEngine.computeKpi        —— 遥测 → KPI（sample_n / 各率字段范围 / 稳定性）
  *  - roiEngine.computeRoi            —— 成本五要素 + 价值两要素 → ROI/IPR/SRPC/CPS/roi_norm
- *  - evaluationAdapter               —— consume(radar_update×6 + verdict + done) → 快照
- *  - verdict→lifecycle 一致性        —— lifecycle.verdictToLifecycleState 与 evaluationAdapter 映射对齐
+ *  - verdict→lifecycle 映射          —— lifecycle.verdictToLifecycleState（MVP/OBSERVE→ACTIVE，FIRED→RETIRED）
  *
  * 这些模块仅依赖类型（编译期擦除），无 electron / 网络依赖，可在 vitest（node）直接执行。
  * 运行：pnpm test  (或 pnpm vitest run tests/unit/eval-engines.test.ts)
@@ -23,9 +22,8 @@ import {
   stability,
 } from '@/engine/metricsEngine';
 import { computeRoi, normCps, zscore } from '@/engine/roiEngine';
-import { EvaluationAdapter } from '@/engine/evaluationAdapter';
 import { verdictToLifecycleState } from '@/types/lifecycle';
-import type { TelemetryEvent, RadarScore, KpiRecord } from '@/types/evaluation';
+import type { TelemetryEvent, RadarScore } from '@/types/evaluation';
 
 const WINDOW = '2025-W30';
 
@@ -166,48 +164,8 @@ describe('roiEngine.computeRoi', () => {
   });
 });
 
-describe('evaluationAdapter.consume', () => {
-  const DIMS: Array<keyof RadarScore> = [
-    'task',
-    'quality',
-    'comm',
-    'creativity',
-    'reliability',
-    'cost',
-  ];
-
-  it('消费 radar_update×6 → 快照含全部维度', () => {
-    const adapter = new EvaluationAdapter();
-    for (const dim of DIMS) {
-      const d = adapter.consume({ type: 'radar_update', dim, score: 4, confidence: 0.9, evidence: 'e' });
-      expect(d.kind).toBe('radar');
-    }
-    const snap = adapter.snapshot();
-    for (const dim of DIMS) expect(typeof snap.radar[dim]).toBe('number');
-  });
-
-  it('verdict FIRED → RETIRED；MVP/OBSERVE → ACTIVE', () => {
-    const fired = new EvaluationAdapter();
-    fired.consume({ type: 'verdict', verdict: 'FIRED', user_fit: 10, evidence_trace: [], confidence: 0.8 });
-    expect(fired.snapshot().state).toBe('RETIRED');
-
-    const mvp = new EvaluationAdapter();
-    mvp.consume({ type: 'verdict', verdict: 'MVP', user_fit: 90, evidence_trace: [], confidence: 0.9 });
-    expect(mvp.snapshot().state).toBe('ACTIVE');
-
-    const obs = new EvaluationAdapter();
-    obs.consume({ type: 'verdict', verdict: 'OBSERVE', user_fit: 50, evidence_trace: [], confidence: 0.8 });
-    expect(obs.snapshot().state).toBe('ACTIVE');
-  });
-
-  it('done / noop 事件处理', () => {
-    const a = new EvaluationAdapter();
-    expect(a.consume({ type: 'done', evaluation_id: 'x' }).kind).toBe('done');
-  });
-});
-
-describe('verdict→lifecycle 一致性（lifecycle.ts vs evaluationAdapter）', () => {
-  it('verdictToLifecycleState 与 adapter 内部映射完全一致', () => {
+describe('verdict→lifecycle 映射（lifecycle.verdictToLifecycleState）', () => {
+  it('MVP/OBSERVE → ACTIVE；FIRED → RETIRED', () => {
     const cases: Array<['MVP' | 'OBSERVE' | 'FIRED', 'ACTIVE' | 'RETIRED']> = [
       ['MVP', 'ACTIVE'],
       ['OBSERVE', 'ACTIVE'],
@@ -215,9 +173,6 @@ describe('verdict→lifecycle 一致性（lifecycle.ts vs evaluationAdapter）',
     ];
     for (const [verdict, expected] of cases) {
       expect(verdictToLifecycleState(verdict)).toBe(expected);
-      const adapter = new EvaluationAdapter();
-      adapter.consume({ type: 'verdict', verdict, user_fit: 50, evidence_trace: [], confidence: 0.8 });
-      expect(adapter.snapshot().state).toBe(expected);
     }
   });
 });
