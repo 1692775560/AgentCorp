@@ -44,57 +44,100 @@ export function runtimeSessionsSignature(sessions: RuntimeSessionSummary[]): str
     .join('|');
 }
 
+/**
+ * 轮询间隔：连续失败时指数退避（3s → 6s → 12s … 封顶 30s），成功后归位。
+ * 此前 catch 后下一轮仍按 3s 猛打——host 挂掉时渲染进程会无意义地高频重试。
+ */
+export const TEAM_RUNTIME_POLL_BASE_MS = 3000;
+export const TEAM_RUNTIME_POLL_MAX_MS = 30000;
+
+export function teamRuntimePollDelayMs(consecutiveFailures: number): number {
+  if (consecutiveFailures <= 0) return TEAM_RUNTIME_POLL_BASE_MS;
+  return Math.min(
+    TEAM_RUNTIME_POLL_BASE_MS * 2 ** (consecutiveFailures - 1),
+    TEAM_RUNTIME_POLL_MAX_MS,
+  );
+}
+
 export function useTeamRuntime(enabled = true): TeamRuntimeState {
   const [state, setState] = useState<TeamRuntimeState>({
     byAgent: {},
     allSessions: [],
     loading: true,
   });
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   /** 上一轮已下发到 state 的会话签名；相同则跳过 setState。 */
   const lastSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
 
-    const fetchSessions = async () => {
+    let stopped = false;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveFailures = 0;
+
+    const tick = async () => {
+      if (stopped || inFlight) return;
+      // 页面隐藏时暂停轮询（后台无观众，省网络与解析；回前台立即补一轮）
+      if (typeof document !== 'undefined' && document.hidden) {
+        timer = setTimeout(() => void tick(), TEAM_RUNTIME_POLL_BASE_MS);
+        return;
+      }
+      inFlight = true;
       try {
         const result = await hostApiFetch<{ success: boolean; sessions: RuntimeSessionSummary[] }>(
           '/api/sessions/subagents',
         );
-        if (!result.success) return;
+        consecutiveFailures = 0;
+        if (result.success) {
+          const activeSessions = result.sessions
+            .filter(
+              (s) => s.status === 'running' || s.status === 'blocked' || s.status === 'waiting_approval',
+            )
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // newest first
 
-        const activeSessions = result.sessions
-          .filter(
-            (s) => s.status === 'running' || s.status === 'blocked' || s.status === 'waiting_approval',
-          )
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // newest first
+          const byAgent: Record<string, RuntimeSessionSummary[]> = {};
+          for (const session of activeSessions) {
+            const agentId = extractAgentId(session.parentSessionKey);
+            if (!agentId) continue;
+            if (!byAgent[agentId]) byAgent[agentId] = [];
+            byAgent[agentId].push(session);
+          }
 
-        const byAgent: Record<string, RuntimeSessionSummary[]> = {};
-        for (const session of activeSessions) {
-          const agentId = extractAgentId(session.parentSessionKey);
-          if (!agentId) continue;
-          if (!byAgent[agentId]) byAgent[agentId] = [];
-          byAgent[agentId].push(session);
+          const signature = runtimeSessionsSignature(activeSessions);
+          if (signature === lastSignatureRef.current) {
+            // 内容无变化：只补 loading 终结，不换新引用，订阅组件不渲染
+            setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
+          } else {
+            lastSignatureRef.current = signature;
+            setState({ byAgent, allSessions: activeSessions, loading: false });
+          }
         }
-
-        const signature = runtimeSessionsSignature(activeSessions);
-        if (signature === lastSignatureRef.current) {
-          // 内容无变化：只补 loading 终结，不换新引用，订阅组件不渲染
-          setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
-          return;
-        }
-        lastSignatureRef.current = signature;
-        setState({ byAgent, allSessions: activeSessions, loading: false });
       } catch {
+        // 失败指数退避（3s → 6s → 12s … 封顶 30s）：host 挂掉时不再固定高频猛打
+        consecutiveFailures += 1;
         setState((prev) => ({ ...prev, loading: false }));
+      } finally {
+        inFlight = false;
+        if (!stopped) {
+          timer = setTimeout(() => void tick(), teamRuntimePollDelayMs(consecutiveFailures));
+        }
       }
     };
 
-    void fetchSessions();
-    timerRef.current = setInterval(() => void fetchSessions(), 3000);
+    void tick();
+
+    const onVisibilityChange = () => {
+      if (stopped || document.hidden) return;
+      if (timer) clearTimeout(timer);
+      void tick();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [enabled]);
 
