@@ -350,6 +350,23 @@ def test_usage_efficiency_taskrunresult_structure():
     assert isinstance(res.craftEvidence, dict)
     assert res.meta["totalTokens"] == 1200.0
     assert math.isclose(res.meta["costPerRun"], 0.02, rel_tol=1e-9)
+    # 难度校准时间戳：usage 派生任务集无固定题面，诚实为 None（不伪造）
+    assert res.difficultyCalibratedAt is None
+
+
+def test_taskrunresult_difficulty_calibrated_at_roundtrip():
+    """校准过的任务集：时间戳透传进 TaskRunResult 并可序列化（SSE task_run 事件）。"""
+    ts = UsageEfficiencyTaskSet()
+    ts.difficulty_calibrated_at = "2026-08-21T00:00:00+00:00"
+    jr = JudgeRunRequest(
+        agentId="agent-x", agentName="X",
+        usage=[{"agentId": "agent-x", "sessionId": "s1", "totalTokens": 100, "costUsd": 0.01}],
+        task={"title": "t", "description": "d", "weight": 1.0},
+    )
+    res = ts.run(jr)
+    assert res.difficultyCalibratedAt == "2026-08-21T00:00:00+00:00"
+    dumped = res.model_dump(mode="json")
+    assert dumped["difficultyCalibratedAt"] == "2026-08-21T00:00:00+00:00"
 
 
 # ======================================================================

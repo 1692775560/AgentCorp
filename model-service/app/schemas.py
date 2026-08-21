@@ -360,6 +360,9 @@ class TaskRunResult(BaseModel):
     usage: List[dict] = Field(default_factory=list)
     craftEvidence: Dict[str, str] = Field(default_factory=dict)
     meta: Dict[str, float] = Field(default_factory=dict)
+    # 难度校准时间戳（ISO 8601）：题面难度经基准解校准的时间；None = 未校准，
+    # 消费方应把「未校准」与「校准过」严格区分，不得把 None 当校准过展示。
+    difficultyCalibratedAt: Optional[str] = None
 
 
 class TaskSetMeta(BaseModel):
@@ -368,6 +371,8 @@ class TaskSetMeta(BaseModel):
     title: str = ""
     description: str = ""
     applicableJobs: List[str] = Field(default_factory=list)
+    # 难度校准时间戳（与 TaskRunResult.difficultyCalibratedAt 同源）
+    difficultyCalibratedAt: Optional[str] = None
 
 
 # ===================== Arena 个性化对决 =====================
