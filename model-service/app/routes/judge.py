@@ -149,6 +149,8 @@ async def api_craft_judge(req: CraftJudgeRequest) -> dict:
         "ttft_ms": judgement.ttft_ms,
         "latency_ms": judgement.latency_ms,
         "backend": judgement.backend,
+        # 裁判思维链（供 metaJudge 一致性审计 / UI 展示推理过程）；未启用思考模式时为空串。
+        "reasoning": judgement.reasoning,
         # 机器可核验证据（可为空）。空 = 未验证，下游据此继续对 requiresReal 维降权。
         "verified_evidence": verified_evidence,
         "sandbox": sandbox_payload,
@@ -250,4 +252,6 @@ async def api_chat_judge(req: ChatJudgeRequest) -> dict:
         "variant": req.variant,
         "ttft_ms": completion.ttft_ms,
         "latency_ms": completion.latency_ms,
+        # 裁判思维链（供 metaJudge 一致性审计 / UI 展示推理过程）；未启用思考模式时为空串。
+        "reasoning": completion.reasoning,
     }

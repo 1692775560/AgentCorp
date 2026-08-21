@@ -221,6 +221,8 @@ def judge_arena_answer(
     judgement["ttft_ms"] = completion.ttft_ms
     judgement["latency_ms"] = completion.latency_ms
     judgement["objective_total"] = objective_total(judgement)
+    # 裁判思维链（供 metaJudge 一致性审计 / UI 展示推理过程）；未启用思考模式时为空串。
+    judgement["reasoning"] = completion.reasoning
     return judgement
 
 

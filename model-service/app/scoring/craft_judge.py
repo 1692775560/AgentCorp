@@ -73,6 +73,9 @@ class CraftJudgement:
     ttft_ms: Optional[float] = None
     latency_ms: float = 0.0
     backend: str = ""
+    #: 裁判思维链（chain-of-thought）：思考模型的推理全程（可能为空串）。
+    #: 供 metaJudge 做「reasoning 是否与结论一致」的一致性审计，与最终分数一并展示。
+    reasoning: str = ""
 
 
 SYSTEM_PROMPT = """你是 AgentCorp 的工种能力裁判，由 MiniCPM-o 4.5 驱动。
@@ -242,6 +245,7 @@ def judge_craft_task(task_id: str, answer: str) -> CraftJudgement:
     result.ttft_ms = completion.ttft_ms
     result.latency_ms = completion.latency_ms
     result.backend = completion.backend
+    result.reasoning = completion.reasoning
     return result
 
 
