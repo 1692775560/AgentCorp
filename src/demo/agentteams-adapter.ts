@@ -47,7 +47,7 @@ import {
   submitForApproval,
   rollbackRun,
   type GovernedAction,
-} from './governance/approvalGate';
+} from '../engine/governance/approvalGate';
 
 /* ───────────── AgentTeams 形态基元（薄映射类型，非第三方依赖） ───────────── */
 
@@ -107,7 +107,7 @@ export interface ATRun {
   taskId: string;
   /**
    * 运行状态。`awaiting_approval` = 高风险动作已被审批门拦下，
-   * 动作**尚未执行**，闭环挂起等待人工放行（见 governance/approvalGate.ts）。
+   * 动作**尚未执行**，闭环挂起等待人工放行（见 engine/governance/approvalGate.ts）。
    */
   status: 'queued' | 'running' | 'completed' | 'failed' | 'awaiting_approval';
   /** 挂起时的审批单 id（status='awaiting_approval' 时必有），供审批看板/放行调用 */

@@ -38,7 +38,7 @@ import {
   exportAuditJsonl,
   setApprovalPersister,
   createLocalStorageApprovalPersister,
-} from './governance/approvalGate';
+} from '../engine/governance/approvalGate';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 
 const SAMPLE = {

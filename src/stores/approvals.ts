@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
 import { reconcileTasks } from '@/lib/task-reconcile';
+import { recordHostApproval } from '@/engine/governance/approvalGate';
 import type {
   CreateTaskRequest,
   KanbanTask,
@@ -214,6 +215,19 @@ export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approvalId: id, reason }),
     });
+    // 把生产的 approve 决策登记进引擎治理原语，使生产审批同样拥有不可变审计流水
+    // 与可导出证据（exportAuditJsonl）。后端仍是审批状态的权威源，此处仅补充客户端审计。
+    const item = get().approvals.find((a) => a.id === id);
+    recordHostApproval({
+      approvalId: id,
+      runId: item?.sessionKey,
+      action: item?.command ?? 'tool',
+      targetId: item?.agentId ?? 'host',
+      requestedBy: item?.agentId ?? 'host',
+      decision: 'approve',
+      actor: 'user',
+      reason: reason ?? '审批通过',
+    });
     await get().fetchApprovals();
   },
 
@@ -222,6 +236,17 @@ export const useApprovalsStore = create<ApprovalsState>((set, get) => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approvalId: id, reason }),
+    });
+    const item = get().approvals.find((a) => a.id === id);
+    recordHostApproval({
+      approvalId: id,
+      runId: item?.sessionKey,
+      action: item?.command ?? 'tool',
+      targetId: item?.agentId ?? 'host',
+      requestedBy: item?.agentId ?? 'host',
+      decision: 'reject',
+      actor: 'user',
+      reason,
     });
     await get().fetchApprovals();
   },

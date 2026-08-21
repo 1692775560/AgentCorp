@@ -28,6 +28,10 @@
  *  - 持久化可插拔（内存 / localStorage / 未来 Electron JSONL 落盘）。
  *  - 失败不抛：补偿动作抛错时记录 failure 并继续执行其余补偿，不让一条坏补偿
  *    卡死整个回滚（半回滚状态会被如实记入审计，而不是假装成功）。
+ *
+ * 生产接线：本模块是引擎层的治理原语，既被引擎闭环（`demo/agentteams-adapter`
+ * 的 `runTask`）调用，也通过 `recordHostApproval` 承接宿主运行时（Electron 主进程 /
+ * 后端）驱动的生产审批决策，使生产审批同样拥有不可变审计流水与可导出证据。
  */
 
 /** 审批单状态机：PENDING 为唯一初态，其余三个为终态。 */
@@ -425,6 +429,63 @@ export function exportAuditJsonl(runId?: string): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * 把宿主运行时（Electron 主进程 / 后端，见 stores/approvals.ts）驱动的审批决策
+ * 登记进引擎治理原语，使生产审批同样拥有不可变审计流水与可导出证据
+ * （exportAuditJsonl）。
+ *
+ * 不替代后端作为审批状态的权威源——后端仍是 pending/终态的真相源；本函数只补充
+ * 客户端侧的治理审计，让生产环境的每一条人工 approve/reject 都可被导出为证据。
+ *
+ * 若同一 approvalId 的审批单已存在（如引擎闭环先 submit 再由宿主确认），
+ * 则在其上追加终态审计条目，保持审计链连续。
+ */
+export function recordHostApproval(input: {
+  approvalId: string;
+  runId?: string;
+  action: string;
+  targetId: string;
+  requestedBy: string;
+  riskLevel?: RiskLevel;
+  decision: 'approve' | 'reject';
+  actor: string;
+  reason: string;
+}): ApprovalRequest {
+  const now = Date.now();
+  const terminal: ApprovalState = input.decision === 'approve' ? 'approved' : 'rejected';
+  const existing = persister.get(input.approvalId);
+
+  if (existing) {
+    existing.state = terminal;
+    existing.audit.push({ state: terminal, actor: input.actor, reason: input.reason, ts: now });
+    persister.save(existing);
+    return existing;
+  }
+
+  const request: ApprovalRequest = {
+    approvalId: input.approvalId,
+    runId: input.runId ?? input.approvalId,
+    requestedBy: input.requestedBy,
+    action: input.action,
+    targetId: input.targetId,
+    summary: input.reason,
+    riskLevel: input.riskLevel ?? 'high',
+    state: terminal,
+    audit: [
+      {
+        state: 'pending',
+        actor: input.requestedBy,
+        reason: '宿主运行时提交审批（pending 态由后端持有为权威源）',
+        ts: now,
+      },
+      { state: terminal, actor: input.actor, reason: input.reason, ts: now },
+    ],
+    createdAt: now,
+  };
+  persister.save(request);
+  return request;
 }
 
 /** 清空（仅测试/演示重置用）。 */

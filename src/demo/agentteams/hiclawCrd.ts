@@ -20,7 +20,7 @@
  *   TeamLeader          dispatcher 角色卡（拆解/上下文/监控）   roleCard.ts ROLE_CARDS[3]
  *   Worker              recruiter / evaluator（无状态执行）    roleCard.ts ROLE_CARDS[1,2]
  *   Worker.skills       RoleCardSkill → Skill 注册表           skills/registry.ts
- *   人在回路             requiresApproval + 审批门              governance/approvalGate.ts
+ *   人在回路             requiresApproval + 审批门              engine/governance/approvalGate.ts
  *   凭证隔离（Higress）  Host API session token（主进程持有）   electron/api/route-utils.ts
  *
  * 重要边界（诚实标注）：本模块产出的是**符合 HiClaw 形态的声明式描述**，
