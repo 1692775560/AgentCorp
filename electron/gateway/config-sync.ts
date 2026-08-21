@@ -9,7 +9,7 @@ import { getProviderEnvVar, getKeyableProviderTypes } from '../utils/provider-re
 import { getOpenClawDir, getOpenClawEntryPath, isOpenClawPresent } from '../utils/paths';
 import { getUvMirrorEnv } from '../utils/uv-env';
 import { listConfiguredChannels } from '../utils/channel-config';
-import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, sanitizeOpenClawConfig } from '../utils/openclaw-auth';
+import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, sanitizeOpenClawConfig, syncToolPolicyToConfig } from '../utils/openclaw-auth';
 import { buildProxyEnv, resolveProxySettings } from '../utils/proxy';
 import { syncProxyConfigToOpenClaw } from '../utils/openclaw-proxy';
 import { logger } from '../utils/logger';
@@ -285,16 +285,15 @@ export async function syncGatewayConfigBeforeLaunch(
     logger.warn('Failed to sync gateway token to openclaw.json:', err);
   }
 
-  // lock down Gateway tool execution (read-only + sandbox) in openclaw.json.
-  // TEMPORARILY DISABLED: OpenClaw 2026.3.22 treats `gateway.toolPolicy` as an
-  // unrecognized key and exits with code 1, so the Gateway cannot start at all
-  // when this key is present. The sanitize step above strips any stale key.
-  // Re-enable once the bundled OpenClaw supports gateway.toolPolicy.
-  // try {
-  //   await syncToolPolicyToConfig();
-  // } catch (err) {
-  //   logger.warn('Failed to sync gateway toolPolicy to openclaw.json:', err);
-  // }
+  // Gateway 工具执行收敛（顶层 tools 段：fs.workspaceOnly + elevated 关闭）。
+  // 注意：不要写成 gateway.toolPolicy —— 2026.3.22 的 Zod schema 不认识该键，
+  // 带上它 Gateway 直接 exit 1（sanitize 会剥离）；顶层 tools.* 已经
+  // `openclaw config validate` 探针验证可写。
+  try {
+    await syncToolPolicyToConfig();
+  } catch (err) {
+    logger.warn('Failed to sync gateway toolPolicy to openclaw.json:', err);
+  }
 
   try {
     await syncBrowserConfigToOpenClaw();
