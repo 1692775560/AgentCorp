@@ -150,20 +150,8 @@ export function transition(
   return { to, event };
 }
 
-/** 五态展示顺序（组件渲染状态机视图用） */
-export const LIFECYCLE_ORDER: LifecycleState[] = [
-  "ONBOARDING",
-  "ACTIVE",
-  "TRAINING",
-  "MAINTENANCE",
-  "RETIRED",
-];
-
-/** 五态中文标签 */
-export const LIFECYCLE_LABELS: Record<LifecycleState, string> = {
-  ONBOARDING: "入职",
-  ACTIVE: "在岗",
-  TRAINING: "培训(PIP)",
-  MAINTENANCE: "替补",
-  RETIRED: "已淘汰",
-};
+/**
+ * 五态展示顺序 / 中文标签统一从 types/lifecycle 单一真相 re-export，
+ * 避免与 lifecycle.ts 的同名常量出现两套定义（原 strategyEngine 副本已废弃）。
+ */
+export { LIFECYCLE_ORDER, LIFECYCLE_LABELS } from '../types/lifecycle';

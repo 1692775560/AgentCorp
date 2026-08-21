@@ -96,10 +96,8 @@ export const LIFECYCLE_ORDER: readonly LifecycleState[] = AGENT_LIFECYCLE_STATUS
 
 /**
  * 大写别名 → 中文展示文案（治理面板 / 状态徽标）。
- * 文案与 src/engine/strategyEngine.ts 中既有的同名常量逐字保持一致，
- * 避免同一状态在不同界面出现两套说法。
- * TODO(技术债)：strategyEngine.ts 里的同名副本目前无人消费，
- * 建议由该文件 owner 改为从本模块 re-export，彻底消除重复定义。
+ * 这是生命周期展示文案的单一真相来源；engine/strategyEngine 现已从本模块
+ * re-export，不再持有同名副本（原技术债已消除）。
  */
 export const LIFECYCLE_LABELS: Record<LifecycleState, string> = {
   ONBOARDING: '入职',
