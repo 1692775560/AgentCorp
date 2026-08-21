@@ -446,8 +446,11 @@ export async function listMarketplaceTemplates(): Promise<MarketplaceTemplate[]>
       tags,
       price: hireType === 'team' ? '$59/mo' : '$19/mo',
       avatar: avatarUrl,
-      rating: identity.rating ?? (4.5 + Math.random() * 0.5),
-      hiredCount: Math.floor(Math.random() * 300) + 1,
+      // 信誉字段诚实化：模板未声明评分时不伪造——rating=0 表示「无评分」
+      // （视图层显示 N/A），hiredCount 同理归零；此前 Math.random() 占位会让
+      // 每次启动看到不同的假信誉数据，与产品的实测信誉定位直接冲突。
+      rating: identity.rating ?? 0,
+      hiredCount: 0,
     });
   }
 

@@ -99,7 +99,10 @@ export function MarketCandidateCard({
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-1 rounded-full bg-[#FFD233]/20 px-3 py-1">
             <Star size={14} className="fill-[#FFD233] text-[#FFD233]" />
-            <span className="text-sm font-bold text-[#1A1C1E]">{candidate.rating.toFixed(1)}</span>
+            {/* rating=0 是「无评分」约定（无真实信誉数据时不伪造） */}
+            <span className="text-sm font-bold text-[#1A1C1E]">
+              {candidate.rating > 0 ? candidate.rating.toFixed(1) : 'N/A'}
+            </span>
           </div>
           <span
             className={cn(
@@ -201,7 +204,9 @@ export function MarketCandidateCard({
             <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">
               已雇佣
             </p>
-            <p className="mt-1 text-lg font-bold text-[#1A1C1E]">{candidate.hiredCount}</p>
+            <p className="mt-1 text-lg font-bold text-[#1A1C1E]">
+              {candidate.hiredCount > 0 ? candidate.hiredCount : '—'}
+            </p>
           </div>
           {/* 小红心：类 B 站点赞（实体红 + 计数用 --neu-ink-soft） */}
           <button
