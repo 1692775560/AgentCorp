@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   runtimeSessionsSignature,
+  teamRuntimePollDelayMs,
   type RuntimeSessionSummary,
 } from '@/hooks/use-team-runtime';
 
@@ -76,5 +77,24 @@ describe('runtimeSessionsSignature', () => {
 
     expect(runtimeSessionsSignature(two)).not.toBe(runtimeSessionsSignature(one));
     expect(runtimeSessionsSignature([])).not.toBe(runtimeSessionsSignature(one));
+  });
+});
+
+describe('teamRuntimePollDelayMs 失败退避', () => {
+  it('无失败 → 基础间隔 3s', () => {
+    expect(teamRuntimePollDelayMs(0)).toBe(3000);
+    expect(teamRuntimePollDelayMs(-1)).toBe(3000);
+  });
+
+  it('连续失败指数退避：3s → 6s → 12s → 24s', () => {
+    expect(teamRuntimePollDelayMs(1)).toBe(3000);
+    expect(teamRuntimePollDelayMs(2)).toBe(6000);
+    expect(teamRuntimePollDelayMs(3)).toBe(12000);
+    expect(teamRuntimePollDelayMs(4)).toBe(24000);
+  });
+
+  it('退避封顶 30s 不无限增长', () => {
+    expect(teamRuntimePollDelayMs(5)).toBe(30000);
+    expect(teamRuntimePollDelayMs(20)).toBe(30000);
   });
 });
