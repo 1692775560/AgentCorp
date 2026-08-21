@@ -105,9 +105,11 @@ def test_add():
     result = run_python_answer(answer)
     assert result.outcome == "failed"
     assert (result.total, result.passed, result.failed) == (1, 0, 1)
-    # 失败同样是「已验证」的事实：关于可运行性我们确实测到了结论
+    # 失败是「已验证」的事实（verifiable），但**不抬升降权**：
+    # 若把失败也当抬权证据，等于让一段 provably 跑不过的代码免于 Q6 降权，
+    # 而 LLM 评委可能同时给它打高分——双重失真。
     assert result.verifiable is True
-    assert "code_runnability" in verified_evidence_for("t", result)
+    assert verified_evidence_for("t", result) == {}
     failed_case = next(c for c in result.cases if not c[1])
     assert "AssertionError" in failed_case[2]
 
