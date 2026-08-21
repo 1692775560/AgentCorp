@@ -288,7 +288,7 @@ export interface UploadForm {
  * 生命周期五态。
  * 注意：agent 运行时真相为小写 `AgentLifecycleStatus`
  * （见 src/lib/evaluation/lifecycle.ts），此处大写 `LifecycleState` 为评估层内部别名，
- * 二者通过 evaluationAdapter.applyVerdict 统一映射。
+ * verdict → 生命周期的统一映射见 types/lifecycle.ts 的 verdictToLifecycleState。
  */
 export type LifecycleState =
   | "ONBOARDING"
