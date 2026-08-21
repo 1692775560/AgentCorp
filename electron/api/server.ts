@@ -29,6 +29,7 @@ import { handleMemberStatsRoutes } from './routes/member-stats';
 import { handleTeamExperienceRoutes } from './routes/team-experience';
 import { handleReactionsRoutes } from './routes/reactions';
 import { handleArenaRoutes } from './routes/arena';
+import { handleConvergenceRoutes } from './routes/convergence';
 import { handleCraftRoutes } from './routes/craft';
 import { handleTraceRoutes } from './routes/traces';
 import { handleCapsuleRoutes } from './routes/capsules';
@@ -76,6 +77,7 @@ const routeHandlers: RouteHandler[] = [
   handleUsageRoutes,
   handleReactionsRoutes,
   handleArenaRoutes,
+  handleConvergenceRoutes,
   handleCraftRoutes,
   handleTraceRoutes,
   handleCapsuleRoutes,
