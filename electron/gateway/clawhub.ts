@@ -374,16 +374,18 @@ export class ClawHubService {
         }
     }
 
-    private resolveSkillDir(skillKeyOrSlug: string, fallbackSlug?: string, preferredBaseDir?: string): string | null {
+    private resolveSkillDir(skillKeyOrSlug: string, fallbackSlug?: string): string | null {
         const candidates = [skillKeyOrSlug, fallbackSlug]
             .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
             .map(v => v.trim());
         const uniqueCandidates = [...new Set(candidates)];
-        if (preferredBaseDir && preferredBaseDir.trim() && fs.existsSync(preferredBaseDir.trim())) {
-            return preferredBaseDir.trim();
-        }
+        // 安全约束：解析结果必须落在 workDir/skills 根目录内——
+        // 拒绝「..」穿越与绝对路径注入（id 经 path.resolve 后须仍以 skillsRoot 为前缀）。
+        // 最终路径会交给 shell.openPath，放任逃逸等于给调用方任意路径打开原语。
+        const skillsRoot = path.resolve(this.workDir, 'skills');
         const directSkillDir = uniqueCandidates
-            .map((id) => path.join(this.workDir, 'skills', id))
+            .map((id) => path.resolve(skillsRoot, id))
+            .filter((dir) => dir.startsWith(skillsRoot + path.sep))
             .find((dir) => fs.existsSync(dir));
         return directSkillDir || this.resolveSkillDirByManifestName(uniqueCandidates);
     }
@@ -391,8 +393,8 @@ export class ClawHubService {
     /**
      * Open skill README/manual in default editor
      */
-    async openSkillReadme(skillKeyOrSlug: string, fallbackSlug?: string, preferredBaseDir?: string): Promise<boolean> {
-        const skillDir = this.resolveSkillDir(skillKeyOrSlug, fallbackSlug, preferredBaseDir);
+    async openSkillReadme(skillKeyOrSlug: string, fallbackSlug?: string): Promise<boolean> {
+        const skillDir = this.resolveSkillDir(skillKeyOrSlug, fallbackSlug);
 
         // Try to find documentation file
         const possibleFiles = ['SKILL.md', 'README.md', 'skill.md', 'readme.md'];
@@ -430,8 +432,8 @@ export class ClawHubService {
     /**
      * Open skill path in file explorer
      */
-    async openSkillPath(skillKeyOrSlug: string, fallbackSlug?: string, preferredBaseDir?: string): Promise<boolean> {
-        const skillDir = this.resolveSkillDir(skillKeyOrSlug, fallbackSlug, preferredBaseDir);
+    async openSkillPath(skillKeyOrSlug: string, fallbackSlug?: string): Promise<boolean> {
+        const skillDir = this.resolveSkillDir(skillKeyOrSlug, fallbackSlug);
         if (!skillDir) {
             throw new Error('Skill directory not found');
         }

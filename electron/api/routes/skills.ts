@@ -82,8 +82,11 @@ export async function handleSkillRoutes(
 
   if (url.pathname === '/api/clawhub/open-readme' && req.method === 'POST') {
     try {
-      const body = await parseJsonBody<{ slug?: string; skillKey?: string; baseDir?: string }>(req);
-      await ctx.clawHubService.openSkillReadme(body.skillKey || body.slug || '', body.slug, body.baseDir);
+      // 不接受客户端传入的 baseDir：skill 目录一律由服务端在
+      // workDir/skills 内解析（resolveSkillDir 含穿越防护），
+      // 避免该端点成为「任意本地路径打开」原语。
+      const body = await parseJsonBody<{ slug?: string; skillKey?: string }>(req);
+      await ctx.clawHubService.openSkillReadme(body.skillKey || body.slug || '', body.slug);
       sendJson(res, 200, { success: true });
     } catch (error) {
       sendJson(res, 500, { success: false, error: String(error) });
@@ -93,8 +96,8 @@ export async function handleSkillRoutes(
 
   if (url.pathname === '/api/clawhub/open-path' && req.method === 'POST') {
     try {
-      const body = await parseJsonBody<{ slug?: string; skillKey?: string; baseDir?: string }>(req);
-      await ctx.clawHubService.openSkillPath(body.skillKey || body.slug || '', body.slug, body.baseDir);
+      const body = await parseJsonBody<{ slug?: string; skillKey?: string }>(req);
+      await ctx.clawHubService.openSkillPath(body.skillKey || body.slug || '', body.slug);
       sendJson(res, 200, { success: true });
     } catch (error) {
       sendJson(res, 500, { success: false, error: String(error) });
