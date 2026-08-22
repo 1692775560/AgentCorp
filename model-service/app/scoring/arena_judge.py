@@ -39,6 +39,7 @@ import re
 from typing import Dict, List, Optional
 
 from ..judge_backend import JudgeCompletion, JudgeUnavailable, get_backend
+from .evaluator_protocol import EvaluatorInput, EvaluatorOutput
 from .registry import JOB_CRAFT_DIMS
 
 logger = logging.getLogger("arena_judge")
