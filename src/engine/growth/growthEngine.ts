@@ -12,8 +12,8 @@
  * 成长型思维在 Agent 评测中的迁移。
  */
 
-import type { RadarScore, StageScore, Verdict, JobType } from '@/types/evaluation';
-import { RADAR_DIMS, JOB_CRAFT_DIMS } from '@/engine/scoring/registry';
+import type { RadarScore, StageScore, JobType } from '@/types/evaluation';
+import { RADAR_DIMS } from '@/engine/scoring/registry';
 
 // ----------------------------------------------------------------------
 // 类型定义
