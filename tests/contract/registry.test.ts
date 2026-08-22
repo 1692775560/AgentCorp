@@ -13,7 +13,6 @@ import { describe, it, expect } from "vitest";
 import {
   registerEvaluator,
   getEvaluator,
-  listEvaluators,
   hasEvaluator,
   ContractViolation,
   type Evaluator,

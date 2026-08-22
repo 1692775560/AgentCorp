@@ -9,12 +9,17 @@
  * （留痕 / 高风险门 的运行时项见 registry.test.ts / approval.test.ts）
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = join(here, "..", "src");
+// 本测试位于 tests/contract/：repo 根 = here/../..，源码根 = 根/src。
+const ROOT = join(here, "..", "..");
+const SRC = join(ROOT, "src");
+if (!existsSync(SRC)) {
+  throw new Error(`SRC 路径计算错误，未找到源码目录: ${SRC}`);
+}
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -67,5 +72,21 @@ describe("M3b 主干契约 · 静态不可绕过", () => {
     for (const m of models) {
       expect(m, `发现非 inherited 的硬编码模型：${m}`).toBe("inherited");
     }
+  });
+
+  it("src/engine 不得出现第二个 Evaluator 运行时注册表（防局部最优）", () => {
+    // 已批准的注册表只两座：维度规则源 scoring/registry.ts + 运行时评判器
+    // evaluation/judgeRegistry.ts。任何新增的 *Registry*.ts 都是「评分蔓延」的
+    // 复发，必须在 PR 阶段就红（src/demo/skills/registry.ts 属技能注册，不在 engine 内）。
+    const engineFiles = files.filter((f) => f.includes("/engine/"));
+    const forbidden = engineFiles.filter((f) => {
+      if (f.endsWith("scoring/registry.ts")) return false;
+      if (f.endsWith("evaluation/judgeRegistry.ts")) return false;
+      return /(^|\/)[^/]*[Rr]egistry[^/]*\.ts$/.test(f);
+    });
+    expect(
+      forbidden,
+      `发现未经批准的 engine 注册表（应只保留 scoring/registry.ts 与 evaluation/judgeRegistry.ts）:\n${forbidden.join("\n")}`,
+    ).toEqual([]);
   });
 });
