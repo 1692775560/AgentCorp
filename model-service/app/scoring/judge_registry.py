@@ -30,6 +30,7 @@ from .evaluator_protocol import (
     EvaluatorInput,
     EvaluatorOutput,
     allowed_dims_for,
+    merge_outputs,
 )
 
 logger = logging.getLogger("serve")
@@ -179,6 +180,42 @@ class JudgeRegistry:
             }
             for eid, s in self._stats.items()
         }
+
+    def dispatch_chain(
+        self,
+        evaluator_ids: List[str],
+        inp: EvaluatorInput,
+        *,
+        stop_on_error: bool = True,
+    ) -> EvaluatorOutput:
+        """链式派发：依次运行多个 Evaluator，前一个的 verified_evidence 自动传给下一个。
+
+        典型用途：craft_judge 路由先跑 sandbox（产 evidence）再跑 craft_judge（用 evidence）。
+        """
+        outputs: List[EvaluatorOutput] = []
+        current_inp = inp
+        for eid in evaluator_ids:
+            try:
+                out = self.dispatch(eid, current_inp)
+            except Exception:
+                if stop_on_error:
+                    raise
+                continue
+            outputs.append(out)
+            # 把当前产出透传给下一个 evaluator
+            if out.verified_evidence:
+                current_inp = EvaluatorInput(
+                    agent_id=inp.agent_id,
+                    job_type=inp.job_type,
+                    task_id=inp.task_id,
+                    answer=inp.answer,
+                    radar_scores=inp.radar_scores,
+                    craft_scores=inp.craft_scores,
+                    requirement=inp.requirement,
+                    verified_evidence={**(inp.verified_evidence or {}), **out.verified_evidence},
+                    options=inp.options,
+                )
+        return merge_outputs(outputs)
 
 
 # 全局单例 ---------------------------------------------------------------

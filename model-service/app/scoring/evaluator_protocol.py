@@ -76,3 +76,36 @@ def allowed_dims_for(job_type: str) -> set:
     dims = set(RADAR_DIMS)
     dims.update(JOB_CRAFT_DIMS.get(job_type, []))
     return dims
+
+
+def merge_outputs(outputs: List[EvaluatorOutput]) -> EvaluatorOutput:
+    """合并多个 EvaluatorOutput 为一个（供 dispatch_chain 使用）。
+
+    合并规则：
+    - scores / verified_evidence / craft_evidence：后写覆盖前写（同键后者优先）；
+    - confidence：取最小值（链的置信度取决于最弱一环）；
+    - reasoning：用换行拼接各 evaluator 的推理；
+    - metadata：后者覆盖前者（同键）。
+    """
+    if not outputs:
+        return EvaluatorOutput(evaluator_id="empty_chain")
+    if len(outputs) == 1:
+        return outputs[0]
+
+    merged = EvaluatorOutput(
+        evaluator_id="+".join(o.evaluator_id for o in outputs),
+        scores={},
+        verified_evidence={},
+        craft_evidence={},
+        confidence=min(o.confidence for o in outputs),
+        reasoning="\n---\n".join(
+            f"[{o.evaluator_id}] {o.reasoning}" for o in outputs if o.reasoning
+        ),
+        metadata={},
+    )
+    for o in outputs:
+        merged.scores.update(o.scores)
+        merged.verified_evidence.update(o.verified_evidence)
+        merged.craft_evidence.update(o.craft_evidence)
+        merged.metadata.update(o.metadata)
+    return merged

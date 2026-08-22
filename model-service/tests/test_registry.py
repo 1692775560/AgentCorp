@@ -246,3 +246,104 @@ class TestDeclaredDims:
         """arena_judge 产出含 fit（非 registry 维），跳过静态校验。"""
         from app.scoring.arena_judge import ArenaJudgeEvaluator
         assert not hasattr(ArenaJudgeEvaluator, "declared_dims")
+
+
+# ======================================================================
+# 9. merge_outputs
+# ======================================================================
+class TestMergeOutputs:
+    """merge_outputs 合并多个 EvaluatorOutput。"""
+
+    def test_merge_empty(self):
+        from app.scoring.evaluator_protocol import merge_outputs
+        out = merge_outputs([])
+        assert out.evaluator_id == "empty_chain"
+
+    def test_merge_single(self):
+        from app.scoring.evaluator_protocol import merge_outputs, EvaluatorOutput
+        o = EvaluatorOutput(evaluator_id="a", scores={"x": 1})
+        assert merge_outputs([o]) is o
+
+    def test_merge_two_scores_combined(self):
+        from app.scoring.evaluator_protocol import merge_outputs, EvaluatorOutput
+        o1 = EvaluatorOutput(evaluator_id="a", scores={"x": 1, "y": 2})
+        o2 = EvaluatorOutput(evaluator_id="b", scores={"y": 3, "z": 4})
+        merged = merge_outputs([o1, o2])
+        assert merged.scores == {"x": 1, "y": 3, "z": 4}
+        assert merged.evaluator_id == "a+b"
+
+    def test_merge_confidence_min(self):
+        from app.scoring.evaluator_protocol import merge_outputs, EvaluatorOutput
+        o1 = EvaluatorOutput(evaluator_id="a", confidence=0.8)
+        o2 = EvaluatorOutput(evaluator_id="b", confidence=0.5)
+        assert merge_outputs([o1, o2]).confidence == 0.5
+
+    def test_merge_evidence_combined(self):
+        from app.scoring.evaluator_protocol import merge_outputs, EvaluatorOutput
+        o1 = EvaluatorOutput(evaluator_id="a", verified_evidence={"k1": "v1"})
+        o2 = EvaluatorOutput(evaluator_id="b", verified_evidence={"k2": "v2"})
+        merged = merge_outputs([o1, o2])
+        assert merged.verified_evidence == {"k1": "v1", "k2": "v2"}
+
+
+# ======================================================================
+# 10. dispatch_chain
+# ======================================================================
+class TestDispatchChain:
+    """dispatch_chain 链式派发。"""
+
+    def test_chain_passes_evidence(self):
+        """前一个 evaluator 的 verified_evidence 自动传给下一个。"""
+        from app.scoring.evaluator_protocol import (
+            EvaluatorInput, EvaluatorOutput,
+        )
+
+        class _EvidenceProducer:
+            evaluator_id = "producer"
+            applicable_jobs = ["code"]
+            def evaluate(self, inp):
+                return EvaluatorOutput(
+                    evaluator_id="producer",
+                    verified_evidence={"run": "passed"},
+                )
+
+        class _EvidenceConsumer:
+            evaluator_id = "consumer"
+            applicable_jobs = ["code"]
+            def __init__(self):
+                self.received_evidence = None
+            def evaluate(self, inp):
+                self.received_evidence = inp.verified_evidence
+                return EvaluatorOutput(
+                    evaluator_id="consumer",
+                    scores={"q": 4},
+                )
+
+        reg = JudgeRegistry()
+        consumer = _EvidenceConsumer()
+        reg.register(_EvidenceProducer())
+        reg.register(consumer)
+
+        merged = reg.dispatch_chain(
+            ["producer", "consumer"],
+            EvaluatorInput(agent_id="x", job_type="code"),
+        )
+        assert consumer.received_evidence == {"run": "passed"}
+        assert merged.scores == {"q": 4}
+        assert merged.verified_evidence == {"run": "passed"}
+
+    def test_chain_stop_on_error(self):
+        """stop_on_error=True 时，链中断。"""
+        class _Fail:
+            evaluator_id = "fail"
+            applicable_jobs = ["code"]
+            def evaluate(self, inp):
+                raise RuntimeError("boom")
+
+        reg = JudgeRegistry()
+        reg.register(_Fail())
+        with pytest.raises(RuntimeError, match="boom"):
+            reg.dispatch_chain(
+                ["fail"],
+                EvaluatorInput(agent_id="x", job_type="code"),
+            )
