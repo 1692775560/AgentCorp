@@ -375,3 +375,60 @@ def judge_pairwise_robust(
         "reasoning": reasoning,
         "runs": [r1, r2],
     }
+
+
+# ======================================================================
+# Evaluator 契约适配 —— arena_judge 作为 JudgeRegistry 注册成员
+# ======================================================================
+
+
+class ArenaJudgeEvaluator:
+    """Arena 个性化需求贴合度评分，受 JudgeRegistry 统一派发约束。
+
+    评单候选（requirement + task_prompt + job_type + answer）。
+    """
+
+    evaluator_id = "arena_judge"
+    applicable_jobs = ["code", "text", "image"]
+
+    def evaluate(self, inp: EvaluatorInput) -> EvaluatorOutput:
+        opts = inp.options or {}
+        requirement = inp.requirement or opts.get("requirement_text", "")
+        task_prompt = opts.get("task_prompt", "")
+        if not requirement:
+            raise ValueError("arena_judge.evaluate 需要 requirement（EvaluatorInput.requirement）")
+        if not inp.answer:
+            return EvaluatorOutput(
+                evaluator_id=self.evaluator_id,
+                scores={},
+                confidence=0.0,
+                reasoning="候选未作答",
+            )
+        judgement = judge_arena_answer(
+            requirement_text=requirement,
+            task_prompt=task_prompt,
+            job_type=inp.job_type,
+            answer=inp.answer,
+        )
+        # craft_evidence = 有 quote 的 checkpoint
+        craft_ev = {
+            f"cp{i}": cp["quote"]
+            for i, cp in enumerate(judgement.get("checkpoints", []))
+            if cp.get("quote")
+        }
+        return EvaluatorOutput(
+            evaluator_id=self.evaluator_id,
+            scores=dict(judgement.get("dims", {})),
+            craft_evidence=craft_ev,
+            confidence=judgement.get("confidence", 0.0),
+            reasoning=judgement.get("reasoning", ""),
+            metadata={
+                "fit": judgement.get("fit", 0.0),
+                "objectiveTotal": judgement.get("objective_total", 0.0),
+                "unscoredDims": judgement.get("unscored_dims", []),
+                "paddingDetected": judgement.get("padding_detected", False),
+                "paddingNote": judgement.get("padding_note", ""),
+                "backend": judgement.get("backend", ""),
+                "latencyMs": judgement.get("latency_ms", 0.0),
+            },
+        )

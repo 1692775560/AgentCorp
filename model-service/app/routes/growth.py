@@ -11,8 +11,8 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from ..scoring.growth import compute_growth_trajectory
-from ..scoring.enterprise_fit import compute_enterprise_fit
+from ..scoring.evaluator_protocol import EvaluatorInput
+from ..scoring.judge_registry import get_registry
 from ._common import datetime_now_iso
 
 logger = logging.getLogger("serve")
@@ -108,30 +108,32 @@ async def get_growth(agent_id: str, job_type: str = "code"):
     radar_history = _RADAR_HISTORY.get(agent_id, [])
     stage_scores = _STAGE_SCORES_STORE.get(agent_id, [])
 
-    trajectory = compute_growth_trajectory(
+    out = get_registry().dispatch("growth", EvaluatorInput(
         agent_id=agent_id,
-        stage_scores=stage_scores,
-        radar_history=radar_history,
         job_type=job_type,
-    )
-    return trajectory
+        options={
+            "radar_history": radar_history,
+            "stage_scores": stage_scores,
+        },
+    ))
+    return out.metadata
 
 
 @router.post("/api/enterprise-fit/{agent_id}")
 async def post_enterprise_fit(agent_id: str, body: EnterpriseFitRequest):
     """计算 agent 对某企业的适配度。"""
-    result = compute_enterprise_fit(
+    out = get_registry().dispatch("enterprise_fit", EvaluatorInput(
         agent_id=agent_id,
         job_type=body.job_type,
         radar_scores=body.radar_scores.model_dump(),
         craft_scores=body.craft_scores,
-        requirements={
+        options={
             "enterprise_weights": body.enterprise_weights,
             "radar_requirements": body.radar_requirements,
             "craft_requirements": body.craft_requirements,
-        } if any([body.enterprise_weights, body.radar_requirements, body.craft_requirements]) else None,
-    )
-    return result
+        },
+    ))
+    return out.metadata
 
 
 @router.get("/api/growth/health")

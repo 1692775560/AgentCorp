@@ -272,3 +272,55 @@ def aggregate_craft_dims(
     }
     unscored = [d for d in JOB_CRAFT_DIMS.get(job_type, []) if d not in dims]
     return dims, unscored
+
+
+# ======================================================================
+# Evaluator 契约适配 —— craft_judge 作为 JudgeRegistry 注册成员
+# ======================================================================
+
+
+class CraftJudgeEvaluator:
+    """craft 试做题的 LLM-as-judge 评分，受 JudgeRegistry 统一派发约束。
+
+    只评单题（task_id + answer）。多题聚合由调用方自行循环后 aggregate。
+    """
+
+    evaluator_id = "craft_judge"
+    applicable_jobs = ["code", "text", "image"]
+
+    def evaluate(self, inp: EvaluatorInput) -> EvaluatorOutput:
+        if not inp.task_id:
+            raise ValueError("craft_judge.evaluate 需要 task_id")
+        if not inp.answer:
+            return EvaluatorOutput(
+                evaluator_id=self.evaluator_id,
+                scores={},
+                confidence=0.0,
+                reasoning="候选未作答",
+            )
+        try:
+            j = judge_craft_task(inp.task_id, inp.answer)
+        except JudgeUnavailable:
+            raise  # 向上抛，让 Registry 调用方决定降级策略
+        # craft_evidence = 有 quote 的 checkpoint（供审计，非 machine-verified）
+        craft_ev = {
+            f"cp{i}": v.quote
+            for i, v in enumerate(j.checkpoints)
+            if v.quote
+        }
+        return EvaluatorOutput(
+            evaluator_id=self.evaluator_id,
+            scores=dict(j.dims),
+            craft_evidence=craft_ev,
+            confidence=j.confidence,
+            reasoning=j.reasoning,
+            metadata={
+                "jobType": j.job_type,
+                "unscoredDims": j.unscored_dims,
+                "paddingDetected": j.padding_detected,
+                "paddingNote": j.padding_note,
+                "referenceUsed": j.reference_used,
+                "backend": j.backend,
+                "latencyMs": j.latency_ms,
+            },
+        )
