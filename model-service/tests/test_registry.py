@@ -392,3 +392,158 @@ class TestDispatchChain:
         assert r.craft_scores == {"code_eff": 3}
         assert r.requirement == "test req"
         assert r.verified_evidence == {"k": "v"}
+
+    def test_chain_rejects_async_evaluator(self):
+        """同步 dispatch_chain 遇到异步 Evaluator → TypeError。"""
+        class _AsyncEv:
+            evaluator_id = "async_ev"
+            applicable_jobs = ["code"]
+            async def aevaluate(self, inp):
+                return EvaluatorOutput(evaluator_id="async_ev")
+
+        reg = JudgeRegistry()
+        reg.register(_AsyncEv())
+        with pytest.raises(TypeError, match="异步 Evaluator"):
+            reg.dispatch_chain(
+                ["async_ev"],
+                EvaluatorInput(agent_id="x", job_type="code"),
+            )
+
+
+# ======================================================================
+# 10b. dispatch_chain_async
+# ======================================================================
+class TestDispatchChainAsync:
+    """dispatch_chain_async 异步链式派发。"""
+
+    @pytest.mark.anyio
+    async def test_async_chain_passes_evidence(self):
+        """异步链：evidence 正确透传。"""
+        from app.scoring.evaluator_protocol import (
+            EvaluatorInput, EvaluatorOutput,
+        )
+
+        class _Producer:
+            evaluator_id = "producer"
+            applicable_jobs = ["code"]
+            def evaluate(self, inp):
+                return EvaluatorOutput(
+                    evaluator_id="producer",
+                    verified_evidence={"run": "passed"},
+                )
+
+        class _Consumer:
+            evaluator_id = "consumer"
+            applicable_jobs = ["code"]
+            def __init__(self):
+                self.received_evidence = None
+            def evaluate(self, inp):
+                self.received_evidence = inp.verified_evidence
+                return EvaluatorOutput(
+                    evaluator_id="consumer",
+                    scores={"q": 4},
+                )
+
+        reg = JudgeRegistry()
+        consumer = _Consumer()
+        reg.register(_Producer())
+        reg.register(consumer)
+
+        merged = await reg.dispatch_chain_async(
+            ["producer", "consumer"],
+            EvaluatorInput(agent_id="x", job_type="code"),
+        )
+        assert consumer.received_evidence == {"run": "passed"}
+        assert merged.scores == {"q": 4}
+        assert merged.verified_evidence == {"run": "passed"}
+
+    @pytest.mark.anyio
+    async def test_async_chain_with_async_evaluator(self):
+        """异步链能正确处理真正异步的 Evaluator（aevaluate）。"""
+        from app.scoring.evaluator_protocol import (
+            EvaluatorInput, EvaluatorOutput,
+        )
+
+        class _AsyncProducer:
+            evaluator_id = "async_producer"
+            applicable_jobs = ["code"]
+            async def aevaluate(self, inp):
+                return EvaluatorOutput(
+                    evaluator_id="async_producer",
+                    verified_evidence={"async": "yes"},
+                )
+
+        class _SyncConsumer:
+            evaluator_id = "sync_consumer"
+            applicable_jobs = ["code"]
+            def __init__(self):
+                self.received_evidence = None
+            def evaluate(self, inp):
+                self.received_evidence = inp.verified_evidence
+                return EvaluatorOutput(
+                    evaluator_id="sync_consumer",
+                    scores={"score": 5},
+                )
+
+        reg = JudgeRegistry()
+        consumer = _SyncConsumer()
+        reg.register(_AsyncProducer())
+        reg.register(consumer)
+
+        merged = await reg.dispatch_chain_async(
+            ["async_producer", "sync_consumer"],
+            EvaluatorInput(agent_id="x", job_type="code"),
+        )
+        assert consumer.received_evidence == {"async": "yes"}
+        assert merged.scores == {"score": 5}
+        assert merged.verified_evidence == {"async": "yes"}
+
+    @pytest.mark.anyio
+    async def test_async_chain_stop_on_error(self):
+        """异步链 stop_on_error=True 时中断。"""
+        class _Fail:
+            evaluator_id = "fail"
+            applicable_jobs = ["code"]
+            async def aevaluate(self, inp):
+                raise RuntimeError("async boom")
+
+        reg = JudgeRegistry()
+        reg.register(_Fail())
+        with pytest.raises(RuntimeError, match="async boom"):
+            await reg.dispatch_chain_async(
+                ["fail"],
+                EvaluatorInput(agent_id="x", job_type="code"),
+            )
+
+    @pytest.mark.anyio
+    async def test_async_chain_continue_on_error(self):
+        """stop_on_error=False 时跳过失败的 evaluator 继续。"""
+        from app.scoring.evaluator_protocol import (
+            EvaluatorInput, EvaluatorOutput,
+        )
+
+        class _Fail:
+            evaluator_id = "fail"
+            applicable_jobs = ["code"]
+            def evaluate(self, inp):
+                raise RuntimeError("skip me")
+
+        class _Ok:
+            evaluator_id = "ok"
+            applicable_jobs = ["code"]
+            def evaluate(self, inp):
+                return EvaluatorOutput(
+                    evaluator_id="ok",
+                    scores={"q": 3},
+                )
+
+        reg = JudgeRegistry()
+        reg.register(_Fail())
+        reg.register(_Ok())
+
+        merged = await reg.dispatch_chain_async(
+            ["fail", "ok"],
+            EvaluatorInput(agent_id="x", job_type="code"),
+            stop_on_error=False,
+        )
+        assert merged.scores == {"q": 3}

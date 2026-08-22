@@ -188,14 +188,22 @@ class JudgeRegistry:
         *,
         stop_on_error: bool = True,
     ) -> EvaluatorOutput:
-        """链式派发：依次运行多个 Evaluator，前一个的 verified_evidence 自动传给下一个。
+        """同步链式派发：依次运行多个同步 Evaluator，前一个的 verified_evidence 自动传给下一个。
 
         典型用途：craft_judge 路由先跑 sandbox（产 evidence）再跑 craft_judge（用 evidence）。
+
+        注意：仅支持同步 Evaluator。链中含异步 Evaluator 请用 dispatch_chain_async()。
         """
         outputs: List[EvaluatorOutput] = []
         current_inp = inp
         accumulated_evidence: Dict[str, str] = dict(inp.verified_evidence or {})
         for eid in evaluator_ids:
+            # 预检：同步链不接受异步 Evaluator
+            ev = self.get(eid)
+            if hasattr(ev, "aevaluate") and callable(getattr(ev, "aevaluate")):
+                raise TypeError(
+                    f"dispatch_chain 遇到异步 Evaluator '{eid}'，请改用 dispatch_chain_async()"
+                )
             try:
                 out = self.dispatch(eid, current_inp)
             except Exception:
@@ -204,6 +212,46 @@ class JudgeRegistry:
                 continue
             outputs.append(out)
             # 把当前产出透传给下一个 evaluator（保留所有原始字段）
+            if out.verified_evidence:
+                accumulated_evidence.update(out.verified_evidence)
+                current_inp = EvaluatorInput(
+                    agent_id=inp.agent_id,
+                    job_type=inp.job_type,
+                    task_id=inp.task_id,
+                    answer=inp.answer,
+                    radar_scores=inp.radar_scores,
+                    craft_scores=inp.craft_scores,
+                    requirement=inp.requirement,
+                    verified_evidence=dict(accumulated_evidence),
+                    options=inp.options,
+                )
+        return merge_outputs(outputs)
+
+    async def dispatch_chain_async(
+        self,
+        evaluator_ids: List[str],
+        inp: EvaluatorInput,
+        *,
+        stop_on_error: bool = True,
+    ) -> EvaluatorOutput:
+        """异步链式派发：自动处理同步/异步 Evaluator + evidence 透传。
+
+        与 dispatch_chain 的区别：
+        - 用 dispatch_async() 代替 dispatch()，同步 Evaluator 经 run_in_executor 包装；
+        - 链中含异步 Evaluator 时正确 await；
+        - 遥测自动记录。
+        """
+        outputs: List[EvaluatorOutput] = []
+        current_inp = inp
+        accumulated_evidence: Dict[str, str] = dict(inp.verified_evidence or {})
+        for eid in evaluator_ids:
+            try:
+                out = await self.dispatch_async(eid, current_inp)
+            except Exception:
+                if stop_on_error:
+                    raise
+                continue
+            outputs.append(out)
             if out.verified_evidence:
                 accumulated_evidence.update(out.verified_evidence)
                 current_inp = EvaluatorInput(
