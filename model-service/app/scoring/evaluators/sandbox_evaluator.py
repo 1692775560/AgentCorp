@@ -23,6 +23,8 @@ class SandboxEvaluator:
 
     evaluator_id = "sandbox"
     applicable_jobs = ["code"]
+    # 沙箱不直接打分，只产 verified_evidence
+    declared_dims: list = []
 
     def evaluate(self, inp: EvaluatorInput) -> EvaluatorOutput:
         result = run_python_answer(inp.answer or "", task_id=inp.task_id)

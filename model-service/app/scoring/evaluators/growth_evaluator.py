@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from ..evaluator_protocol import EvaluatorInput, EvaluatorOutput
 from .. import growth as _growth
+from ..registry import RADAR_DIMS
 
 # 成长引擎考量的六维（与 registry.RADAR_DIMS 一致，不自定维度）。
 _DIMS = ["task", "quality", "comm", "creativity", "reliability", "cost"]
@@ -20,6 +21,9 @@ class GrowthEvaluator:
 
     evaluator_id = "growth"
     applicable_jobs = ["code", "text", "image"]
+    # 产出维度 = 通用六维（纵向追踪）。
+    # overall 成长分是汇总指标、非 registry 维度，放在 scores["overall"] 供画像但不参与维度校验。
+    declared_dims = list(RADAR_DIMS)
 
     def evaluate(self, inp: EvaluatorInput) -> EvaluatorOutput:
         opts = inp.options or {}

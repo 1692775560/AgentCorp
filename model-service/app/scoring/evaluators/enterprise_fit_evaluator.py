@@ -10,6 +10,11 @@ from __future__ import annotations
 
 from ..evaluator_protocol import EvaluatorInput, EvaluatorOutput
 from .. import enterprise_fit as _efit
+from ..registry import RADAR_DIMS, JOB_CRAFT_DIMS
+
+
+# 企业适配可评的维度 = 通用六维 + 所有工种 craft 维的并集
+_ALL_CRAFT_DIMS = sorted({d for dims in JOB_CRAFT_DIMS.values() for d in dims})
 
 
 class EnterpriseFitEvaluator:
@@ -17,6 +22,8 @@ class EnterpriseFitEvaluator:
 
     evaluator_id = "enterprise_fit"
     applicable_jobs = ["code", "text", "image"]
+    # 产出维度 = 通用六维 + 全部 craft 维的并集（注册时校验 ⊆ registry 允许集）
+    declared_dims = list(RADAR_DIMS) + _ALL_CRAFT_DIMS
 
     def evaluate(self, inp: EvaluatorInput) -> EvaluatorOutput:
         opts = inp.options or {}

@@ -386,6 +386,10 @@ class ArenaJudgeEvaluator:
     """Arena 个性化需求贴合度评分，受 JudgeRegistry 统一派发约束。
 
     评单候选（requirement + task_prompt + job_type + answer）。
+
+    不声明 declared_dims：arena 产出包含 craft 维 + fit（需求贴合辅助维），
+    fit 不在 registry 维度体系内（属「个性化偏好」信号，由消费者 stage_scorer
+    特殊处理）。静态校验会误报，故跳过，改为运行期由消费者过滤。
     """
 
     evaluator_id = "arena_judge"

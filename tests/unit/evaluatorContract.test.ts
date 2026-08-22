@@ -16,6 +16,8 @@ import {
   KNOWN_EVALUATOR_IDS,
   type EvaluatorInput,
   type EvaluatorOutput,
+  type EvaluatorStats,
+  type RegistryStatus,
 } from "@/engine/scoring/evaluatorContract";
 
 describe("evaluatorContract", () => {
@@ -117,5 +119,36 @@ describe("evaluatorContract", () => {
     for (const key of required) {
       expect(out).toHaveProperty(key);
     }
+  });
+
+  // ------------------------------------------------------------------
+  // 6. EvaluatorStats 字段完整（遥测）
+  // ------------------------------------------------------------------
+  it("EvaluatorStats 字段完整", () => {
+    const s: EvaluatorStats = {
+      calls: 10,
+      errors: 1,
+      totalMs: 523.5,
+      avgMs: 52.35,
+      lastCallTs: 1700000000,
+    };
+    expect(s.calls).toBe(10);
+    expect(s.avgMs).toBeCloseTo(52.35, 1);
+  });
+
+  // ------------------------------------------------------------------
+  // 7. RegistryStatus 字段完整（注册表状态端点）
+  // ------------------------------------------------------------------
+  it("RegistryStatus 字段完整", () => {
+    const status: RegistryStatus = {
+      evaluators: ["craft_judge", "sandbox"],
+      stats: {
+        craft_judge: { calls: 5, errors: 0, totalMs: 100, avgMs: 20, lastCallTs: 0 },
+        sandbox: { calls: 3, errors: 1, totalMs: 45, avgMs: 15, lastCallTs: 0 },
+      },
+    };
+    expect(status.evaluators).toHaveLength(2);
+    expect(status.stats["craft_judge"]!.calls).toBe(5);
+    expect(status.stats["sandbox"]!.errors).toBe(1);
   });
 });

@@ -3,10 +3,11 @@ model-service/app/scoring/judge_registry.py
 Tier 2 评分模块的注册表 + 单一派发点（JudgeRegistry）。
 
 职责：
-- register(ev)   注册一个 Evaluator，重名报错，维度越界报错；
-- get(id)        取单个 Evaluator；
-- list_ids()     列出已注册 id；
-- dispatch(id, inp)  单一派发：校验工种适用性后转交 evaluate()。
+- register(ev)      注册一个 Evaluator，重名报错，维度越界报错；
+- get(id)           取单个 Evaluator；
+- list_ids()        列出已注册 id；
+- dispatch(id, inp) 单一派发：校验工种适用性后转交 evaluate()（同步/异步自适应）；
+- stats()           派发遥测：调用次数、错误次数、累计耗时。
 
 为什么不用 import 直连：此前各评分模块各自 import、各自被直接调用，新增一个引擎
 就多一条独立调用链，维度/派发路径随之发散。收口到 Registry 后，所有主观评分只经
@@ -18,8 +19,11 @@ dispatch() 一个入口，CI 用测试强制「新增必注册」（见 tests/te
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Dict, List
+import time
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Dict, List, Union
 
 from .evaluator_protocol import (
     Evaluator,
@@ -30,12 +34,30 @@ from .evaluator_protocol import (
 
 logger = logging.getLogger("serve")
 
+# dispatch 返回值可能是同步或异步的（Evaluator 可定义 evaluate 或 aevaluate）
+_DispatchResult = Union[EvaluatorOutput, Awaitable[EvaluatorOutput]]
+
+
+@dataclass
+class _EvalStats:
+    """单个 Evaluator 的运行时遥测。"""
+
+    calls: int = 0
+    errors: int = 0
+    total_ms: float = 0.0
+    last_call_ts: float = 0.0
+
+    @property
+    def avg_ms(self) -> float:
+        return self.total_ms / self.calls if self.calls > 0 else 0.0
+
 
 class JudgeRegistry:
     """Tier 2 评分模块注册表 + 单一派发点。"""
 
     def __init__(self) -> None:
         self._evaluators: Dict[str, Evaluator] = {}
+        self._stats: Dict[str, _EvalStats] = {}
 
     def register(self, ev: Evaluator) -> None:
         """注册一个 Evaluator。
@@ -68,6 +90,7 @@ class JudgeRegistry:
                     f"不在 registry 允许集内"
                 )
         self._evaluators[eid] = ev
+        self._stats[eid] = _EvalStats()
         logger.info("JudgeRegistry: 注册 Evaluator '%s'（工种 %s）", eid, jobs)
 
     def get(self, evaluator_id: str) -> Evaluator:
@@ -78,14 +101,84 @@ class JudgeRegistry:
     def list_ids(self) -> List[str]:
         return list(self._evaluators.keys())
 
-    def dispatch(self, evaluator_id: str, inp: EvaluatorInput) -> EvaluatorOutput:
-        """单一派发点：校验工种适用性后转交 evaluate()。"""
+    def dispatch(self, evaluator_id: str, inp: EvaluatorInput) -> _DispatchResult:
+        """单一派发点：校验工种适用性后转交 evaluate()。
+
+        若 Evaluator 实现了 ``aevaluate``（async），返回 Awaitable；
+        否则同步执行 ``evaluate`` 并直接返回 EvaluatorOutput。
+        调用方在 async 上下文中应用 ``await`` 或 ``asyncio.ensure_future`` 包裹。
+        """
         ev = self.get(evaluator_id)
         if inp.job_type not in getattr(ev, "applicable_jobs", []):
             raise ValueError(
                 f"Evaluator '{evaluator_id}' 不适用于工种 '{inp.job_type}'"
             )
-        return ev.evaluate(inp)
+        # 异步优先：有 aevaluate 则返回协程
+        if hasattr(ev, "aevaluate") and callable(getattr(ev, "aevaluate")):
+            return ev.aevaluate(inp)  # type: ignore[attr-defined]
+        return self._dispatch_sync(evaluator_id, ev, inp)
+
+    def _dispatch_sync(
+        self, evaluator_id: str, ev: Evaluator, inp: EvaluatorInput
+    ) -> EvaluatorOutput:
+        """同步派发 + 遥测记录。"""
+        stats = self._stats[evaluator_id]
+        t0 = time.perf_counter()
+        try:
+            out = ev.evaluate(inp)
+            stats.calls += 1
+            stats.last_call_ts = t0
+            return out
+        except Exception:
+            stats.errors += 1
+            stats.calls += 1
+            raise
+        finally:
+            stats.total_ms += (time.perf_counter() - t0) * 1000
+
+    async def dispatch_async(
+        self, evaluator_id: str, inp: EvaluatorInput
+    ) -> EvaluatorOutput:
+        """异步派发包装：自动处理同步/异步 Evaluator + 遥测。
+
+        在 async 路由中应使用此方法而非 dispatch()，避免阻塞事件循环。
+        """
+        ev = self.get(evaluator_id)
+        if inp.job_type not in getattr(ev, "applicable_jobs", []):
+            raise ValueError(
+                f"Evaluator '{evaluator_id}' 不适用于工种 '{inp.job_type}'"
+            )
+        stats = self._stats[evaluator_id]
+        t0 = time.perf_counter()
+        try:
+            if hasattr(ev, "aevaluate") and callable(getattr(ev, "aevaluate")):
+                out = await ev.aevaluate(inp)  # type: ignore[attr-defined]
+            else:
+                out = await asyncio.get_event_loop().run_in_executor(
+                    None, ev.evaluate, inp
+                )
+            stats.calls += 1
+            stats.last_call_ts = t0
+            return out
+        except Exception:
+            stats.errors += 1
+            stats.calls += 1
+            raise
+        finally:
+            stats.total_ms += (time.perf_counter() - t0) * 1000
+
+    def stats(self) -> Dict[str, Dict[str, Any]]:
+        """返回所有 Evaluator 的运行时遥测（供 /api/registry/status 展示）。"""
+        return {
+            eid: {
+                "calls": s.calls,
+                "errors": s.errors,
+                "totalMs": round(s.total_ms, 1),
+                "avgMs": round(s.avg_ms, 1),
+                "lastCallTs": s.last_call_ts,
+            }
+            for eid, s in self._stats.items()
+        }
 
 
 # 全局单例 ---------------------------------------------------------------

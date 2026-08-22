@@ -45,3 +45,18 @@ export const KNOWN_EVALUATOR_IDS = [
 ] as const;
 
 export type KnownEvaluatorId = (typeof KNOWN_EVALUATOR_IDS)[number];
+
+/** 单个 Evaluator 的运行时遥测（与后端 _EvalStats 对齐）。 */
+export interface EvaluatorStats {
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
+  lastCallTs: number;
+}
+
+/** GET /api/registry/status 响应（与后端 JudgeRegistry.stats() 对齐）。 */
+export interface RegistryStatus {
+  evaluators: string[];
+  stats: Record<string, EvaluatorStats>;
+}

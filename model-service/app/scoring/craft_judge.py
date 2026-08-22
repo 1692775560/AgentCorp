@@ -287,6 +287,8 @@ class CraftJudgeEvaluator:
 
     evaluator_id = "craft_judge"
     applicable_jobs = ["code", "text", "image"]
+    # 产出维度 = 全部工种 craft 维的并集（每道题只用 target_dims 子集）
+    declared_dims = sorted({d for dims in JOB_CRAFT_DIMS.values() for d in dims})
 
     def evaluate(self, inp: EvaluatorInput) -> EvaluatorOutput:
         if not inp.task_id:
