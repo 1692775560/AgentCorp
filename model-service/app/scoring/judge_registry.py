@@ -194,6 +194,7 @@ class JudgeRegistry:
         """
         outputs: List[EvaluatorOutput] = []
         current_inp = inp
+        accumulated_evidence: Dict[str, str] = dict(inp.verified_evidence or {})
         for eid in evaluator_ids:
             try:
                 out = self.dispatch(eid, current_inp)
@@ -202,8 +203,9 @@ class JudgeRegistry:
                     raise
                 continue
             outputs.append(out)
-            # 把当前产出透传给下一个 evaluator
+            # 把当前产出透传给下一个 evaluator（保留所有原始字段）
             if out.verified_evidence:
+                accumulated_evidence.update(out.verified_evidence)
                 current_inp = EvaluatorInput(
                     agent_id=inp.agent_id,
                     job_type=inp.job_type,
@@ -212,7 +214,7 @@ class JudgeRegistry:
                     radar_scores=inp.radar_scores,
                     craft_scores=inp.craft_scores,
                     requirement=inp.requirement,
-                    verified_evidence={**(inp.verified_evidence or {}), **out.verified_evidence},
+                    verified_evidence=dict(accumulated_evidence),
                     options=inp.options,
                 )
         return merge_outputs(outputs)

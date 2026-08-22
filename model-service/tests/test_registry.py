@@ -347,3 +347,48 @@ class TestDispatchChain:
                 ["fail"],
                 EvaluatorInput(agent_id="x", job_type="code"),
             )
+
+    def test_chain_preserves_all_fields(self):
+        """链式透传时 radar_scores / craft_scores / requirement 不丢。"""
+        from app.scoring.evaluator_protocol import (
+            EvaluatorInput, EvaluatorOutput,
+        )
+
+        class _EvidenceProducer:
+            evaluator_id = "producer"
+            applicable_jobs = ["code"]
+            def evaluate(self, inp):
+                return EvaluatorOutput(
+                    evaluator_id="producer",
+                    verified_evidence={"k": "v"},
+                )
+
+        class _FieldChecker:
+            evaluator_id = "checker"
+            applicable_jobs = ["code"]
+            def __init__(self):
+                self.received = None
+            def evaluate(self, inp):
+                self.received = inp
+                return EvaluatorOutput(evaluator_id="checker")
+
+        reg = JudgeRegistry()
+        checker = _FieldChecker()
+        reg.register(_EvidenceProducer())
+        reg.register(checker)
+
+        reg.dispatch_chain(
+            ["producer", "checker"],
+            EvaluatorInput(
+                agent_id="a1",
+                job_type="code",
+                radar_scores={"task": 4},
+                craft_scores={"code_eff": 3},
+                requirement="test req",
+            ),
+        )
+        r = checker.received
+        assert r.radar_scores == {"task": 4}
+        assert r.craft_scores == {"code_eff": 3}
+        assert r.requirement == "test req"
+        assert r.verified_evidence == {"k": "v"}
