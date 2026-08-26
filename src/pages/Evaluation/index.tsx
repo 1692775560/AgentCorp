@@ -44,19 +44,22 @@ import { PreferenceInsightPanel } from '@/components/evaluation/PreferenceInsigh
 import { ConvergenceTrajectoryWidget } from '@/components/evaluation/ConvergenceTrajectoryWidget';
 import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
+import { StyleMemoryPanel } from '@/components/designer/StyleMemoryPanel';
+import { useDesignerStore } from '@/stores/designerStore';
 
 /**
  * 页签从 9 个收拢成 4 组：原先「雷达/讲解/ROI/生命周期/擂台/双轨评分/双榜/收敛/心智模型」
  * 平铺，用户无从判断该看哪个。现在按「看结果 → 看排名 → 看偏好 → 管人员」的
  * 使用场景归组，同组内容纵向叠放。
  */
-type PanelKey = 'result' | 'ranking' | 'preference' | 'manage';
+type PanelKey = 'result' | 'ranking' | 'preference' | 'manage' | 'challenge';
 
 const PANELS: Array<{ key: PanelKey; label: string; hint: string }> = [
   { key: 'result', label: '这位员工怎么样', hint: '六维画像、投入产出、模型讲解' },
   { key: 'ranking', label: '谁更合适', hint: '客观榜与主观榜并排对比' },
   { key: 'preference', label: '我的偏好', hint: '你的打分习惯与收敛过程' },
   { key: 'manage', label: '人员状态', hint: '上岗、维护与软退休' },
+  { key: 'challenge', label: 'Designer 记忆', hint: 'SPADE 自适应出题 · 语义记忆 · Prompt 进化' },
 ];
 
 function LifecycleDot({ state }: { state: string }) {
@@ -89,6 +92,7 @@ export function Evaluation() {
     streaming,
     error,
     narrationText,
+    lastTranscript,
     voiceEnabled,
     passKResult,
     passKRunning,
@@ -164,6 +168,26 @@ export function Evaluation() {
   const convergenceTrace = useConvergenceStore((s) => s.trace);
   const convergenceScore = useConvergenceStore((s) => s.score);
 
+  // Designer 记忆：选中 agent 时同步 teamId 并加载 StyleMemory
+  const designerTeamId = useDesignerStore((s) => s.teamId);
+  const designerFetchMemory = useDesignerStore((s) => s.fetchMemory);
+  const designerReflect = useDesignerStore((s) => s.reflect);
+  const designerReset = useDesignerStore((s) => s.reset);
+  // SPADE 闭环（A1）：Designer 出的自适应题。存在时作为本次评估的任务喂给
+  // runEvaluation——否则 Designer 出题只在 StyleMemoryPanel 展示、从不被执行。
+  const currentChallenge = useDesignerStore((s) => s.currentChallenge);
+
+  // Designer 记忆：选中 agent 变化时同步 teamId 并加载 StyleMemory
+  useEffect(() => {
+    if (!selectedAgentId) {
+      designerReset();
+      return;
+    }
+    if (designerTeamId !== selectedAgentId) {
+      void designerFetchMemory(selectedAgentId);
+    }
+  }, [selectedAgentId, designerTeamId, designerFetchMemory, designerReset]);
+
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === selectedAgentId) ?? null,
     [agentsRaw, selectedAgentId],
@@ -218,20 +242,51 @@ export function Evaluation() {
         ? (sessionOptions.find((s) => s.sessionId === selectedSessionId) ?? null)
         : null;
     selectAgent(agent.id);
-    await runEvaluation({
+    const profile = await runEvaluation({
       runId: runIdInput.trim() || null,
       agentId: agent.id,
       agentName: agent.name,
       sessionKey: session?.sessionKey ?? '',
       sessionId: session?.sessionId ?? '',
       taskId: '',
-      task: taskTitle.trim()
-        ? { title: taskTitle.trim(), description: '', weight: 1 }
-        : undefined,
+      // SPADE 闭环（A1）：Designer 出自适应题时，用它作为本次评估任务（prompt 作
+      // description 喂给裁判）；否则回退用户手输的 taskTitle。让「出题→执行」成环。
+      task: currentChallenge?.prompt
+        ? {
+            title: currentChallenge.title,
+            description: currentChallenge.prompt,
+            weight: 1,
+          }
+        : taskTitle.trim()
+          ? { title: taskTitle.trim(), description: '', weight: 1 }
+          : undefined,
       persona: agent.persona,
       // A · 老板原型：把当前激活的用户个性化画像带入评估（区别于 agent 自身 persona）
       bossProfile: getActiveBossProfile(),
     });
+
+    // 评估完成后异步触发 Designer 反思——不阻塞评估主流程
+    // Reflector 会观察代码风格、更新 StyleMemory、定期进化 prompt
+    if (profile && agent.id) {
+      const radarScores: Record<string, number> = profile.radarLatest
+        ? { ...profile.radarLatest }
+        : {};
+      const outcome = profile.lifecycle === 'RETIRED' ? 'failed' : 'passed';
+      // SPADE 闭环（A2）：把本次评估采集到的真实 transcript 作为 answer 喂给
+      // Reflector（runEvaluation 已把它缓存在 lastTranscript）。此前硬编码 '' 让
+      // Reflector 只能泛泛而谈，现在它能 cite 具体代码模式。封顶避免 transcript 过长
+      // 撑爆 LLM 上下文。反思任务身份优先用 Designer 题的 task_id，对齐出题记录。
+      const submissionAnswer = (lastTranscript ?? '').slice(0, 4000);
+      const reflectTaskId =
+        currentChallenge?.task_id ?? taskTitle.trim() ?? 'adhoc_eval';
+      void designerReflect(
+        agent.id,
+        reflectTaskId,
+        submissionAnswer,
+        radarScores,
+        outcome,
+      );
+    }
   };
 
   const selectedState = selectedAgentId ? (lifecycle[selectedAgentId] ?? 'ONBOARDING') : null;
@@ -699,6 +754,11 @@ export function Evaluation() {
                 onSoftRetire={(id) => void setLifecycle(id, 'RETIRED')}
                 onReactivate={(id) => void setLifecycle(id, 'ACTIVE')}
               />
+            ) : null}
+
+            {/* Designer 记忆：StyleMemory 语义记忆 + PromptEvolver 进化指标 + 自适应出题 */}
+            {panel === 'challenge' ? (
+              <StyleMemoryPanel />
             ) : null}
           </div>
         </section>
