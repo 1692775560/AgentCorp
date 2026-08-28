@@ -37,7 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("serve")
 
-app = FastAPI(title="AgentCorp MiniCPM-o Evaluator", version="0.1.0")
+app = FastAPI(title="AgentCorp Evaluation Service", version="0.1.0")
 
 # JudgeRegistry 启动注册：所有 Tier 2 主观评分模块在此收口。
 # 新增 Evaluator 必须登记到 evaluators/__init__.py，否则 CI 强制失败。

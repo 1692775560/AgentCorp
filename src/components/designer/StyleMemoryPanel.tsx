@@ -64,7 +64,7 @@ export function StyleMemoryPanel() {
 
   const handleRefresh = useCallback(() => {
     if (!teamId) return;
-    void fetchMemory(teamId);
+    void fetchMemory(teamId, { force: true });
   }, [teamId, fetchMemory]);
 
   // ── 无 teamId 时展示引导 ────────────────────────────────────────────

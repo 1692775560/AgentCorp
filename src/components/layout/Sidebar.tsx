@@ -165,7 +165,7 @@ export function Sidebar() {
       icon: Store,
     },
     {
-      label: tSidebar('humanAssets', 'Human Assets'),
+      label: tSidebar('humanAssets', 'Workforce'),
       path: '/team-overview',
       icon: Users,
     },

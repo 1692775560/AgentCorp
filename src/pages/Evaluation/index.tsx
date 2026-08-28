@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { useEvaluationStore } from '@/stores/evaluation';
 import { useMetaJudgeStore } from '@/stores/metaJudgeStore';
 import { useAgentsStore } from '@/stores/agents';
+import { useTeamsStore } from '@/stores/teams';
 import { getActiveBossProfile, listBossProfiles } from '@/stores/bossProfile';
 import { listAgentSessions, type AgentSessionOption } from '@/services/evaluationData';
 import { speech } from '@/services/speech';
@@ -46,6 +47,7 @@ import { RADAR_DIMS } from '@/engine/scoring/registry';
 import { RADAR_DIM_LABELS } from '@/engine/marketplace/radarSource';
 import { StyleMemoryPanel } from '@/components/designer/StyleMemoryPanel';
 import { useDesignerStore } from '@/stores/designerStore';
+import { resolveDesignerTeamIdForAgent } from '@/services/designer/designer-scope';
 
 /**
  * 页签从 9 个收拢成 4 组：原先「雷达/讲解/ROI/生命周期/擂台/双轨评分/双榜/收敛/心智模型」
@@ -79,8 +81,10 @@ function LifecycleDot({ state }: { state: string }) {
 export function Evaluation() {
   const { t } = useTranslation('common');
   const agentsRaw = useAgentsStore((s) => s.agents);
-  const agents = (agentsRaw ?? []) as AgentSummary[];
+  const agents = useMemo(() => (agentsRaw ?? []) as AgentSummary[], [agentsRaw]);
   const fetchAgents = useAgentsStore((s) => s.fetchAgents);
+  const teams = useTeamsStore((s) => s.teams);
+  const fetchTeams = useTeamsStore((s) => s.fetchTeams);
 
   const {
     profiles,
@@ -92,7 +96,6 @@ export function Evaluation() {
     streaming,
     error,
     narrationText,
-    lastTranscript,
     voiceEnabled,
     passKResult,
     passKRunning,
@@ -107,9 +110,13 @@ export function Evaluation() {
   } = useEvaluationStore();
 
   const [panel, setPanel] = useState<PanelKey>('result');
-  // 看板任务详情「查看协作轨迹」入口：/evaluation?traceTaskId=<taskId> → trace 面板按任务过滤
+  // Deep-link：
+  // - /evaluation?traceTaskId=<taskId> → trace 面板按任务过滤
+  // - /evaluation?agentId=<agentId>&panel=challenge → 打开某个员工的 Designer 学习视图
   const [searchParams] = useSearchParams();
   const traceTaskId = searchParams.get('traceTaskId')?.trim() || undefined;
+  const initialAgentId = searchParams.get('agentId')?.trim() || undefined;
+  const requestedPanel = searchParams.get('panel')?.trim() || undefined;
   const recordReview = useMetaJudgeStore((s) => s.recordReview);
   const [runIdInput, setRunIdInput] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
@@ -125,8 +132,15 @@ export function Evaluation() {
 
   useEffect(() => {
     void fetchAgents();
+    void fetchTeams();
     void loadAll();
-  }, [fetchAgents, loadAll]);
+  }, [fetchAgents, fetchTeams, loadAll]);
+
+  useEffect(() => {
+    if (requestedPanel && PANELS.some((entry) => entry.key === requestedPanel)) {
+      setPanel(requestedPanel as PanelKey);
+    }
+  }, [requestedPanel]);
 
   // 榜单显示人名而非 agentId：agent 列表就绪后把 id→name 注册进评估 store。
   // （画像里不存名字，因为名字属 agent 域且可被改名；这里做一次单向注入。）
@@ -145,6 +159,13 @@ export function Evaluation() {
       speech.cancel();
     };
   }, []);
+
+  useEffect(() => {
+    if (!initialAgentId) return;
+    if (selectedAgentId === initialAgentId) return;
+    if (!agents.some((agent) => agent.id === initialAgentId)) return;
+    selectAgent(initialAgentId);
+  }, [initialAgentId, selectedAgentId, agents, selectAgent]);
 
   // 选中 agent 变化时加载其真实会话列表，并重置会话选择
   useEffect(() => {
@@ -172,25 +193,41 @@ export function Evaluation() {
   const designerTeamId = useDesignerStore((s) => s.teamId);
   const designerFetchMemory = useDesignerStore((s) => s.fetchMemory);
   const designerReflect = useDesignerStore((s) => s.reflect);
+  const designerSelectTeam = useDesignerStore((s) => s.selectTeam);
   const designerReset = useDesignerStore((s) => s.reset);
   // SPADE 闭环（A1）：Designer 出的自适应题。存在时作为本次评估的任务喂给
   // runEvaluation——否则 Designer 出题只在 StyleMemoryPanel 展示、从不被执行。
   const currentChallenge = useDesignerStore((s) => s.currentChallenge);
 
-  // Designer 记忆：选中 agent 变化时同步 teamId 并加载 StyleMemory
+  const selectedDesignerTeamId = useMemo(
+    () =>
+      selectedAgentId
+        ? resolveDesignerTeamIdForAgent(selectedAgentId, teams)
+        : null,
+    [selectedAgentId, teams],
+  );
+
+  // Designer 记忆：选中 agent 时同步到其所属团队（无团队时回退 agentId）并加载 StyleMemory
   useEffect(() => {
-    if (!selectedAgentId) {
+    if (!selectedDesignerTeamId) {
       designerReset();
       return;
     }
-    if (designerTeamId !== selectedAgentId) {
-      void designerFetchMemory(selectedAgentId);
+    if (designerTeamId !== selectedDesignerTeamId) {
+      designerSelectTeam(selectedDesignerTeamId);
     }
-  }, [selectedAgentId, designerTeamId, designerFetchMemory, designerReset]);
+    void designerFetchMemory(selectedDesignerTeamId);
+  }, [
+    selectedDesignerTeamId,
+    designerTeamId,
+    designerFetchMemory,
+    designerReset,
+    designerSelectTeam,
+  ]);
 
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === selectedAgentId) ?? null,
-    [agentsRaw, selectedAgentId],
+    [agents, selectedAgentId],
   );
 
   /** 当前选中 agent 的评估档案（含面试基线 interviewBaseline） */
@@ -242,7 +279,7 @@ export function Evaluation() {
         ? (sessionOptions.find((s) => s.sessionId === selectedSessionId) ?? null)
         : null;
     selectAgent(agent.id);
-    const profile = await runEvaluation({
+    const evaluation = await runEvaluation({
       runId: runIdInput.trim() || null,
       agentId: agent.id,
       agentName: agent.name,
@@ -266,21 +303,24 @@ export function Evaluation() {
     });
 
     // 评估完成后异步触发 Designer 反思——不阻塞评估主流程
-    // Reflector 会观察代码风格、更新 StyleMemory、定期进化 prompt
-    if (profile && agent.id) {
+    // Reflector 会观察代码风格、更新 StyleMemory、定期进化 prompt。
+    // 记忆单元优先使用 agent 所属团队，兑现 team-style learning；无团队时回退 agentId。
+    if (evaluation?.profile && agent.id) {
+      const profile = evaluation.profile;
       const radarScores: Record<string, number> = profile.radarLatest
         ? { ...profile.radarLatest }
         : {};
       const outcome = profile.lifecycle === 'RETIRED' ? 'failed' : 'passed';
-      // SPADE 闭环（A2）：把本次评估采集到的真实 transcript 作为 answer 喂给
-      // Reflector（runEvaluation 已把它缓存在 lastTranscript）。此前硬编码 '' 让
-      // Reflector 只能泛泛而谈，现在它能 cite 具体代码模式。封顶避免 transcript 过长
-      // 撑爆 LLM 上下文。反思任务身份优先用 Designer 题的 task_id，对齐出题记录。
-      const submissionAnswer = (lastTranscript ?? '').slice(0, 4000);
+      const designerOwnerId = resolveDesignerTeamIdForAgent(agent.id, teams);
+      // SPADE 闭环（A2）：把本次评估采集到的真实 transcript 直接从 runEvaluation
+      // 返回值拿出来喂给 Reflector，避免页面闭包继续引用上一轮 lastTranscript。
+      // 封顶避免 transcript 过长撑爆 LLM 上下文。反思任务身份优先用 Designer 题的
+      // task_id，对齐出题记录。
+      const submissionAnswer = evaluation.transcript.slice(0, 4000);
       const reflectTaskId =
         currentChallenge?.task_id ?? taskTitle.trim() ?? 'adhoc_eval';
       void designerReflect(
-        agent.id,
+        designerOwnerId,
         reflectTaskId,
         submissionAnswer,
         radarScores,

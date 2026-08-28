@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Building2, User, X, Bot, Users, Loader2, Upload, Sparkles, Shield, Code, BarChart3, PenTool, Headphones, Store } from 'lucide-react';
+import { Plus, Bot, Users, Loader2, Upload, Sparkles, Shield, Code, BarChart3, PenTool, Headphones, Store } from 'lucide-react';
 import { useAgentsStore } from '@/stores/agents';
 import { useTeamsStore } from '@/stores/teams';
 import { invokeIpc } from '@/lib/api-client';
@@ -68,8 +68,6 @@ type HireTeamResponse = {
   error?: string;
 };
 
-const HIRE_TYPES: HireType[] = ['雇佣团队', '雇佣员工'];
-
 // ── 模板团队定义 ──────────────────────────────────────────────────
 interface TeamTemplate {
   id: string;
@@ -123,14 +121,12 @@ const TEAM_TEMPLATES: TeamTemplate[] = [
     hireType: 'team',
   },
 ];
-
 export function Marketplace() {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('全部');
   const [activeHireType, setActiveHireType] = useState<HireTypeFilter>('全部');
-  const [showListingModal, setShowListingModal] = useState(false);
   const [showPurchasedModal, setShowPurchasedModal] = useState(false);
   const [purchasedAgentName, setPurchasedAgentName] = useState('');
   const [purchasedType, setPurchasedType] = useState<'single' | 'team'>('single');
@@ -281,7 +277,7 @@ export function Marketplace() {
             capabilities,
           );
           if (!res.success) {
-            throw new Error(res.error || '雇佣团队失败');
+            throw new Error(res.error || '引入团队失败');
           }
           await fetchTeams();
           setPurchasedAgentName(candidate.name);
@@ -294,7 +290,7 @@ export function Marketplace() {
             candidate.name,
           );
           if (!res.success) {
-            throw new Error(res.error || '雇佣员工失败');
+            throw new Error(res.error || '引入成员失败');
           }
           setPurchasedAgentName(candidate.name);
           setPurchasedType('single');
@@ -304,7 +300,7 @@ export function Marketplace() {
         await fetchAgents();
         setShowPurchasedModal(true);
       } catch (err) {
-        toast.error(`雇佣 ${candidate.name} 失败: ${String(err)}`);
+        toast.error(`引入 ${candidate.name} 失败: ${String(err)}`);
       } finally {
         setPurchasing(false);
         setPurchasingId(null);
@@ -328,16 +324,16 @@ export function Marketplace() {
               {t('marketplace.title', '人才市集')}
             </h1>
             <p className="mt-2 text-lg text-gray-500">
-              {t('marketplace.subtitle', '发现并雇佣全球最顶尖的数字员工')}
+              {t('marketplace.subtitle', '发现并引入适合当前工作流的 Agent')}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => setShowListingModal(true)}
+            onClick={() => setActiveTab('upload')}
             className="flex items-center gap-2 rounded-full bg-[#1A1C1E] px-8 py-3 text-sm font-bold text-white shadow-xl transition-all hover:scale-105 hover:bg-[#FF6B4A]"
           >
             <Plus size={18} />
-            {t('marketplace.listEmployee', '上架我的员工')}
+            {t('marketplace.listEmployee', '上传 Agent')}
           </button>
         </motion.div>
 
@@ -508,7 +504,7 @@ export function Marketplace() {
                   <Sparkles size={16} className="text-[#FFD233]" />
                   模板团队
                 </h2>
-                <span className="text-[11px] text-gray-400">一键雇佣完整团队</span>
+                <span className="text-[11px] text-gray-400">按团队结构参考引入候选与成员编组</span>
               </div>
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
                 {TEAM_TEMPLATES.map((tpl) => (
@@ -543,9 +539,10 @@ export function Marketplace() {
                       </div>
                       <button
                         type="button"
+                        onClick={() => setActiveTab('upload')}
                         className="rounded-full bg-[#1A1C1E] px-5 py-2 text-[11px] font-bold text-white transition-all hover:bg-[#FF6B4A] group-hover:scale-105"
                       >
-                        雇佣团队
+                        按模板引入
                       </button>
                     </div>
                   </div>
@@ -575,106 +572,6 @@ export function Marketplace() {
           </div>
         )}
       </div>
-
-      {/* List Employee Modal */}
-      <AnimatePresence>
-        {showListingModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowListingModal(false)}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              transition={{ duration: 0.3 }}
-              className="relative mx-4 w-full max-w-lg rounded-[32px] bg-white p-8 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => setShowListingModal(false)}
-                className="absolute right-6 top-6 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-              >
-                <X size={20} />
-              </button>
-
-              <h2 className="text-2xl font-bold text-[#1A1C1E]">
-                {t('marketplace.listTitle', '上架我的员工')}
-              </h2>
-              <p className="mt-2 text-sm text-gray-500">
-                {t('marketplace.listSubtitle', '将你的 Agent 发布到市集，让更多团队发现和雇佣')}
-              </p>
-
-              <div className="mt-6 space-y-4">
-                <div>
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                    {t('marketplace.agentName', 'Agent 名称')}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={t('marketplace.agentNamePlaceholder', '给你的 Agent 取个名字')}
-                    className="h-12 w-full rounded-2xl border border-gray-100 bg-[#F2F0E9]/50 px-4 text-sm font-bold text-[#1A1C1E] placeholder:text-gray-400 focus:border-[#FFD233] focus:outline-none focus:ring-2 focus:ring-[#FFD233]/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                    {t('marketplace.agentType', '上架类型')}
-                  </label>
-                  <div className="flex gap-3">
-                    {HIRE_TYPES.map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-gray-100 bg-white px-4 py-3 text-sm font-bold text-[#1A1C1E] transition-all hover:border-[#FFD233] hover:bg-[#FFD233]/10 focus:border-[#FFD233] focus:ring-2 focus:ring-[#FFD233]/20"
-                      >
-                        {type === '雇佣团队' ? <Building2 size={16} /> : <User size={16} />}
-                        {type === '雇佣团队'
-                          ? t('marketplace.typeCompany', '团队 (SOP 工作流)')
-                          : t('marketplace.typeEmployee', '员工 (单个 Agent)')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                    {t('marketplace.agentDesc', '简介')}
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder={t('marketplace.agentDescPlaceholder', '描述你的 Agent 能做什么...')}
-                    className="w-full rounded-2xl border border-gray-100 bg-[#F2F0E9]/50 px-4 py-3 text-sm font-bold text-[#1A1C1E] placeholder:text-gray-400 focus:border-[#FFD233] focus:outline-none focus:ring-2 focus:ring-[#FFD233]/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400">
-                    {t('marketplace.agentPrice', '定价')}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={t('marketplace.agentPricePlaceholder', '例如 ¥299/月 或 免费')}
-                    className="h-12 w-full rounded-2xl border border-gray-100 bg-[#F2F0E9]/50 px-4 text-sm font-bold text-[#1A1C1E] placeholder:text-gray-400 focus:border-[#FFD233] focus:outline-none focus:ring-2 focus:ring-[#FFD233]/20"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowListingModal(false)}
-                className="mt-6 w-full rounded-full bg-[#1A1C1E] py-4 text-sm font-bold text-white shadow-xl transition-all hover:scale-[1.02] hover:bg-[#FF6B4A]"
-              >
-                {t('marketplace.submitListing', '提交上架')}
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Purchase Success Modal */}
       <AnimatePresence>
@@ -717,8 +614,8 @@ export function Marketplace() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
                 >
-                  <h2 className="text-2xl font-bold text-[#1A1C1E]">已购买</h2>
-                  <p className="mt-2 text-base font-medium text-emerald-500">购买成功</p>
+                  <h2 className="text-2xl font-bold text-[#1A1C1E]">已加入工作空间</h2>
+                  <p className="mt-2 text-base font-medium text-emerald-500">引入成功</p>
                 </motion.div>
 
                 {/* Info */}
@@ -739,7 +636,7 @@ export function Marketplace() {
                   <p className="text-sm text-gray-400">
                     {purchasedType === 'team'
                       ? `包含 ${purchasedCount} 个成员`
-                      : '已添加至你的人力资产'}
+                      : '已添加至当前工作空间'}
                   </p>
                 </motion.div>
 
@@ -752,7 +649,7 @@ export function Marketplace() {
                   onClick={() => { setShowPurchasedModal(false); navigate('/team-overview'); }}
                   className="mt-6 w-full rounded-full bg-[#1A1C1E] py-4 text-sm font-bold text-white shadow-xl transition-all hover:bg-[#FF6B4A]"
                 >
-                  查看人力资产
+                  查看人才编组
                 </motion.button>
               </div>
             </motion.div>

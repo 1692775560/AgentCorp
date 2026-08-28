@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   CheckCircle,
 } from 'lucide-react';
+
 import { useTeamsStore } from '@/stores/teams';
 import { useAgentsStore } from '@/stores/agents';
 import { useDesignerStore } from '@/stores/designerStore';
@@ -28,19 +29,13 @@ import { cn } from '@/lib/utils';
 import type { TeamRadarResponse } from '@/types/designer';
 import type { AgentSummary } from '@/types/agent';
 import type { TeamSummary } from '@/types/team';
-
-const DIM_LABELS: Record<string, string> = {
-  task_completion: '完成度',
-  code_quality: '代码质量',
-  communication: '沟通',
-  creativity: '创造力',
-  reliability: '可靠性',
-  cost_efficiency: '成本效率',
-  code_runnability: '可运行',
-  code_efficiency: '效率',
-  code_maintainability: '可维护',
-  code_security: '安全',
-};
+import {
+  buildTeamSpaceMembers,
+  buildTeamSpaceSummaryStats,
+  labelTeamDesignerDimension,
+  rankTeamMemberStrengths,
+} from '@/services/designer/team-space';
+import { EMPTY_DESIGNER_TEAM_WORKSPACE } from '@/services/designer/designer-state';
 
 function MemberCard({
   agent,
@@ -51,9 +46,8 @@ function MemberCard({
   radar?: Record<string, number>;
   onClick: () => void;
 }) {
-  const topStrength = radar
-    ? Object.entries(radar).sort(([, a], [, b]) => b - a)[0]
-    : null;
+  const strengths = rankTeamMemberStrengths(radar);
+  const topStrength = strengths[0] ?? null;
 
   return (
     <button
@@ -72,39 +66,36 @@ function MemberCard({
         <ChevronRight size={14} className="text-gray-300 group-hover:text-[#FFD233]" />
       </div>
 
-      {radar && Object.keys(radar).length > 0 ? (
+      {strengths.length > 0 ? (
         <div className="space-y-1.5">
-          {Object.entries(radar)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 3)
-            .map(([dim, score]) => (
-              <div key={dim} className="flex items-center gap-2">
-                <span className="w-16 shrink-0 text-[10px] text-gray-400">
-                  {DIM_LABELS[dim] ?? dim}
-                </span>
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
-                  <div
-                    className="h-full rounded-full bg-[#FFD233]"
-                    style={{ width: `${(score / 5) * 100}%` }}
-                  />
-                </div>
-                <span className="w-7 text-right text-[10px] font-bold text-[#1A1C1E]">
-                  {score.toFixed(1)}
-                </span>
+          {strengths.map(([dim, score]) => (
+            <div key={dim} className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-[10px] text-gray-400">
+                {labelTeamDesignerDimension(dim)}
+              </span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-[#FFD233]"
+                  style={{ width: `${(score / 5) * 100}%` }}
+                />
               </div>
-            ))}
+              <span className="w-7 text-right text-[10px] font-bold text-[#1A1C1E]">
+                {score.toFixed(1)}
+              </span>
+            </div>
+          ))}
         </div>
       ) : (
         <p className="text-[10px] text-gray-400">暂无评估数据</p>
       )}
 
-      {topStrength && (
+      {topStrength ? (
         <div className="mt-auto rounded-xl bg-[#F2F0E9] px-2.5 py-1.5">
           <span className="text-[10px] font-bold text-[#1A1C1E]">
-            强项：{DIM_LABELS[topStrength[0]] ?? topStrength[0]}
+            强项：{labelTeamDesignerDimension(topStrength[0])}
           </span>
         </div>
-      )}
+      ) : null}
     </button>
   );
 }
@@ -123,9 +114,13 @@ export function TeamSpace() {
   const fetchTeamRadar = useDesignerStore((s) => s.fetchTeamRadar);
   const fetchTeamGaps = useDesignerStore((s) => s.fetchTeamGaps);
   const fetchMemory = useDesignerStore((s) => s.fetchMemory);
-  const memory = useDesignerStore((s) => s.memory);
+  const selectDesignerTeam = useDesignerStore((s) => s.selectTeam);
+  const teamWorkspace = useDesignerStore((s) =>
+    teamId ? (s.teamStates[teamId] ?? EMPTY_DESIGNER_TEAM_WORKSPACE) : EMPTY_DESIGNER_TEAM_WORKSPACE,
+  );
 
   const [loading, setLoading] = useState(true);
+  const [designerReady, setDesignerReady] = useState(false);
 
   useEffect(() => {
     void Promise.all([fetchTeams(), fetchAgents()]).then(() => setLoading(false));
@@ -136,22 +131,32 @@ export function TeamSpace() {
     [teams, teamId],
   );
 
-  const teamAgents: AgentSummary[] = useMemo(() => {
-    if (!team) return [];
-    const memberIds = new Set([team.leaderId, ...team.memberIds]);
-    return agents.filter((a) => memberIds.has(a.id));
-  }, [team, agents]);
+  const teamAgents: AgentSummary[] = useMemo(
+    () => buildTeamSpaceMembers(team, agents),
+    [team, agents],
+  );
 
   const radar: TeamRadarResponse | null = teamId ? teamRadars[teamId] ?? null : null;
   const gaps = teamId ? teamGaps[teamId] ?? null : null;
+  const memory = teamWorkspace.memory;
+  const summary = team ? buildTeamSpaceSummaryStats(team, radar, memory) : null;
 
   useEffect(() => {
-    if (teamId) {
-      void fetchTeamRadar(teamId);
-      void fetchTeamGaps(teamId);
-      void fetchMemory(teamId);
-    }
-  }, [teamId, fetchTeamRadar, fetchTeamGaps, fetchMemory]);
+    if (!teamId) return;
+    let cancelled = false;
+    setDesignerReady(false);
+    selectDesignerTeam(teamId);
+    void Promise.all([
+      fetchTeamRadar(teamId),
+      fetchTeamGaps(teamId),
+      fetchMemory(teamId),
+    ]).finally(() => {
+      if (!cancelled) setDesignerReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [teamId, selectDesignerTeam, fetchTeamRadar, fetchTeamGaps, fetchMemory]);
 
   if (loading) {
     return (
@@ -222,14 +227,14 @@ export function TeamSpace() {
             <Users size={14} />
             <span className="text-[10px] font-bold uppercase tracking-wider">成员</span>
           </div>
-          <p className="mt-1 text-2xl font-bold text-[#1A1C1E]">{team.memberCount}</p>
+          <p className="mt-1 text-2xl font-bold text-[#1A1C1E]">{summary?.memberCount ?? 0}</p>
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white/80 p-4">
           <div className="flex items-center gap-2 text-gray-400">
             <Target size={14} />
             <span className="text-[10px] font-bold uppercase tracking-wider">任务</span>
           </div>
-          <p className="mt-1 text-2xl font-bold text-[#1A1C1E]">{team.activeTaskCount}</p>
+          <p className="mt-1 text-2xl font-bold text-[#1A1C1E]">{summary?.activeTaskCount ?? 0}</p>
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white/80 p-4">
           <div className="flex items-center gap-2 text-gray-400">
@@ -237,7 +242,7 @@ export function TeamSpace() {
             <span className="text-[10px] font-bold uppercase tracking-wider">提交次数</span>
           </div>
           <p className="mt-1 text-2xl font-bold text-[#1A1C1E]">
-            {radar?.last_updated_submission ?? 0}
+            {summary?.submissionCount ?? 0}
           </p>
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white/80 p-4">
@@ -246,7 +251,7 @@ export function TeamSpace() {
             <span className="text-[10px] font-bold uppercase tracking-wider">反思轮次</span>
           </div>
           <p className="mt-1 text-2xl font-bold text-[#1A1C1E]">
-            {memory?.reflection_count ?? 0}
+            {summary?.reflectionCount ?? 0}
           </p>
         </div>
       </div>
@@ -261,10 +266,17 @@ export function TeamSpace() {
           </h2>
           {radar ? (
             <TeamRadar data={radar} />
-          ) : (
+          ) : !designerReady ? (
             <div className="flex flex-col items-center gap-2 py-10">
               <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
               <span className="text-[10px] text-gray-400">加载雷达数据...</span>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center">
+              <p className="text-[12px] font-bold text-gray-500">暂无团队雷达快照</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                完成一次真实协作或评估后，AgentCorp 会把团队的 workflow-fit 能力信号汇总到这里。
+              </p>
             </div>
           )}
         </div>
@@ -308,9 +320,9 @@ export function TeamSpace() {
                 <div>
                   <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">能力缺口</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {gaps.gaps.map((g) => (
-                      <span key={g} className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-600">
-                        {DIM_LABELS[g] ?? g}
+                    {gaps.gaps.map((gap) => (
+                      <span key={gap} className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-600">
+                        {labelTeamDesignerDimension(gap)}
                       </span>
                     ))}
                   </div>
@@ -321,9 +333,9 @@ export function TeamSpace() {
                 <div>
                   <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">团队强项</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {gaps.team_strengths.map((s) => (
-                      <span key={s} className="rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-bold text-green-600">
-                        {DIM_LABELS[s] ?? s}
+                    {gaps.team_strengths.map((strength) => (
+                      <span key={strength} className="rounded-full bg-green-50 px-2.5 py-1 text-[10px] font-bold text-green-600">
+                        {labelTeamDesignerDimension(strength)}
                       </span>
                     ))}
                   </div>
@@ -334,16 +346,16 @@ export function TeamSpace() {
                 <div>
                   <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">建议补充</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {gaps.recommended_skills.map((s) => (
-                      <span key={s} className="rounded-full bg-[#FFD233]/20 px-2.5 py-1 text-[10px] font-bold text-[#1A1C1E]">
-                        {DIM_LABELS[s] ?? s}
+                    {gaps.recommended_skills.map((skill) => (
+                      <span key={skill} className="rounded-full bg-[#FFD233]/20 px-2.5 py-1 text-[10px] font-bold text-[#1A1C1E]">
+                        {labelTeamDesignerDimension(skill)}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {gaps.hiring_urgency !== 'low' && (
+              {gaps.hiring_urgency !== 'low' ? (
                 <button
                   type="button"
                   onClick={() => navigate('/marketplace')}
@@ -351,38 +363,45 @@ export function TeamSpace() {
                 >
                   去市集招人
                 </button>
-              )}
+              ) : null}
             </div>
-          ) : (
+          ) : !designerReady ? (
             <div className="flex flex-col items-center gap-2 py-10">
               <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
               <span className="text-[10px] text-gray-400">加载缺口分析...</span>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center">
+              <p className="text-[12px] font-bold text-gray-500">暂无缺口分析</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-gray-400">
+                团队协作样本还不够时，这里不会伪造结论。后续新增真实任务与评估后会自动形成建议。
+              </p>
             </div>
           )}
         </div>
       </div>
 
       {/* ── StyleMemory 摘要 ── */}
-      {memory && (memory.current_understanding || memory.next_challenge_hypothesis) && (
+      {memory && (memory.current_understanding || memory.next_challenge_hypothesis) ? (
         <div className="rounded-2xl border border-gray-100 bg-white/80 p-5">
           <h2 className="mb-3 flex items-center gap-2 text-[13px] font-bold text-[#1A1C1E]">
             <Sparkles size={14} />
             Designer 观察
           </h2>
-          {memory.current_understanding && (
+          {memory.current_understanding ? (
             <div className="mb-3">
               <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">当前理解</p>
               <p className="text-[12px] leading-relaxed text-gray-600">{memory.current_understanding}</p>
             </div>
-          )}
-          {memory.next_challenge_hypothesis && (
+          ) : null}
+          {memory.next_challenge_hypothesis ? (
             <div>
               <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">下一轮方向</p>
               <p className="text-[12px] leading-relaxed text-gray-600">{memory.next_challenge_hypothesis}</p>
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {/* ── 成员卡牌 ── */}
       <div>

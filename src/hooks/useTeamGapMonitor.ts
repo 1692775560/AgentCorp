@@ -5,7 +5,7 @@
  * 轮询间隔 60s，首次挂载时立即检查一次。
  * 每个缺口 key（team_id + urgency 组合）只通知一次。
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useDesignerStore } from '@/stores/designerStore';
@@ -15,25 +15,26 @@ const POLL_INTERVAL = 60_000;
 export function useTeamGapMonitor(teamIds: string[]) {
   const navigate = useNavigate();
   const fetchTeamGaps = useDesignerStore((s) => s.fetchTeamGaps);
+  const notifiedGapKeys = useDesignerStore((s) => s.notifiedGapKeys);
+  const markGapNotified = useDesignerStore((s) => s.markGapNotified);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const teamIdsKey = useMemo(() => teamIds.filter(Boolean).join(','), [teamIds]);
+  const targetTeamIds = useMemo(() => (teamIdsKey ? teamIdsKey.split(',') : []), [teamIdsKey]);
 
   useEffect(() => {
-    if (teamIds.length === 0) return;
+    if (targetTeamIds.length === 0) return;
 
     const checkGaps = async () => {
-      for (const teamId of teamIds) {
+      for (const teamId of targetTeamIds) {
         try {
           const gaps = await fetchTeamGaps(teamId);
           if (!gaps || gaps.hiring_urgency === 'low') continue;
 
           const gapKey = `${teamId}:${gaps.hiring_urgency}`;
-          const state = useDesignerStore.getState();
-          if (state.notifiedGapKeys.includes(gapKey)) continue;
+          if (notifiedGapKeys.includes(gapKey)) continue;
 
           // 标记已通知（避免重复弹）
-          useDesignerStore.setState({
-            notifiedGapKeys: [...state.notifiedGapKeys, gapKey],
-          });
+          markGapNotified(gapKey);
 
           toast.warning(
             `🤖 团队「${gaps.team_id}」需要补人`,
@@ -58,5 +59,5 @@ export function useTeamGapMonitor(teamIds: string[]) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [teamIds.join(','), fetchTeamGaps, navigate]);
+  }, [teamIdsKey, targetTeamIds, fetchTeamGaps, notifiedGapKeys, markGapNotified, navigate]);
 }
